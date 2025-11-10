@@ -18,7 +18,7 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
   const sessionLogs = generateSessionLogs(athlete.id);
 
   const getLoadRecColor = (loadRec: string) => {
-    if (loadRec.includes("+")) return "bg-chart-3 text-white";
+    if (loadRec.includes("+")) return "bg-chart-3 text-navy-dark";
     if (loadRec.includes("-")) return "bg-destructive text-white";
     return "bg-navy-light text-white";
   };

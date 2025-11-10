@@ -11,17 +11,17 @@ interface TopNavProps {
 
 export const TopNav = ({ selectedTeam, onTeamChange }: TopNavProps) => {
   return (
-    <header className="h-16 bg-navy-medium border-b border-navy-light flex items-center justify-between px-6">
+    <header className="h-16 bg-gold border-b border-gold flex items-center justify-between px-6">
       <div className="flex items-center gap-8">
         <img src={veissLogo} alt="Veiss" className="h-8" />
       </div>
 
       <div className="flex-1 max-w-sm mx-auto">
         <Select value={selectedTeam} onValueChange={onTeamChange}>
-          <SelectTrigger className="bg-navy-dark border-navy-light text-foreground">
+          <SelectTrigger className="bg-white border-border text-navy-dark">
             <SelectValue />
           </SelectTrigger>
-          <SelectContent className="bg-navy-dark border-navy-light">
+          <SelectContent className="bg-white border-border">
             <SelectItem value="varsity-football">Varsity Football</SelectItem>
             <SelectItem value="varsity-basketball">Varsity Basketball</SelectItem>
             <SelectItem value="jv-basketball">JV Basketball</SelectItem>
@@ -33,12 +33,12 @@ export const TopNav = ({ selectedTeam, onTeamChange }: TopNavProps) => {
       </div>
 
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" className="text-foreground hover:text-gold hover:bg-navy-light">
+        <Button variant="ghost" size="icon" className="text-navy-dark hover:text-navy-medium hover:bg-white/20">
           <Settings className="h-5 w-5" />
         </Button>
         <Avatar>
           <AvatarImage src="" />
-          <AvatarFallback className="bg-gold text-navy-dark font-semibold">CM</AvatarFallback>
+          <AvatarFallback className="bg-navy-dark text-white font-semibold">CM</AvatarFallback>
         </Avatar>
       </div>
     </header>

@@ -21,7 +21,7 @@ export const FilterSidebar = ({
   onGroupChange,
 }: FilterSidebarProps) => {
   return (
-    <Card className="bg-mint border-border">
+    <Card className="bg-white border-border">
       <CardHeader>
         <CardTitle className="text-navy-dark">Filters</CardTitle>
       </CardHeader>
