@@ -30,7 +30,7 @@ export const StatCard = ({ title, value, icon: Icon, status, subtitle }: StatCar
             )}
           </div>
           <div className={`p-3 rounded-lg ${status ? "bg-navy-light/20" : "bg-muted"}`}>
-            <Icon className={`h-6 w-6 ${status ? statusColors[status] : "text-navy-light"}`} />
+            <Icon className={`h-8 w-8 ${status ? statusColors[status] : "text-navy-light"}`} />
           </div>
         </div>
       </CardContent>

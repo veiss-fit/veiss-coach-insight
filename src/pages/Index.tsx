@@ -7,10 +7,10 @@ import { FilterSidebar } from "@/components/FilterSidebar";
 import { SummaryStrip } from "@/components/SummaryStrip";
 import { mockAthletes, teamStats, weeklyStats, Athlete } from "@/data/mockData";
 import { Users, Activity, TrendingUp, Clock, Zap } from "lucide-react";
-import veissLogo from "@/assets/veiss-logo.png";
+
 
 const Index = () => {
-  const [selectedTeam, setSelectedTeam] = useState("varsity-football");
+  const [selectedTeam, setSelectedTeam] = useState("all");
   const [selectedAthlete, setSelectedAthlete] = useState<Athlete | null>(null);
   const [sportFilter, setSportFilter] = useState("all");
   const [levelFilter, setLevelFilter] = useState("all");
@@ -18,12 +18,21 @@ const Index = () => {
 
   const filteredAthletes = useMemo(() => {
     return mockAthletes.filter((athlete) => {
+      // Team filter
+      if (selectedTeam !== "all") {
+        const [level, sport] = selectedTeam.split("-");
+        const teamLevel = level === "varsity" ? "Varsity" : "JV";
+        const teamSport = sport.charAt(0).toUpperCase() + sport.slice(1);
+        if (athlete.level !== teamLevel || athlete.sport !== teamSport) return false;
+      }
+      
+      // Sidebar filters
       if (sportFilter !== "all" && athlete.sport !== sportFilter) return false;
       if (levelFilter !== "all" && athlete.level !== levelFilter) return false;
       if (groupFilter !== "all" && athlete.group !== groupFilter) return false;
       return true;
     });
-  }, [sportFilter, levelFilter, groupFilter]);
+  }, [selectedTeam, sportFilter, levelFilter, groupFilter]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -99,9 +108,9 @@ const Index = () => {
       </div>
 
       {/* Footer */}
-      <footer className="bg-navy-dark border-t border-navy-light py-6">
+      <footer className="bg-navy-dark border-t border-navy-light py-4">
         <div className="container mx-auto px-6 flex items-center justify-center">
-          <img src={veissLogo} alt="Veiss" className="h-6 opacity-70" />
+          <p className="text-sm text-white/70">© {new Date().getFullYear()} Veiss. All rights reserved.</p>
         </div>
       </footer>
 
