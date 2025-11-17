@@ -12,13 +12,32 @@ export interface Athlete {
   engagement: "High" | "Moderate" | "Low";
 }
 
-export interface Session {
-  date: string;
+export interface Exercise {
+  id: string;
+  name: string;
+  sets: number;
   reps: number;
+  weight: number;
+  weightUnit: "lbs" | "kg";
   avgVelocity: number;
   peakVelocity: number;
   rom: number;
   tempo: number;
+  targetVelocityRange?: [number, number];
+  targetROMRange?: [number, number];
+}
+
+export interface Session {
+  id: string;
+  date: string;
+  exercises: Exercise[];
+  notes?: string;
+}
+
+export interface WorkoutTemplate {
+  id: string;
+  name: string;
+  exercises: Omit<Exercise, 'id' | 'avgVelocity' | 'peakVelocity' | 'rom' | 'tempo'>[];
 }
 
 export interface PerformanceData {
@@ -238,29 +257,86 @@ export const generatePerformanceHistory = (athleteId: string): PerformanceData[]
   return data;
 };
 
+const exerciseLibrary = [
+  "Back Squat", "Front Squat", "Romanian Deadlift", "Bench Press", 
+  "Overhead Press", "Power Clean", "Hang Clean", "Box Jump",
+  "Trap Bar Deadlift", "Bulgarian Split Squat", "Single Leg RDL",
+  "Incline Bench Press", "Push Press", "Pull-ups", "Barbell Row"
+];
+
 export const generateSessionLogs = (athleteId: string): Session[] => {
   const athlete = mockAthletes.find((a) => a.id === athleteId);
   if (!athlete) return [];
 
   const sessions: Session[] = [];
-  const today = new Date();
-
-  for (let i = 14; i >= 0; i -= 2) {
-    const date = new Date(today);
-    date.setDate(date.getDate() - i);
-
+  for (let i = 0; i < 10; i++) {
+    const date = new Date();
+    date.setDate(date.getDate() - i * 3);
+    
+    const numExercises = Math.floor(Math.random() * 3) + 3; // 3-5 exercises
+    const exercises: Exercise[] = [];
+    
+    for (let j = 0; j < numExercises; j++) {
+      const exerciseName = exerciseLibrary[Math.floor(Math.random() * exerciseLibrary.length)];
+      const weight = Math.floor(Math.random() * 150) + 50; // 50-200 lbs
+      const sets = Math.floor(Math.random() * 3) + 3; // 3-5 sets
+      const reps = Math.floor(Math.random() * 6) + 5; // 5-10 reps
+      
+      exercises.push({
+        id: `ex-${i}-${j}`,
+        name: exerciseName,
+        sets,
+        reps,
+        weight,
+        weightUnit: "lbs",
+        avgVelocity: parseFloat((Math.random() * 0.5 + 1.5).toFixed(2)),
+        peakVelocity: parseFloat((Math.random() * 0.5 + 2.0).toFixed(2)),
+        rom: Math.floor(Math.random() * 10) + 40,
+        tempo: parseFloat((Math.random() * 0.5 + 2.5).toFixed(1)),
+        targetVelocityRange: [1.2, 1.8],
+        targetROMRange: [40, 50]
+      });
+    }
+    
     sessions.push({
+      id: `session-${athleteId}-${i}`,
       date: date.toISOString().split("T")[0],
-      reps: Math.floor(Math.random() * 20) + 30,
-      avgVelocity: parseFloat((athlete.avgVelocity + (Math.random() - 0.5) * 0.2).toFixed(2)),
-      peakVelocity: parseFloat((athlete.avgVelocity + Math.random() * 0.5).toFixed(2)),
-      rom: Math.round(athlete.rom + (Math.random() - 0.5) * 5),
-      tempo: parseFloat((athlete.tempo + (Math.random() - 0.5) * 0.4).toFixed(1)),
+      exercises,
+      notes: i % 3 === 0 ? "Good session, athlete felt strong" : undefined
     });
   }
-
-  return sessions.reverse();
+  return sessions;
 };
+
+export const workoutTemplates: WorkoutTemplate[] = [
+  {
+    id: "template-1",
+    name: "Lower Body Power",
+    exercises: [
+      { name: "Back Squat", sets: 4, reps: 5, weight: 185, weightUnit: "lbs", targetVelocityRange: [1.0, 1.5], targetROMRange: [45, 55] },
+      { name: "Romanian Deadlift", sets: 3, reps: 8, weight: 135, weightUnit: "lbs", targetVelocityRange: [0.8, 1.2], targetROMRange: [40, 50] },
+      { name: "Box Jump", sets: 4, reps: 6, weight: 0, weightUnit: "lbs", targetVelocityRange: [2.0, 2.5], targetROMRange: [50, 60] }
+    ]
+  },
+  {
+    id: "template-2",
+    name: "Upper Body Strength",
+    exercises: [
+      { name: "Bench Press", sets: 4, reps: 6, weight: 155, weightUnit: "lbs", targetVelocityRange: [0.8, 1.3], targetROMRange: [35, 45] },
+      { name: "Overhead Press", sets: 3, reps: 8, weight: 95, weightUnit: "lbs", targetVelocityRange: [0.7, 1.2], targetROMRange: [40, 50] },
+      { name: "Barbell Row", sets: 3, reps: 8, weight: 115, weightUnit: "lbs", targetVelocityRange: [0.9, 1.4], targetROMRange: [38, 48] }
+    ]
+  },
+  {
+    id: "template-3",
+    name: "Olympic Lifting",
+    exercises: [
+      { name: "Power Clean", sets: 5, reps: 3, weight: 135, weightUnit: "lbs", targetVelocityRange: [1.5, 2.0], targetROMRange: [45, 55] },
+      { name: "Front Squat", sets: 4, reps: 5, weight: 155, weightUnit: "lbs", targetVelocityRange: [1.0, 1.5], targetROMRange: [48, 58] },
+      { name: "Push Press", sets: 3, reps: 6, weight: 115, weightUnit: "lbs", targetVelocityRange: [1.2, 1.7], targetROMRange: [42, 52] }
+    ]
+  }
+];
 
 export const teamStats = {
   activeAthletes: mockAthletes.length,
