@@ -1,9 +1,12 @@
+import { useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { Athlete, generatePerformanceHistory, generateSessionLogs } from "@/data/mockData";
-import { Activity, TrendingUp, Clock } from "lucide-react";
+import { Athlete, generatePerformanceHistory, generateSessionLogs, Session } from "@/data/mockData";
+import { Activity, TrendingUp, Clock, Calendar } from "lucide-react";
+import { SessionDetailPanel } from "./SessionDetailPanel";
 
 interface AthleteDetailPanelProps {
   athlete: Athlete | null;
@@ -12,6 +15,8 @@ interface AthleteDetailPanelProps {
 }
 
 export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPanelProps) => {
+  const [selectedSession, setSelectedSession] = useState<Session | null>(null);
+  
   if (!athlete) return null;
 
   const performanceHistory = generatePerformanceHistory(athlete.id);
@@ -126,32 +131,43 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
             </CardContent>
           </Card>
 
-          {/* Session Logs */}
+          {/* Recent Sessions */}
           <Card>
             <CardHeader>
-              <CardTitle>Recent Sessions</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                <Calendar className="h-5 w-5" />
+                Recent Sessions
+              </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3">
-                {sessionLogs.map((session, index) => (
-                  <div key={index} className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
-                    <div>
-                      <p className="font-medium">{new Date(session.date).toLocaleDateString()}</p>
-                      <p className="text-sm text-muted-foreground">{session.reps} reps</p>
+              <div className="space-y-2">
+                {sessionLogs.slice(0, 5).map((session) => (
+                  <Button
+                    key={session.id}
+                    variant="outline"
+                    className="w-full justify-between h-auto p-3 hover:bg-primary/10"
+                    onClick={() => setSelectedSession(session)}
+                  >
+                    <div className="text-left">
+                      <p className="font-semibold">{new Date(session.date).toLocaleDateString()}</p>
+                      <p className="text-sm text-muted-foreground">{session.exercises.length} exercises</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-sm">
-                        <span className="font-medium">{session.avgVelocity}</span> m/s avg
-                      </p>
-                      <p className="text-sm text-muted-foreground">Peak: {session.peakVelocity} m/s</p>
+                      <p className="text-xs text-muted-foreground">Click for details</p>
                     </div>
-                  </div>
+                  </Button>
                 ))}
               </div>
             </CardContent>
           </Card>
         </div>
       </SheetContent>
+      
+      <SessionDetailPanel
+        session={selectedSession}
+        open={!!selectedSession}
+        onClose={() => setSelectedSession(null)}
+      />
     </Sheet>
   );
 };

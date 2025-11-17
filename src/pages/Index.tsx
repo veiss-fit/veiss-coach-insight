@@ -5,13 +5,16 @@ import { AthleteTable } from "@/components/AthleteTable";
 import { AthleteDetailPanel } from "@/components/AthleteDetailPanel";
 import { FilterSidebar } from "@/components/FilterSidebar";
 import { SummaryStrip } from "@/components/SummaryStrip";
+import { WorkoutBuilder } from "@/components/WorkoutBuilder";
+import { Button } from "@/components/ui/button";
 import { mockAthletes, teamStats, weeklyStats, Athlete } from "@/data/mockData";
-import { Users, Activity, TrendingUp, Clock, Zap } from "lucide-react";
+import { Users, Activity, TrendingUp, Clock, Zap, Send } from "lucide-react";
 
 
 const Index = () => {
   const [selectedTeam, setSelectedTeam] = useState("all");
   const [selectedAthlete, setSelectedAthlete] = useState<Athlete | null>(null);
+  const [workoutBuilderOpen, setWorkoutBuilderOpen] = useState(false);
   const [sportFilter, setSportFilter] = useState("all");
   const [levelFilter, setLevelFilter] = useState("all");
   const [groupFilter, setGroupFilter] = useState("all");
@@ -53,6 +56,17 @@ const Index = () => {
 
         {/* Main Content */}
         <main className="flex-1 p-6 space-y-6">
+          {/* Send Workout Button */}
+          <div className="flex justify-end">
+            <Button 
+              onClick={() => setWorkoutBuilderOpen(true)}
+              className="bg-primary text-navy-dark hover:bg-primary/90"
+            >
+              <Send className="h-4 w-4 mr-2" />
+              Send Workout
+            </Button>
+          </div>
+
           {/* Overview Stats */}
           <div>
             <h2 className="text-2xl font-bold mb-4">Team Overview</h2>
