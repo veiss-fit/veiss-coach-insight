@@ -134,6 +134,12 @@ const Index = () => {
         open={!!selectedAthlete}
         onClose={() => setSelectedAthlete(null)}
       />
+
+      {/* Workout Builder */}
+      <WorkoutBuilder
+        open={workoutBuilderOpen}
+        onClose={() => setWorkoutBuilderOpen(false)}
+      />
     </div>
   );
 };
