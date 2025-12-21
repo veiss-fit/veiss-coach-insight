@@ -62,12 +62,10 @@ export const AthleteTable = ({ athletes, onAthleteSelect }: AthleteTableProps) =
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/50 hover:bg-muted/50">
-              <TableHead className="font-semibold">Athlete</TableHead>
-              <TableHead className="font-semibold">Sport</TableHead>
-              <TableHead className="font-semibold">Level</TableHead>
-              <TableHead className="font-semibold text-right">Attendance</TableHead>
-              <TableHead className="font-semibold text-right">Load Rec</TableHead>
-              <TableHead className="font-semibold">Engagement</TableHead>
+              <TableHead className="font-semibold text-center">Athlete</TableHead>
+              <TableHead className="font-semibold text-center">Sport</TableHead>
+              <TableHead className="font-semibold text-center">Level</TableHead>
+              <TableHead className="font-semibold text-center">Attendance</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -77,16 +75,10 @@ export const AthleteTable = ({ athletes, onAthleteSelect }: AthleteTableProps) =
                 className="cursor-pointer hover:bg-muted/50 transition-colors"
                 onClick={() => onAthleteSelect(athlete)}
               >
-                <TableCell className="font-medium">{athlete.name}</TableCell>
-                <TableCell>{athlete.sport}</TableCell>
-                <TableCell>{athlete.level}</TableCell>
-                <TableCell className="text-right">{athlete.attendance}%</TableCell>
-                <TableCell className={`text-right font-medium ${getLoadRecColor(athlete.loadRec)}`}>
-                  {athlete.loadRec}
-                </TableCell>
-                <TableCell>
-                  <Badge className={getEngagementColor(athlete.engagement)}>{athlete.engagement}</Badge>
-                </TableCell>
+                <TableCell className="font-medium text-center">{athlete.name}</TableCell>
+                <TableCell className="text-center">{athlete.sport}</TableCell>
+                <TableCell className="text-center">{athlete.level}</TableCell>
+                <TableCell className="text-center">{athlete.attendance}%</TableCell>
               </TableRow>
             ))}
           </TableBody>
