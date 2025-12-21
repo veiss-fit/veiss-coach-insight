@@ -6,19 +6,15 @@ import { Separator } from "@/components/ui/separator";
 interface FilterSidebarProps {
   sportFilter: string;
   levelFilter: string;
-  groupFilter: string;
   onSportChange: (value: string) => void;
   onLevelChange: (value: string) => void;
-  onGroupChange: (value: string) => void;
 }
 
 export const FilterSidebar = ({
   sportFilter,
   levelFilter,
-  groupFilter,
   onSportChange,
   onLevelChange,
-  onGroupChange,
 }: FilterSidebarProps) => {
   return (
     <Card className="bg-white border-border">
@@ -56,25 +52,6 @@ export const FilterSidebar = ({
           </Select>
         </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="group-filter" className="text-navy-dark">Group</Label>
-          <Select value={groupFilter} onValueChange={onGroupChange}>
-            <SelectTrigger id="group-filter" className="bg-background">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Groups</SelectItem>
-              <SelectItem value="Offense">Offense</SelectItem>
-              <SelectItem value="Defense">Defense</SelectItem>
-              <SelectItem value="Guard">Guard</SelectItem>
-              <SelectItem value="Forward">Forward</SelectItem>
-              <SelectItem value="Center">Center</SelectItem>
-              <SelectItem value="Midfielder">Midfielder</SelectItem>
-              <SelectItem value="Setter">Setter</SelectItem>
-              <SelectItem value="Hitter">Hitter</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
 
         <Separator className="bg-navy-light/20" />
 
