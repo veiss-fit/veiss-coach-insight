@@ -57,7 +57,7 @@ const Index = () => {
           {/* Overview Stats */}
           <div>
             <h2 className="text-2xl font-bold mb-4">Team Overview</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
               <StatCard
                 title="Active Athletes"
                 value={teamStats.activeAthletes}
@@ -76,23 +76,18 @@ const Index = () => {
                 icon={Layers}
               />
             </div>
-          </div>
-
-          {/* Athlete Table */}
-          <div>
-            <h2 className="text-2xl font-bold mb-4">Athletes</h2>
-            <AthleteTable athletes={filteredAthletes} onAthleteSelect={setSelectedAthlete} />
-          </div>
-
-          {/* Summary Strip */}
-          <div>
-            <h2 className="text-2xl font-bold mb-4">Weekly Summary</h2>
             <SummaryStrip
               totalSessions={weeklyStats.totalSessions}
               avgTeamLoad={weeklyStats.avgTeamLoad}
               topPerformer={weeklyStats.topPerformer}
               lowestAttendance={weeklyStats.lowestAttendance}
             />
+          </div>
+
+          {/* Athlete Table */}
+          <div>
+            <h2 className="text-2xl font-bold mb-4">Athletes</h2>
+            <AthleteTable athletes={filteredAthletes} onAthleteSelect={setSelectedAthlete} />
           </div>
         </main>
       </div>
