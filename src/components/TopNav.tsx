@@ -12,11 +12,7 @@ interface TopNavProps {
 export const TopNav = ({ selectedTeam, onTeamChange }: TopNavProps) => {
   return (
     <header className="h-16 bg-gold border-b border-gold flex items-center justify-between px-6">
-      <div className="flex items-center gap-8">
-        <img src={veissLogo} alt="Veiss" className="h-8" />
-      </div>
-
-      <div className="flex-1 max-w-sm mx-auto">
+      <div className="flex-1 max-w-sm">
         <Select value={selectedTeam} onValueChange={onTeamChange}>
           <SelectTrigger className="bg-white border-border text-navy-dark">
             <SelectValue />
@@ -33,6 +29,10 @@ export const TopNav = ({ selectedTeam, onTeamChange }: TopNavProps) => {
             <SelectItem value="jv-volleyball">JV Volleyball</SelectItem>
           </SelectContent>
         </Select>
+      </div>
+
+      <div className="absolute left-1/2 transform -translate-x-1/2">
+        <img src={veissLogo} alt="Veiss" className="h-8" />
       </div>
 
       <div className="flex items-center gap-3">
