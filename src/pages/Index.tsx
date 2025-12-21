@@ -17,7 +17,6 @@ const Index = () => {
   const [workoutBuilderOpen, setWorkoutBuilderOpen] = useState(false);
   const [sportFilter, setSportFilter] = useState("all");
   const [levelFilter, setLevelFilter] = useState("all");
-  const [groupFilter, setGroupFilter] = useState("all");
 
   const filteredAthletes = useMemo(() => {
     return mockAthletes.filter((athlete) => {
@@ -32,10 +31,9 @@ const Index = () => {
       // Sidebar filters
       if (sportFilter !== "all" && athlete.sport !== sportFilter) return false;
       if (levelFilter !== "all" && athlete.level !== levelFilter) return false;
-      if (groupFilter !== "all" && athlete.group !== groupFilter) return false;
       return true;
     });
-  }, [selectedTeam, sportFilter, levelFilter, groupFilter]);
+  }, [selectedTeam, sportFilter, levelFilter]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -47,10 +45,8 @@ const Index = () => {
           <FilterSidebar
             sportFilter={sportFilter}
             levelFilter={levelFilter}
-            groupFilter={groupFilter}
             onSportChange={setSportFilter}
             onLevelChange={setLevelFilter}
-            onGroupChange={setGroupFilter}
           />
         </aside>
 

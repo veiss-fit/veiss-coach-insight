@@ -24,7 +24,7 @@ export const AthleteTable = ({ athletes, onAthleteSelect }: AthleteTableProps) =
     (athlete) =>
       athlete.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       athlete.sport.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      athlete.group.toLowerCase().includes(searchTerm.toLowerCase())
+      athlete.level.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const getEngagementColor = (engagement: string) => {
@@ -51,7 +51,7 @@ export const AthleteTable = ({ athletes, onAthleteSelect }: AthleteTableProps) =
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
-          placeholder="Search athletes by name, sport, or group..."
+          placeholder="Search athletes by name, sport, or level..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="pl-10 bg-card border-border"
@@ -64,7 +64,7 @@ export const AthleteTable = ({ athletes, onAthleteSelect }: AthleteTableProps) =
             <TableRow className="bg-muted/50 hover:bg-muted/50">
               <TableHead className="font-semibold">Athlete</TableHead>
               <TableHead className="font-semibold">Sport</TableHead>
-              <TableHead className="font-semibold">Group</TableHead>
+              <TableHead className="font-semibold">Level</TableHead>
               <TableHead className="font-semibold text-right">Avg Velocity</TableHead>
               <TableHead className="font-semibold text-right">ROM</TableHead>
               <TableHead className="font-semibold text-right">Tempo</TableHead>
@@ -82,7 +82,7 @@ export const AthleteTable = ({ athletes, onAthleteSelect }: AthleteTableProps) =
               >
                 <TableCell className="font-medium">{athlete.name}</TableCell>
                 <TableCell>{athlete.sport}</TableCell>
-                <TableCell>{athlete.group}</TableCell>
+                <TableCell>{athlete.level}</TableCell>
                 <TableCell className="text-right">{athlete.avgVelocity} m/s</TableCell>
                 <TableCell className="text-right">{athlete.rom} cm</TableCell>
                 <TableCell className="text-right">{athlete.tempo} s</TableCell>
