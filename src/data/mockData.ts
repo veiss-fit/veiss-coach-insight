@@ -340,10 +340,8 @@ export const workoutTemplates: WorkoutTemplate[] = [
 
 export const teamStats = {
   activeAthletes: mockAthletes.length,
-  avgVelocity: 1.73,
-  avgROM: 45,
-  avgTempo: 2.8,
-  loadRecIndex: "+3%",
+  avgAttendance: Math.round(mockAthletes.reduce((sum, a) => sum + a.attendance, 0) / mockAthletes.length),
+  totalTeams: 8, // Football (Varsity/JV), Basketball (Varsity/JV), Soccer (Varsity/JV), Volleyball (Varsity/JV)
 };
 
 export const weeklyStats = {

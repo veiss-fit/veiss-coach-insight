@@ -8,7 +8,7 @@ import { SummaryStrip } from "@/components/SummaryStrip";
 import { WorkoutBuilder } from "@/components/WorkoutBuilder";
 import { Button } from "@/components/ui/button";
 import { mockAthletes, teamStats, weeklyStats, Athlete } from "@/data/mockData";
-import { Users, Activity, TrendingUp, Clock, Zap, Send } from "lucide-react";
+import { Users, UserCheck, Layers, Send } from "lucide-react";
 
 
 const Index = () => {
@@ -70,7 +70,7 @@ const Index = () => {
           {/* Overview Stats */}
           <div>
             <h2 className="text-2xl font-bold mb-4">Team Overview</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <StatCard
                 title="Active Athletes"
                 value={teamStats.activeAthletes}
@@ -78,26 +78,15 @@ const Index = () => {
                 status="success"
               />
               <StatCard
-                title="Avg Velocity"
-                value={`${teamStats.avgVelocity} m/s`}
-                icon={Activity}
-              />
-              <StatCard
-                title="Avg Range of Motion"
-                value={`${teamStats.avgROM} cm`}
-                icon={TrendingUp}
-              />
-              <StatCard
-                title="Avg Tempo"
-                value={`${teamStats.avgTempo} s`}
-                icon={Clock}
-              />
-              <StatCard
-                title="Load Rec Index"
-                value={teamStats.loadRecIndex}
-                icon={Zap}
+                title="Average Attendance"
+                value={`${teamStats.avgAttendance}%`}
+                icon={UserCheck}
                 status="success"
-                subtitle="Increase recommended"
+              />
+              <StatCard
+                title="Total Teams"
+                value={teamStats.totalTeams}
+                icon={Layers}
               />
             </div>
           </div>
