@@ -12,7 +12,6 @@ import { Users, UserCheck, Layers, Send } from "lucide-react";
 
 
 const Index = () => {
-  const [selectedTeam, setSelectedTeam] = useState("all");
   const [selectedAthlete, setSelectedAthlete] = useState<Athlete | null>(null);
   const [workoutBuilderOpen, setWorkoutBuilderOpen] = useState(false);
   const [sportFilter, setSportFilter] = useState("all");
@@ -20,24 +19,16 @@ const Index = () => {
 
   const filteredAthletes = useMemo(() => {
     return mockAthletes.filter((athlete) => {
-      // Team filter
-      if (selectedTeam !== "all") {
-        const [level, sport] = selectedTeam.split("-");
-        const teamLevel = level === "varsity" ? "Varsity" : "JV";
-        const teamSport = sport.charAt(0).toUpperCase() + sport.slice(1);
-        if (athlete.level !== teamLevel || athlete.sport !== teamSport) return false;
-      }
-      
       // Sidebar filters
       if (sportFilter !== "all" && athlete.sport !== sportFilter) return false;
       if (levelFilter !== "all" && athlete.level !== levelFilter) return false;
       return true;
     });
-  }, [selectedTeam, sportFilter, levelFilter]);
+  }, [sportFilter, levelFilter]);
 
   return (
     <div className="min-h-screen bg-background">
-      <TopNav selectedTeam={selectedTeam} onTeamChange={setSelectedTeam} />
+      <TopNav />
 
       <div className="flex">
         {/* Sidebar */}
