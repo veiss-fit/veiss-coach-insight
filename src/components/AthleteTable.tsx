@@ -65,9 +65,6 @@ export const AthleteTable = ({ athletes, onAthleteSelect }: AthleteTableProps) =
               <TableHead className="font-semibold">Athlete</TableHead>
               <TableHead className="font-semibold">Sport</TableHead>
               <TableHead className="font-semibold">Level</TableHead>
-              <TableHead className="font-semibold text-right">Avg Velocity</TableHead>
-              <TableHead className="font-semibold text-right">ROM</TableHead>
-              <TableHead className="font-semibold text-right">Tempo</TableHead>
               <TableHead className="font-semibold text-right">Attendance</TableHead>
               <TableHead className="font-semibold text-right">Load Rec</TableHead>
               <TableHead className="font-semibold">Engagement</TableHead>
@@ -83,9 +80,6 @@ export const AthleteTable = ({ athletes, onAthleteSelect }: AthleteTableProps) =
                 <TableCell className="font-medium">{athlete.name}</TableCell>
                 <TableCell>{athlete.sport}</TableCell>
                 <TableCell>{athlete.level}</TableCell>
-                <TableCell className="text-right">{athlete.avgVelocity} m/s</TableCell>
-                <TableCell className="text-right">{athlete.rom} cm</TableCell>
-                <TableCell className="text-right">{athlete.tempo} s</TableCell>
                 <TableCell className="text-right">{athlete.attendance}%</TableCell>
                 <TableCell className={`text-right font-medium ${getLoadRecColor(athlete.loadRec)}`}>
                   {athlete.loadRec}
