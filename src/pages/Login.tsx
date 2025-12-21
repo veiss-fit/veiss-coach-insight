@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
+import veissLogo from "@/assets/veiss-logo.png";
 
 const Login = () => {
   const [email, setEmail] = useState("");
@@ -31,7 +32,7 @@ const Login = () => {
         <CardHeader className="space-y-4 text-center">
           <div className="mx-auto w-24 h-24 relative">
             <img 
-              src="/src/assets/veiss-logo.png" 
+              src={veissLogo} 
               alt="Veiss Logo" 
               className="w-full h-full object-contain"
             />
