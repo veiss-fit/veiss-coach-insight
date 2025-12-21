@@ -76,12 +76,7 @@ const Index = () => {
                 icon={Layers}
               />
             </div>
-            <SummaryStrip
-              totalSessions={weeklyStats.totalSessions}
-              avgTeamLoad={weeklyStats.avgTeamLoad}
-              topPerformer={weeklyStats.topPerformer}
-              lowestAttendance={weeklyStats.lowestAttendance}
-            />
+            <SummaryStrip totalSessions={weeklyStats.totalSessions} />
           </div>
 
           {/* Athlete Table */}
