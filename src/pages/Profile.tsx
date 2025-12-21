@@ -24,7 +24,7 @@ const Profile = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <TopNav selectedTeam="all" onTeamChange={() => {}} />
+      <TopNav />
       
       <div className="container mx-auto p-6 space-y-6">
         <div className="flex items-center justify-between">
