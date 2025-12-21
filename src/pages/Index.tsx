@@ -4,11 +4,10 @@ import { StatCard } from "@/components/StatCard";
 import { AthleteTable } from "@/components/AthleteTable";
 import { AthleteDetailPanel } from "@/components/AthleteDetailPanel";
 import { FilterSidebar } from "@/components/FilterSidebar";
-import { SummaryStrip } from "@/components/SummaryStrip";
 import { WorkoutBuilder } from "@/components/WorkoutBuilder";
 import { Button } from "@/components/ui/button";
 import { mockAthletes, teamStats, weeklyStats, Athlete } from "@/data/mockData";
-import { Users, UserCheck, Layers, Send } from "lucide-react";
+import { Users, UserCheck, Layers, Send, CalendarDays } from "lucide-react";
 
 
 const Index = () => {
@@ -57,7 +56,12 @@ const Index = () => {
           {/* Overview Stats */}
           <div>
             <h2 className="text-2xl font-bold mb-4">Team Overview</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <StatCard
+                title="Workout Sessions"
+                value={weeklyStats.totalSessions}
+                icon={CalendarDays}
+              />
               <StatCard
                 title="Active Athletes"
                 value={teamStats.activeAthletes}
@@ -76,7 +80,6 @@ const Index = () => {
                 icon={Layers}
               />
             </div>
-            <SummaryStrip totalSessions={weeklyStats.totalSessions} />
           </div>
 
           {/* Athlete Table */}
