@@ -330,8 +330,8 @@ export const generateSessionLogs = (athleteId: string): Session[] => {
       const exerciseName = exerciseLibrary[exerciseIndex];
       const weight = seededRandomInt(exerciseSeed + 1, 95, 225); // 95-225 lbs (realistic weights)
       const sets = seededRandomInt(exerciseSeed + 2, 3, 4); // 3-4 sets
-      const reps = seededRandomInt(exerciseSeed + 3, 5, 8); // 5-8 reps
-      const totalReps = sets * reps; // Max will be 4 * 8 = 32 reps
+      const reps = seededRandomInt(exerciseSeed + 3, 8, 12); // 8-12 reps
+      const totalReps = sets * reps; // Max will be 4 * 12 = 48 reps
       
       // Generate target velocity range
       const targetVelocityMin = parseFloat((seededRandom(exerciseSeed + 4) * 0.3 + 1.2).toFixed(2)); // 1.2-1.5
