@@ -67,18 +67,7 @@ export const FilterSidebar = ({
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="sport-filter" className="text-navy-dark">Sport</Label>
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                className="h-6 px-2 text-xs"
-                onClick={() => setIsAddSportOpen(true)}
-              >
-                <Plus className="h-3 w-3 mr-1" />
-                Add
-              </Button>
-            </div>
+            <Label htmlFor="sport-filter" className="text-navy-dark">Sport</Label>
             <Select value={sportFilter} onValueChange={onSportChange}>
               <SelectTrigger id="sport-filter" className="bg-background">
                 <SelectValue />
