@@ -52,23 +52,6 @@ export const FilterSidebar = ({
           </Select>
         </div>
 
-
-        <Separator className="bg-navy-light/20" />
-
-        <div className="space-y-2">
-          <h4 className="font-semibold text-navy-dark">Team Insights</h4>
-          <div className="space-y-1 text-sm">
-            <p className="text-navy-dark/80">
-              <span className="font-medium">High Performers:</span> 8
-            </p>
-            <p className="text-navy-dark/80">
-              <span className="font-medium">Need Attention:</span> 3
-            </p>
-            <p className="text-navy-dark/80">
-              <span className="font-medium">Fatigue Index:</span> Moderate
-            </p>
-          </div>
-        </div>
       </CardContent>
     </Card>
   );
