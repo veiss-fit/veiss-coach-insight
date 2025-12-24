@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { mockAthletes } from "@/data/mockData";
+import { mockAthletes, sportsList } from "@/data/mockData";
 import { Megaphone, Send, CalendarIcon } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -179,10 +179,9 @@ export const AnnouncementBuilder = ({ open, onClose }: AnnouncementBuilderProps)
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Sports</SelectItem>
-                    <SelectItem value="Football">Football</SelectItem>
-                    <SelectItem value="Basketball">Basketball</SelectItem>
-                    <SelectItem value="Soccer">Soccer</SelectItem>
-                    <SelectItem value="Volleyball">Volleyball</SelectItem>
+                    {sportsList.map((sport) => (
+                      <SelectItem key={sport} value={sport}>{sport}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
 

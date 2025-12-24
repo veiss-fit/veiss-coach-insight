@@ -57,6 +57,15 @@ export interface PerformanceData {
   velocity: number;
 }
 
+// Customizable sports list
+export const sportsList: string[] = ["Football", "Basketball", "Soccer", "Volleyball"];
+
+export const addSport = (sport: string) => {
+  if (!sportsList.includes(sport)) {
+    sportsList.push(sport);
+  }
+};
+
 // Football Team (50 players - Boys)
 const footballAthletes: Athlete[] = [
   // Varsity Football Offense (15)
