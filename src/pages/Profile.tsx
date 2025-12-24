@@ -18,7 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { User, Mail, Shield, Calendar, Award, Users, Upload, Camera, X } from "lucide-react";
+import { User, Mail, Shield, Calendar, Users, Upload, Camera, X } from "lucide-react";
 import { toast } from "sonner";
 
 const Profile = () => {
@@ -259,37 +259,6 @@ const Profile = () => {
                     Athletes Managed
                   </Label>
                   <p className="text-sm text-muted-foreground">150+ Athletes</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Coaching Stats Card */}
-          <Card className="md:col-span-3">
-            <CardHeader>
-              <CardTitle>
-                <Award className="inline mr-2 h-5 w-5" />
-                Coaching Statistics
-              </CardTitle>
-              <CardDescription>Your impact and achievements</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-4 md:grid-cols-4">
-                <div className="space-y-2 text-center p-4 bg-muted rounded-lg">
-                  <div className="text-3xl font-bold text-gold">150+</div>
-                  <div className="text-sm text-muted-foreground">Total Athletes</div>
-                </div>
-                <div className="space-y-2 text-center p-4 bg-muted rounded-lg">
-                  <div className="text-3xl font-bold text-gold">4</div>
-                  <div className="text-sm text-muted-foreground">Sports Teams</div>
-                </div>
-                <div className="space-y-2 text-center p-4 bg-muted rounded-lg">
-                  <div className="text-3xl font-bold text-gold">1,250+</div>
-                  <div className="text-sm text-muted-foreground">Sessions Completed</div>
-                </div>
-                <div className="space-y-2 text-center p-4 bg-muted rounded-lg">
-                  <div className="text-3xl font-bold text-gold">92%</div>
-                  <div className="text-sm text-muted-foreground">Target Achievement</div>
                 </div>
               </div>
             </CardContent>
