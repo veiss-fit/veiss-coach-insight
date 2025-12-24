@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { toast } from "sonner";
 import { TopNav } from "@/components/TopNav";
 import { StatCard } from "@/components/StatCard";
 import { AthleteTable } from "@/components/AthleteTable";
@@ -7,7 +8,7 @@ import { FilterSidebar } from "@/components/FilterSidebar";
 import { WorkoutBuilder } from "@/components/WorkoutBuilder";
 import { Button } from "@/components/ui/button";
 import { mockAthletes, teamStats, weeklyStats, Athlete } from "@/data/mockData";
-import { Users, UserCheck, Layers, Send, CalendarDays } from "lucide-react";
+import { Users, UserCheck, Layers, Send, CalendarDays, Megaphone } from "lucide-react";
 
 
 const Index = () => {
@@ -42,8 +43,15 @@ const Index = () => {
 
         {/* Main Content */}
         <main className="flex-1 p-6 space-y-6">
-          {/* Send Workout Button */}
-          <div className="flex justify-end">
+          {/* Action Buttons */}
+          <div className="flex justify-end gap-2">
+            <Button 
+              variant="outline"
+              onClick={() => toast.info("Announcements feature coming soon!")}
+            >
+              <Megaphone className="h-4 w-4 mr-2" />
+              Announcements
+            </Button>
             <Button 
               onClick={() => setWorkoutBuilderOpen(true)}
               className="bg-primary text-navy-dark hover:bg-primary/90"
