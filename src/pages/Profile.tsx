@@ -22,7 +22,7 @@ import { User, Mail, Shield, Calendar, Award, Users, Upload, Camera, X } from "l
 import { toast } from "sonner";
 
 const Profile = () => {
-  const { user } = useAuth();
+  const { user, changePassword } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [isEditing, setIsEditing] = useState(false);
@@ -121,6 +121,11 @@ const Profile = () => {
     }
     if (newPassword.length < 8) {
       toast.error("Password must be at least 8 characters");
+      return;
+    }
+    const success = changePassword(currentPassword, newPassword);
+    if (!success) {
+      toast.error("Current password is incorrect");
       return;
     }
     toast.success("Password changed successfully");
