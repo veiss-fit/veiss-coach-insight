@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { TopNav } from "@/components/TopNav";
@@ -18,7 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { User, Mail, Shield, Calendar, Award, Users, Upload, Camera } from "lucide-react";
+import { User, Mail, Shield, Calendar, Award, Users, Upload, Camera, X } from "lucide-react";
 import { toast } from "sonner";
 
 const Profile = () => {
@@ -41,6 +41,11 @@ const Profile = () => {
   const [performanceAlerts, setPerformanceAlerts] = useState(true);
   const [weeklyDigest, setWeeklyDigest] = useState(false);
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
+  
+  // Photo upload states
+  const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
+  const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Handle section navigation from URL params
   useEffect(() => {
@@ -58,8 +63,45 @@ const Profile = () => {
     setIsEditing(false);
   };
 
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error("File size must be less than 5MB");
+        return;
+      }
+      if (!file.type.startsWith("image/")) {
+        toast.error("Please select an image file");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setPreviewPhoto(e.target?.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const handlePhotoUpload = () => {
-    toast.success("Profile photo updated successfully");
+    if (previewPhoto) {
+      setProfilePhoto(previewPhoto);
+      toast.success("Profile photo updated successfully");
+    }
+    setPhotoModalOpen(false);
+    setPreviewPhoto(null);
+  };
+
+  const handlePhotoModalClose = (open: boolean) => {
+    if (!open) {
+      setPreviewPhoto(null);
+    }
+    setPhotoModalOpen(open);
+  };
+
+  const handleRemovePhoto = () => {
+    setProfilePhoto(null);
+    setPreviewPhoto(null);
+    toast.success("Profile photo removed");
     setPhotoModalOpen(false);
   };
 
@@ -117,7 +159,7 @@ const Profile = () => {
             </CardHeader>
             <CardContent className="flex flex-col items-center space-y-4">
               <Avatar className="w-32 h-32">
-                <AvatarImage src="" />
+                <AvatarImage src={profilePhoto || ""} />
                 <AvatarFallback className="bg-navy-dark text-white text-3xl font-bold">
                   CM
                 </AvatarFallback>
@@ -296,7 +338,7 @@ const Profile = () => {
       </div>
 
       {/* Photo Upload Modal */}
-      <Dialog open={photoModalOpen} onOpenChange={setPhotoModalOpen}>
+      <Dialog open={photoModalOpen} onOpenChange={handlePhotoModalClose}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Change Profile Photo</DialogTitle>
@@ -305,15 +347,35 @@ const Profile = () => {
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col items-center gap-4 py-4">
-            <Avatar className="w-32 h-32">
-              <AvatarFallback className="bg-navy-dark text-white text-3xl font-bold">
-                CM
-              </AvatarFallback>
-            </Avatar>
+            <div className="relative">
+              <Avatar className="w-32 h-32">
+                <AvatarImage src={previewPhoto || profilePhoto || ""} />
+                <AvatarFallback className="bg-navy-dark text-white text-3xl font-bold">
+                  CM
+                </AvatarFallback>
+              </Avatar>
+              {(previewPhoto || profilePhoto) && (
+                <Button
+                  size="icon"
+                  variant="destructive"
+                  className="absolute -top-2 -right-2 h-6 w-6 rounded-full"
+                  onClick={handleRemovePhoto}
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              )}
+            </div>
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileSelect}
+              accept="image/*"
+              className="hidden"
+            />
             <div className="flex gap-2">
-              <Button variant="outline" onClick={handlePhotoUpload}>
+              <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
                 <Upload className="h-4 w-4 mr-2" />
-                Upload Photo
+                Choose File
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
@@ -321,8 +383,11 @@ const Profile = () => {
             </p>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setPhotoModalOpen(false)}>
+            <Button variant="outline" onClick={() => handlePhotoModalClose(false)}>
               Cancel
+            </Button>
+            <Button onClick={handlePhotoUpload} disabled={!previewPhoto}>
+              Save Photo
             </Button>
           </DialogFooter>
         </DialogContent>
