@@ -61,7 +61,7 @@ export const SessionDetailPanel = ({ session, open, onClose }: SessionDetailPane
                         {exercise.sets} × {exercise.reps} @ {exercise.weight} {exercise.weightUnit}
                       </Badge>
                       <Badge 
-                        variant={successRate >= 70 ? "secondary" : "destructive"}
+                        variant="secondary"
                         className="text-sm"
                       >
                         {inTargetCount}/{totalReps} reps in target ({successRate}%)
