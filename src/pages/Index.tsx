@@ -95,7 +95,11 @@ const Index = () => {
           {/* Athlete Table */}
           <div>
             <h2 className="text-2xl font-bold mb-4">Athletes</h2>
-            <AthleteTable athletes={filteredAthletes} onAthleteSelect={setSelectedAthlete} />
+            <AthleteTable 
+              athletes={filteredAthletes} 
+              onAthleteSelect={setSelectedAthlete}
+              filtersActive={sportFilter !== "all" || levelFilter !== "all"}
+            />
           </div>
         </main>
       </div>
