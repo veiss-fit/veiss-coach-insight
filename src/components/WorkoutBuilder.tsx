@@ -48,8 +48,8 @@ export const WorkoutBuilder = ({ open, onClose }: WorkoutBuilderProps) => {
       setWorkoutName(template.name);
       setExercises(template.exercises.map(ex => ({
         ...ex,
-        targetVelocityMin: ex.targetVelocityRange?.[0] || 1.0,
-        targetVelocityMax: ex.targetVelocityRange?.[1] || 2.0,
+        targetVelocityMin: ex.targetVelocityMin,
+        targetVelocityMax: ex.targetVelocityMax,
       })));
       setSelectedTemplate(templateId);
     }
