@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { TopNav } from "@/components/TopNav";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,17 +9,89 @@ import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { User, Mail, Shield, Calendar, Award, Users } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { User, Mail, Shield, Calendar, Award, Users, Upload, Camera } from "lucide-react";
 import { toast } from "sonner";
 
 const Profile = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [isEditing, setIsEditing] = useState(false);
+  
+  // Modal states
+  const [photoModalOpen, setPhotoModalOpen] = useState(false);
+  const [notificationsModalOpen, setNotificationsModalOpen] = useState(false);
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
+  const [twoFactorModalOpen, setTwoFactorModalOpen] = useState(false);
+  
+  // Form states
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [emailNotifications, setEmailNotifications] = useState(true);
+  const [performanceAlerts, setPerformanceAlerts] = useState(true);
+  const [weeklyDigest, setWeeklyDigest] = useState(false);
+  const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
+
+  // Handle section navigation from URL params
+  useEffect(() => {
+    const section = searchParams.get("section");
+    if (section === "notifications") {
+      setNotificationsModalOpen(true);
+    } else if (section === "settings") {
+      // Scroll to settings section
+      document.getElementById("account-settings")?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [searchParams]);
 
   const handleSaveChanges = () => {
     toast.success("Profile updated successfully");
     setIsEditing(false);
+  };
+
+  const handlePhotoUpload = () => {
+    toast.success("Profile photo updated successfully");
+    setPhotoModalOpen(false);
+  };
+
+  const handleSaveNotifications = () => {
+    toast.success("Notification preferences saved");
+    setNotificationsModalOpen(false);
+  };
+
+  const handleChangePassword = () => {
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      toast.error("Please fill in all password fields");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error("New passwords do not match");
+      return;
+    }
+    if (newPassword.length < 8) {
+      toast.error("Password must be at least 8 characters");
+      return;
+    }
+    toast.success("Password changed successfully");
+    setPasswordModalOpen(false);
+    setCurrentPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+  };
+
+  const handleToggleTwoFactor = () => {
+    setTwoFactorEnabled(!twoFactorEnabled);
+    toast.success(twoFactorEnabled ? "Two-factor authentication disabled" : "Two-factor authentication enabled");
+    setTwoFactorModalOpen(false);
   };
 
   return (
@@ -55,7 +127,8 @@ const Profile = () => {
                 <p className="text-sm text-muted-foreground">{user?.email}</p>
                 <Badge className="mt-2 bg-gold text-navy-dark">Head Coach</Badge>
               </div>
-              <Button variant="outline" className="w-full" disabled>
+              <Button variant="outline" className="w-full" onClick={() => setPhotoModalOpen(true)}>
+                <Camera className="h-4 w-4 mr-2" />
                 Change Photo
               </Button>
             </CardContent>
@@ -176,7 +249,7 @@ const Profile = () => {
           </Card>
 
           {/* Account Settings Card */}
-          <Card className="md:col-span-3">
+          <Card className="md:col-span-3" id="account-settings">
             <CardHeader>
               <CardTitle>Account Settings</CardTitle>
               <CardDescription>Manage your account preferences</CardDescription>
@@ -189,7 +262,9 @@ const Profile = () => {
                     Receive email updates about athlete performance
                   </p>
                 </div>
-                <Button variant="outline" size="sm">Configure</Button>
+                <Button variant="outline" size="sm" onClick={() => setNotificationsModalOpen(true)}>
+                  Configure
+                </Button>
               </div>
               <Separator />
               <div className="flex items-center justify-between">
@@ -199,22 +274,206 @@ const Profile = () => {
                     Update your account password
                   </p>
                 </div>
-                <Button variant="outline" size="sm">Update</Button>
+                <Button variant="outline" size="sm" onClick={() => setPasswordModalOpen(true)}>
+                  Update
+                </Button>
               </div>
               <Separator />
               <div className="flex items-center justify-between">
                 <div>
                   <Label className="text-base">Two-Factor Authentication</Label>
                   <p className="text-sm text-muted-foreground">
-                    Add an extra layer of security
+                    {twoFactorEnabled ? "Currently enabled" : "Add an extra layer of security"}
                   </p>
                 </div>
-                <Button variant="outline" size="sm">Enable</Button>
+                <Button variant="outline" size="sm" onClick={() => setTwoFactorModalOpen(true)}>
+                  {twoFactorEnabled ? "Manage" : "Enable"}
+                </Button>
               </div>
             </CardContent>
           </Card>
         </div>
       </div>
+
+      {/* Photo Upload Modal */}
+      <Dialog open={photoModalOpen} onOpenChange={setPhotoModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Change Profile Photo</DialogTitle>
+            <DialogDescription>
+              Upload a new profile picture. Recommended size: 200x200px.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col items-center gap-4 py-4">
+            <Avatar className="w-32 h-32">
+              <AvatarFallback className="bg-navy-dark text-white text-3xl font-bold">
+                CM
+              </AvatarFallback>
+            </Avatar>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={handlePhotoUpload}>
+                <Upload className="h-4 w-4 mr-2" />
+                Upload Photo
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Supported formats: JPG, PNG. Max size: 5MB
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPhotoModalOpen(false)}>
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Notifications Modal */}
+      <Dialog open={notificationsModalOpen} onOpenChange={setNotificationsModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Notification Preferences</DialogTitle>
+            <DialogDescription>
+              Configure how you receive notifications about athlete performance.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-base">Email Notifications</Label>
+                <p className="text-sm text-muted-foreground">
+                  Receive email updates
+                </p>
+              </div>
+              <Switch checked={emailNotifications} onCheckedChange={setEmailNotifications} />
+            </div>
+            <Separator />
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-base">Performance Alerts</Label>
+                <p className="text-sm text-muted-foreground">
+                  Get notified about significant changes
+                </p>
+              </div>
+              <Switch checked={performanceAlerts} onCheckedChange={setPerformanceAlerts} />
+            </div>
+            <Separator />
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-base">Weekly Digest</Label>
+                <p className="text-sm text-muted-foreground">
+                  Summary of weekly activity
+                </p>
+              </div>
+              <Switch checked={weeklyDigest} onCheckedChange={setWeeklyDigest} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNotificationsModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveNotifications}>Save Preferences</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Change Password Modal */}
+      <Dialog open={passwordModalOpen} onOpenChange={setPasswordModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Change Password</DialogTitle>
+            <DialogDescription>
+              Enter your current password and choose a new one.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="currentPassword">Current Password</Label>
+              <Input 
+                id="currentPassword" 
+                type="password" 
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="newPassword">New Password</Label>
+              <Input 
+                id="newPassword" 
+                type="password" 
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirmPassword">Confirm New Password</Label>
+              <Input 
+                id="confirmPassword" 
+                type="password" 
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Password must be at least 8 characters long.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPasswordModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleChangePassword}>Change Password</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Two-Factor Authentication Modal */}
+      <Dialog open={twoFactorModalOpen} onOpenChange={setTwoFactorModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Two-Factor Authentication</DialogTitle>
+            <DialogDescription>
+              {twoFactorEnabled 
+                ? "Two-factor authentication is currently enabled on your account."
+                : "Add an extra layer of security to your account by enabling two-factor authentication."
+              }
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            {twoFactorEnabled ? (
+              <div className="space-y-4">
+                <div className="p-4 bg-muted rounded-lg">
+                  <p className="text-sm text-center">
+                    Your account is protected with two-factor authentication.
+                  </p>
+                </div>
+                <p className="text-sm text-muted-foreground text-center">
+                  Disabling 2FA will make your account less secure.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="p-4 bg-muted rounded-lg">
+                  <p className="text-sm">
+                    When enabled, you'll need to enter a verification code from your authenticator app each time you sign in.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTwoFactorModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleToggleTwoFactor}
+              variant={twoFactorEnabled ? "destructive" : "default"}
+            >
+              {twoFactorEnabled ? "Disable 2FA" : "Enable 2FA"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
