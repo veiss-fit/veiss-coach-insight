@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { format } from "date-fns";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,9 +8,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { workoutTemplates, mockAthletes } from "@/data/mockData";
-import { Plus, Trash2, Send, Dumbbell } from "lucide-react";
+import { Plus, Trash2, Send, Dumbbell, CalendarIcon } from "lucide-react";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 interface WorkoutBuilderProps {
   open: boolean;
@@ -31,6 +35,7 @@ export const WorkoutBuilder = ({ open, onClose }: WorkoutBuilderProps) => {
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
   const [exercises, setExercises] = useState<WorkoutExercise[]>([]);
   const [selectedAthletes, setSelectedAthletes] = useState<string[]>([]);
+  const [scheduledDate, setScheduledDate] = useState<Date>();
   const [filterSport, setFilterSport] = useState("all");
   const [filterLevel, setFilterLevel] = useState("all");
   const [filterGroup, setFilterGroup] = useState("all");
@@ -103,13 +108,15 @@ export const WorkoutBuilder = ({ open, onClose }: WorkoutBuilderProps) => {
       return;
     }
 
-    toast.success(`Workout "${workoutName}" sent to ${selectedAthletes.length} athlete(s)`);
+    const dateInfo = scheduledDate ? ` for ${format(scheduledDate, "PPP")}` : "";
+    toast.success(`Workout "${workoutName}" sent to ${selectedAthletes.length} athlete(s)${dateInfo}`);
     onClose();
     // Reset form
     setWorkoutName("");
     setExercises([]);
     setSelectedAthletes([]);
     setSelectedTemplate("");
+    setScheduledDate(undefined);
   };
 
   return (
@@ -136,6 +143,33 @@ export const WorkoutBuilder = ({ open, onClose }: WorkoutBuilderProps) => {
                 value={workoutName}
                 onChange={(e) => setWorkoutName(e.target.value)}
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Scheduled Date</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className={cn(
+                      "w-full justify-start text-left font-normal",
+                      !scheduledDate && "text-muted-foreground"
+                    )}
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {scheduledDate ? format(scheduledDate, "PPP") : <span>Pick a date</span>}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={scheduledDate}
+                    onSelect={setScheduledDate}
+                    initialFocus
+                    className="p-3 pointer-events-auto"
+                  />
+                </PopoverContent>
+              </Popover>
             </div>
 
             <div className="space-y-2">
