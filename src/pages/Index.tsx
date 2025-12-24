@@ -7,15 +7,17 @@ import { AthleteDetailPanel } from "@/components/AthleteDetailPanel";
 import { FilterSidebar } from "@/components/FilterSidebar";
 import { WorkoutBuilder } from "@/components/WorkoutBuilder";
 import { AnnouncementBuilder } from "@/components/AnnouncementBuilder";
+import { PlayerBuilder } from "@/components/PlayerBuilder";
 import { Button } from "@/components/ui/button";
 import { mockAthletes, teamStats, weeklyStats, Athlete } from "@/data/mockData";
-import { Users, UserCheck, Layers, Send, CalendarDays, Megaphone } from "lucide-react";
+import { Users, UserCheck, Layers, Send, CalendarDays, Megaphone, UserPlus } from "lucide-react";
 
 
 const Index = () => {
   const [selectedAthlete, setSelectedAthlete] = useState<Athlete | null>(null);
   const [workoutBuilderOpen, setWorkoutBuilderOpen] = useState(false);
   const [announcementBuilderOpen, setAnnouncementBuilderOpen] = useState(false);
+  const [playerBuilderOpen, setPlayerBuilderOpen] = useState(false);
   const [sportFilter, setSportFilter] = useState("all");
   const [levelFilter, setLevelFilter] = useState("all");
 
@@ -53,6 +55,13 @@ const Index = () => {
             >
               <Megaphone className="h-4 w-4 mr-2" />
               Announcements
+            </Button>
+            <Button 
+              variant="outline"
+              onClick={() => setPlayerBuilderOpen(true)}
+            >
+              <UserPlus className="h-4 w-4 mr-2" />
+              Add New Player
             </Button>
             <Button 
               onClick={() => setWorkoutBuilderOpen(true)}
@@ -128,6 +137,12 @@ const Index = () => {
       <AnnouncementBuilder
         open={announcementBuilderOpen}
         onClose={() => setAnnouncementBuilderOpen(false)}
+      />
+
+      {/* Player Builder */}
+      <PlayerBuilder
+        open={playerBuilderOpen}
+        onClose={() => setPlayerBuilderOpen(false)}
       />
     </div>
   );
