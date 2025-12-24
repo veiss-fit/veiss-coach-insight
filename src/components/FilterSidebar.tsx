@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Plus, Users } from "lucide-react";
 import { toast } from "sonner";
-import { sportsList, addSport } from "@/data/mockData";
+import { sportsList, addSport, addTeam } from "@/data/mockData";
 
 interface FilterSidebarProps {
   sportFilter: string;
@@ -36,6 +36,13 @@ export const FilterSidebar = ({
       toast.error("Please fill out all fields");
       return;
     }
+    
+    addTeam({
+      name: teamName.trim(),
+      sport: teamSport,
+      level: teamLevel,
+    });
+    
     toast.success(`Team "${teamName}" created successfully`);
     setIsCreateTeamOpen(false);
     setTeamName("");

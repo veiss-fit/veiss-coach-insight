@@ -20,6 +20,7 @@ const Index = () => {
   const [playerBuilderOpen, setPlayerBuilderOpen] = useState(false);
   const [sportFilter, setSportFilter] = useState("all");
   const [levelFilter, setLevelFilter] = useState("all");
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const filteredAthletes = useMemo(() => {
     return mockAthletes.filter((athlete) => {
@@ -28,7 +29,12 @@ const Index = () => {
       if (levelFilter !== "all" && athlete.level !== levelFilter) return false;
       return true;
     });
-  }, [sportFilter, levelFilter]);
+  }, [sportFilter, levelFilter, refreshKey]);
+
+  const handlePlayerBuilderClose = () => {
+    setPlayerBuilderOpen(false);
+    setRefreshKey(prev => prev + 1); // Trigger re-render to show new player
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -142,7 +148,7 @@ const Index = () => {
       {/* Player Builder */}
       <PlayerBuilder
         open={playerBuilderOpen}
-        onClose={() => setPlayerBuilderOpen(false)}
+        onClose={handlePlayerBuilderClose}
       />
     </div>
   );
