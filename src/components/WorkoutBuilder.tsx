@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { workoutTemplates, mockAthletes } from "@/data/mockData";
+import { workoutTemplates, mockAthletes, sportsList } from "@/data/mockData";
 import { Plus, Trash2, Send, Dumbbell, CalendarIcon } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -304,10 +304,9 @@ export const WorkoutBuilder = ({ open, onClose }: WorkoutBuilderProps) => {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Sports</SelectItem>
-                    <SelectItem value="Football">Football</SelectItem>
-                    <SelectItem value="Basketball">Basketball</SelectItem>
-                    <SelectItem value="Soccer">Soccer</SelectItem>
-                    <SelectItem value="Volleyball">Volleyball</SelectItem>
+                    {sportsList.map((sport) => (
+                      <SelectItem key={sport} value={sport}>{sport}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
 

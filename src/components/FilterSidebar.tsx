@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Plus, Users } from "lucide-react";
 import { toast } from "sonner";
+import { sportsList, addSport } from "@/data/mockData";
 
 interface FilterSidebarProps {
   sportFilter: string;
@@ -23,9 +24,12 @@ export const FilterSidebar = ({
   onLevelChange,
 }: FilterSidebarProps) => {
   const [isCreateTeamOpen, setIsCreateTeamOpen] = useState(false);
+  const [isAddSportOpen, setIsAddSportOpen] = useState(false);
   const [teamName, setTeamName] = useState("");
   const [teamSport, setTeamSport] = useState("");
   const [teamLevel, setTeamLevel] = useState("");
+  const [newSport, setNewSport] = useState("");
+  const [, forceUpdate] = useState(0);
 
   const handleCreateTeam = () => {
     if (!teamName.trim() || !teamSport || !teamLevel) {
@@ -39,6 +43,22 @@ export const FilterSidebar = ({
     setTeamLevel("");
   };
 
+  const handleAddSport = () => {
+    if (!newSport.trim()) {
+      toast.error("Please enter a sport name");
+      return;
+    }
+    if (sportsList.includes(newSport.trim())) {
+      toast.error("This sport already exists");
+      return;
+    }
+    addSport(newSport.trim());
+    toast.success(`"${newSport.trim()}" added to sports list`);
+    setNewSport("");
+    setIsAddSportOpen(false);
+    forceUpdate(n => n + 1); // Trigger re-render
+  };
+
   return (
     <>
       <Card className="bg-white border-border">
@@ -47,17 +67,27 @@ export const FilterSidebar = ({
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="sport-filter" className="text-navy-dark">Sport</Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="sport-filter" className="text-navy-dark">Sport</Label>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="h-6 px-2 text-xs"
+                onClick={() => setIsAddSportOpen(true)}
+              >
+                <Plus className="h-3 w-3 mr-1" />
+                Add
+              </Button>
+            </div>
             <Select value={sportFilter} onValueChange={onSportChange}>
               <SelectTrigger id="sport-filter" className="bg-background">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Sports</SelectItem>
-                <SelectItem value="Football">Football</SelectItem>
-                <SelectItem value="Basketball">Basketball</SelectItem>
-                <SelectItem value="Soccer">Soccer</SelectItem>
-                <SelectItem value="Volleyball">Volleyball</SelectItem>
+                {sportsList.map((sport) => (
+                  <SelectItem key={sport} value={sport}>{sport}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -89,6 +119,37 @@ export const FilterSidebar = ({
         </CardContent>
       </Card>
 
+      {/* Add Sport Dialog */}
+      <Dialog open={isAddSportOpen} onOpenChange={setIsAddSportOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add New Sport</DialogTitle>
+            <DialogDescription>
+              Add a new sport to your organization
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            <div className="space-y-2">
+              <Label htmlFor="new-sport">Sport Name</Label>
+              <Input
+                id="new-sport"
+                placeholder="e.g., Tennis"
+                value={newSport}
+                onChange={(e) => setNewSport(e.target.value)}
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setIsAddSportOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleAddSport}>
+                Add Sport
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={isCreateTeamOpen} onOpenChange={setIsCreateTeamOpen}>
         <DialogContent>
           <DialogHeader>
@@ -119,10 +180,9 @@ export const FilterSidebar = ({
                   <SelectValue placeholder="Select a sport" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Football">Football</SelectItem>
-                  <SelectItem value="Basketball">Basketball</SelectItem>
-                  <SelectItem value="Soccer">Soccer</SelectItem>
-                  <SelectItem value="Volleyball">Volleyball</SelectItem>
+                  {sportsList.map((sport) => (
+                    <SelectItem key={sport} value={sport}>{sport}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
