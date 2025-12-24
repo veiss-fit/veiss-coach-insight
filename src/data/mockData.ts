@@ -250,18 +250,34 @@ export const mockAthletes: Athlete[] = [
   ...volleyballAthletes,
 ];
 
+// Seeded random number generator for consistent data
+function seededRandom(seed: number) {
+  const x = Math.sin(seed) * 10000;
+  return x - Math.floor(x);
+}
+
+function hashString(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return Math.abs(hash);
+}
+
 export const generatePerformanceHistory = (athleteId: string): PerformanceData[] => {
   const athlete = mockAthletes.find((a) => a.id === athleteId);
   if (!athlete) return [];
 
   const data: PerformanceData[] = [];
-  const today = new Date();
+  const baseSeed = hashString(athleteId);
 
   for (let i = 30; i >= 0; i--) {
-    const date = new Date(today);
+    const date = new Date("2024-12-24");
     date.setDate(date.getDate() - i);
 
-    const variance = (Math.random() - 0.5) * 0.3;
+    const variance = (seededRandom(baseSeed + i) - 0.5) * 0.3;
     data.push({
       date: date.toISOString().split("T")[0],
       velocity: parseFloat((athlete.avgVelocity + variance).toFixed(2)),
@@ -278,47 +294,59 @@ const exerciseLibrary = [
   "Incline Bench Press", "Push Press", "Pull-ups", "Barbell Row"
 ];
 
+// Cache for session logs to ensure consistency
+const sessionLogsCache: Map<string, Session[]> = new Map();
+
 export const generateSessionLogs = (athleteId: string): Session[] => {
+  // Return cached data if available
+  if (sessionLogsCache.has(athleteId)) {
+    return sessionLogsCache.get(athleteId)!;
+  }
+
   const athlete = mockAthletes.find((a) => a.id === athleteId);
   if (!athlete) return [];
 
+  const baseSeed = hashString(athleteId);
   const sessions: Session[] = [];
+  
   for (let i = 0; i < 10; i++) {
-    const date = new Date();
+    const sessionSeed = baseSeed + i * 1000;
+    const date = new Date("2024-12-24");
     date.setDate(date.getDate() - i * 3);
     
-    const numExercises = Math.floor(Math.random() * 3) + 3; // 3-5 exercises
+    const numExercises = Math.floor(seededRandom(sessionSeed) * 3) + 3; // 3-5 exercises
     const exercises: Exercise[] = [];
     
     for (let j = 0; j < numExercises; j++) {
-      const exerciseName = exerciseLibrary[Math.floor(Math.random() * exerciseLibrary.length)];
-      const weight = Math.floor(Math.random() * 150) + 50; // 50-200 lbs
-      const sets = Math.floor(Math.random() * 3) + 3; // 3-5 sets
-      const reps = Math.floor(Math.random() * 6) + 5; // 5-10 reps
+      const exerciseSeed = sessionSeed + j * 100;
+      const exerciseIndex = Math.floor(seededRandom(exerciseSeed) * exerciseLibrary.length);
+      const exerciseName = exerciseLibrary[exerciseIndex];
+      const weight = Math.floor(seededRandom(exerciseSeed + 1) * 150) + 50; // 50-200 lbs
+      const sets = Math.floor(seededRandom(exerciseSeed + 2) * 3) + 3; // 3-5 sets
+      const reps = Math.floor(seededRandom(exerciseSeed + 3) * 6) + 5; // 5-10 reps
       const totalReps = sets * reps;
       
       // Generate target velocity range
-      const targetVelocityMin = parseFloat((Math.random() * 0.3 + 1.2).toFixed(2)); // 1.2-1.5
+      const targetVelocityMin = parseFloat((seededRandom(exerciseSeed + 4) * 0.3 + 1.2).toFixed(2)); // 1.2-1.5
       const targetVelocityMax = parseFloat((targetVelocityMin + 0.3).toFixed(2)); // +0.3 range
       
-      // Generate individual rep data with some variance
+      // Generate individual rep data with seeded randomness
       const repData: Rep[] = [];
       let totalVelocity = 0;
       let maxVelocity = 0;
       
       for (let r = 1; r <= totalReps; r++) {
-        // Generate velocity with some in target and some out
-        const inTarget = Math.random() > 0.3; // 70% chance in target
+        const repSeed = exerciseSeed + r * 10;
+        const inTarget = seededRandom(repSeed) > 0.3; // 70% chance in target
         let velocity: number;
         
         if (inTarget) {
-          velocity = parseFloat((targetVelocityMin + Math.random() * (targetVelocityMax - targetVelocityMin)).toFixed(2));
+          velocity = parseFloat((targetVelocityMin + seededRandom(repSeed + 1) * (targetVelocityMax - targetVelocityMin)).toFixed(2));
         } else {
-          // Out of target - either too slow or too fast
-          if (Math.random() > 0.5) {
-            velocity = parseFloat((targetVelocityMin - Math.random() * 0.3).toFixed(2)); // Too slow
+          if (seededRandom(repSeed + 2) > 0.5) {
+            velocity = parseFloat((targetVelocityMin - seededRandom(repSeed + 3) * 0.3).toFixed(2)); // Too slow
           } else {
-            velocity = parseFloat((targetVelocityMax + Math.random() * 0.3).toFixed(2)); // Too fast
+            velocity = parseFloat((targetVelocityMax + seededRandom(repSeed + 3) * 0.3).toFixed(2)); // Too fast
           }
         }
         
@@ -328,14 +356,14 @@ export const generateSessionLogs = (athleteId: string): Session[] => {
       }
       
       exercises.push({
-        id: `ex-${i}-${j}`,
+        id: `ex-${athleteId}-${i}-${j}`,
         name: exerciseName,
         sets,
         reps,
         weight,
         weightUnit: "lbs",
         avgVelocity: parseFloat((totalVelocity / totalReps).toFixed(2)),
-        peakVelocity: maxVelocity,
+        peakVelocity: parseFloat(maxVelocity.toFixed(2)),
         targetVelocityMin,
         targetVelocityMax,
         repData,
@@ -349,6 +377,9 @@ export const generateSessionLogs = (athleteId: string): Session[] => {
       notes: i % 3 === 0 ? "Good session, athlete felt strong" : undefined
     });
   }
+  
+  // Cache the generated sessions
+  sessionLogsCache.set(athleteId, sessions);
   return sessions;
 };
 
