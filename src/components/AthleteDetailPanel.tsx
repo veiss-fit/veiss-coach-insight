@@ -91,7 +91,7 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
                       <div className="flex items-center gap-3">
                         <div className="text-right">
                           <Badge 
-                            variant={stats.successRate >= 70 ? "secondary" : stats.successRate >= 50 ? "outline" : "destructive"}
+                            variant="secondary"
                             className="flex items-center gap-1"
                           >
                             <Target className="h-3 w-3" />
