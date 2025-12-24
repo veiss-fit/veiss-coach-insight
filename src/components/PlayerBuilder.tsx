@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { UserPlus } from "lucide-react";
 import { toast } from "sonner";
-import { sportsList } from "@/data/mockData";
+import { sportsList, addAthlete } from "@/data/mockData";
 
 interface PlayerBuilderProps {
   open: boolean;
@@ -24,6 +24,14 @@ export const PlayerBuilder = ({ open, onClose }: PlayerBuilderProps) => {
       toast.error("Please fill out name, sport, and level");
       return;
     }
+    
+    addAthlete({
+      name: playerName.trim(),
+      sport: playerSport,
+      level: playerLevel,
+      group: playerGroup.trim() || "Unassigned",
+    });
+    
     toast.success(`Player "${playerName}" added successfully`);
     onClose();
     // Reset form

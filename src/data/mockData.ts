@@ -66,6 +66,41 @@ export const addSport = (sport: string) => {
   }
 };
 
+// Teams list
+export interface Team {
+  id: string;
+  name: string;
+  sport: string;
+  level: string;
+}
+
+export const teamsList: Team[] = [];
+
+export const addTeam = (team: Omit<Team, "id">): Team => {
+  const newTeam: Team = {
+    id: `team-${Date.now()}`,
+    ...team,
+  };
+  teamsList.push(newTeam);
+  return newTeam;
+};
+
+// Add athlete function
+let athleteIdCounter = 1000;
+
+export const addAthlete = (athlete: Omit<Athlete, "id" | "avgVelocity" | "attendance" | "loadRec" | "engagement">): Athlete => {
+  const newAthlete: Athlete = {
+    id: `new-${athleteIdCounter++}`,
+    avgVelocity: 0,
+    attendance: 0,
+    loadRec: "New",
+    engagement: "Moderate",
+    ...athlete,
+  };
+  mockAthletes.push(newAthlete);
+  return newAthlete;
+};
+
 // Football Team (50 players - Boys)
 const footballAthletes: Athlete[] = [
   // Varsity Football Offense (15)
