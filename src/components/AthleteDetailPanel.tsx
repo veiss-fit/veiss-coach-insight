@@ -22,11 +22,6 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
   const performanceHistory = generatePerformanceHistory(athlete.id);
   const sessionLogs = generateSessionLogs(athlete.id);
 
-  const getLoadRecColor = (loadRec: string) => {
-    if (loadRec.includes("+")) return "bg-chart-3 text-navy-dark";
-    if (loadRec.includes("-")) return "bg-destructive text-white";
-    return "bg-navy-light text-white";
-  };
 
   return (
     <Sheet open={open} onOpenChange={onClose}>
@@ -37,7 +32,6 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
             <Badge variant="outline">{athlete.sport}</Badge>
             <Badge variant="outline">{athlete.level}</Badge>
             <Badge variant="outline">{athlete.group}</Badge>
-            <Badge className={getLoadRecColor(athlete.loadRec)}>Load: {athlete.loadRec}</Badge>
           </div>
         </SheetHeader>
 
