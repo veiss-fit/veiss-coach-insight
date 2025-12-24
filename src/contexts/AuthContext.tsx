@@ -5,6 +5,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   login: (email: string, password: string) => boolean;
   logout: () => void;
+  changePassword: (currentPassword: string, newPassword: string) => boolean;
   user: { name: string; email: string } | null;
 }
 
@@ -26,7 +27,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   const login = (email: string, password: string) => {
-    if (email === "coach.martin@veiss.com" && password === "teamveiss") {
+    const storedPassword = localStorage.getItem("veiss-password") || "teamveiss";
+    if (email === "coach.martin@veiss.com" && password === storedPassword) {
       setIsAuthenticated(true);
       setUser({
         name: "Coach Martin",
@@ -38,6 +40,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return false;
   };
 
+  const changePassword = (currentPassword: string, newPassword: string) => {
+    const storedPassword = localStorage.getItem("veiss-password") || "teamveiss";
+    if (currentPassword !== storedPassword) {
+      return false;
+    }
+    localStorage.setItem("veiss-password", newPassword);
+    return true;
+  };
+
   const logout = () => {
     setIsAuthenticated(false);
     setUser(null);
@@ -45,7 +56,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, login, logout, user }}>
+    <AuthContext.Provider value={{ isAuthenticated, login, logout, changePassword, user }}>
       {children}
     </AuthContext.Provider>
   );
