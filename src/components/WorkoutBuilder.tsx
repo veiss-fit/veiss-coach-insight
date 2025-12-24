@@ -24,8 +24,6 @@ interface WorkoutExercise {
   weightUnit: "lbs" | "kg";
   targetVelocityMin: number;
   targetVelocityMax: number;
-  targetROMMin: number;
-  targetROMMax: number;
 }
 
 export const WorkoutBuilder = ({ open, onClose }: WorkoutBuilderProps) => {
@@ -52,8 +50,6 @@ export const WorkoutBuilder = ({ open, onClose }: WorkoutBuilderProps) => {
         ...ex,
         targetVelocityMin: ex.targetVelocityRange?.[0] || 1.0,
         targetVelocityMax: ex.targetVelocityRange?.[1] || 2.0,
-        targetROMMin: ex.targetROMRange?.[0] || 40,
-        targetROMMax: ex.targetROMRange?.[1] || 50,
       })));
       setSelectedTemplate(templateId);
     }
@@ -68,8 +64,6 @@ export const WorkoutBuilder = ({ open, onClose }: WorkoutBuilderProps) => {
       weightUnit: "lbs",
       targetVelocityMin: 1.0,
       targetVelocityMax: 1.5,
-      targetROMMin: 40,
-      targetROMMax: 50,
     }]);
   };
 
@@ -258,23 +252,6 @@ export const WorkoutBuilder = ({ open, onClose }: WorkoutBuilderProps) => {
                       </div>
                     </div>
 
-                    <div className="space-y-2">
-                      <Label className="text-xs">Target ROM Range (cm)</Label>
-                      <div className="flex gap-2">
-                        <Input
-                          type="number"
-                          placeholder="Min"
-                          value={exercise.targetROMMin}
-                          onChange={(e) => updateExercise(index, "targetROMMin", parseInt(e.target.value))}
-                        />
-                        <Input
-                          type="number"
-                          placeholder="Max"
-                          value={exercise.targetROMMax}
-                          onChange={(e) => updateExercise(index, "targetROMMax", parseInt(e.target.value))}
-                        />
-                      </div>
-                    </div>
                   </CardContent>
                 </Card>
               ))}
