@@ -3,9 +3,8 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { Athlete, generatePerformanceHistory, generateSessionLogs, Session } from "@/data/mockData";
-import { Activity, TrendingUp, Clock, Calendar } from "lucide-react";
+import { Athlete, generateSessionLogs, Session } from "@/data/mockData";
+import { Activity, TrendingUp, Clock, Calendar, ChevronRight, Dumbbell, Target } from "lucide-react";
 import { SessionDetailPanel } from "./SessionDetailPanel";
 
 interface AthleteDetailPanelProps {
@@ -19,9 +18,26 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
   
   if (!athlete) return null;
 
-  const performanceHistory = generatePerformanceHistory(athlete.id);
   const sessionLogs = generateSessionLogs(athlete.id);
 
+  // Calculate session stats
+  const getSessionStats = (session: Session) => {
+    const totalExercises = session.exercises.length;
+    let totalInTarget = 0;
+    let totalReps = 0;
+
+    session.exercises.forEach(ex => {
+      ex.repData.forEach(rep => {
+        totalReps++;
+        if (rep.velocity >= ex.targetVelocityMin && rep.velocity <= ex.targetVelocityMax) {
+          totalInTarget++;
+        }
+      });
+    });
+
+    const successRate = totalReps > 0 ? Math.round((totalInTarget / totalReps) * 100) : 0;
+    return { totalExercises, totalReps, totalInTarget, successRate };
+  };
 
   return (
     <Sheet open={open} onOpenChange={onClose}>
@@ -67,90 +83,57 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
             </Card>
           </div>
 
-          {/* Velocity Trend */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Velocity Trend (30 Days)</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={200}>
-                <LineChart data={performanceHistory}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis
-                    dataKey="date"
-                    tick={{ fontSize: 12 }}
-                    tickFormatter={(value) => new Date(value).getDate().toString()}
-                    stroke="hsl(var(--muted-foreground))"
-                  />
-                  <YAxis tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "hsl(var(--card))",
-                      border: "1px solid hsl(var(--border))",
-                      borderRadius: "8px",
-                    }}
-                  />
-                  <Line type="monotone" dataKey="velocity" stroke="hsl(var(--chart-1))" strokeWidth={2} dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-
-          {/* ROM Trend */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Range of Motion Trend (30 Days)</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={200}>
-                <LineChart data={performanceHistory}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis
-                    dataKey="date"
-                    tick={{ fontSize: 12 }}
-                    tickFormatter={(value) => new Date(value).getDate().toString()}
-                    stroke="hsl(var(--muted-foreground))"
-                  />
-                  <YAxis tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "hsl(var(--card))",
-                      border: "1px solid hsl(var(--border))",
-                      borderRadius: "8px",
-                    }}
-                  />
-                  <Line type="monotone" dataKey="rom" stroke="hsl(var(--chart-2))" strokeWidth={2} dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-
-          {/* Recent Sessions */}
+          {/* Sessions List */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Calendar className="h-5 w-5" />
-                Recent Sessions
+                Training Sessions
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                {sessionLogs.slice(0, 5).map((session) => (
-                  <Button
-                    key={session.id}
-                    variant="outline"
-                    className="w-full justify-between h-auto p-3 hover:bg-primary/10"
-                    onClick={() => setSelectedSession(session)}
-                  >
-                    <div className="text-left">
-                      <p className="font-semibold">{new Date(session.date).toLocaleDateString()}</p>
-                      <p className="text-sm text-muted-foreground">{session.exercises.length} exercises</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs text-muted-foreground">Click for details</p>
-                    </div>
-                  </Button>
-                ))}
+                {sessionLogs.map((session) => {
+                  const stats = getSessionStats(session);
+                  return (
+                    <Button
+                      key={session.id}
+                      variant="outline"
+                      className="w-full justify-between h-auto p-4 hover:bg-primary/10"
+                      onClick={() => setSelectedSession(session)}
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className="text-left">
+                          <p className="font-semibold">
+                            {new Date(session.date).toLocaleDateString('en-US', { 
+                              weekday: 'short', 
+                              month: 'short', 
+                              day: 'numeric' 
+                            })}
+                          </p>
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
+                            <Dumbbell className="h-3 w-3" />
+                            <span>{stats.totalExercises} exercises</span>
+                            <span>•</span>
+                            <span>{stats.totalReps} reps</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="text-right">
+                          <Badge 
+                            variant={stats.successRate >= 70 ? "secondary" : stats.successRate >= 50 ? "outline" : "destructive"}
+                            className="flex items-center gap-1"
+                          >
+                            <Target className="h-3 w-3" />
+                            {stats.successRate}% on target
+                          </Badge>
+                        </div>
+                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                    </Button>
+                  );
+                })}
               </div>
             </CardContent>
           </Card>

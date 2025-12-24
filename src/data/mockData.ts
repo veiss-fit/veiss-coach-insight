@@ -12,6 +12,11 @@ export interface Athlete {
   engagement: "High" | "Moderate" | "Low";
 }
 
+export interface Rep {
+  repNumber: number;
+  velocity: number;
+}
+
 export interface Exercise {
   id: string;
   name: string;
@@ -23,7 +28,9 @@ export interface Exercise {
   peakVelocity: number;
   rom: number;
   tempo: number;
-  targetVelocityRange?: [number, number];
+  targetVelocityMin: number;
+  targetVelocityMax: number;
+  repData: Rep[];
   targetROMRange?: [number, number];
 }
 
@@ -34,10 +41,21 @@ export interface Session {
   notes?: string;
 }
 
+export interface WorkoutTemplateExercise {
+  name: string;
+  sets: number;
+  reps: number;
+  weight: number;
+  weightUnit: "lbs" | "kg";
+  targetVelocityMin: number;
+  targetVelocityMax: number;
+  targetROMRange?: [number, number];
+}
+
 export interface WorkoutTemplate {
   id: string;
   name: string;
-  exercises: Omit<Exercise, 'id' | 'avgVelocity' | 'peakVelocity' | 'rom' | 'tempo'>[];
+  exercises: WorkoutTemplateExercise[];
 }
 
 export interface PerformanceData {
@@ -281,6 +299,37 @@ export const generateSessionLogs = (athleteId: string): Session[] => {
       const weight = Math.floor(Math.random() * 150) + 50; // 50-200 lbs
       const sets = Math.floor(Math.random() * 3) + 3; // 3-5 sets
       const reps = Math.floor(Math.random() * 6) + 5; // 5-10 reps
+      const totalReps = sets * reps;
+      
+      // Generate target velocity range
+      const targetVelocityMin = parseFloat((Math.random() * 0.3 + 1.2).toFixed(2)); // 1.2-1.5
+      const targetVelocityMax = parseFloat((targetVelocityMin + 0.3).toFixed(2)); // +0.3 range
+      
+      // Generate individual rep data with some variance
+      const repData: Rep[] = [];
+      let totalVelocity = 0;
+      let maxVelocity = 0;
+      
+      for (let r = 1; r <= totalReps; r++) {
+        // Generate velocity with some in target and some out
+        const inTarget = Math.random() > 0.3; // 70% chance in target
+        let velocity: number;
+        
+        if (inTarget) {
+          velocity = parseFloat((targetVelocityMin + Math.random() * (targetVelocityMax - targetVelocityMin)).toFixed(2));
+        } else {
+          // Out of target - either too slow or too fast
+          if (Math.random() > 0.5) {
+            velocity = parseFloat((targetVelocityMin - Math.random() * 0.3).toFixed(2)); // Too slow
+          } else {
+            velocity = parseFloat((targetVelocityMax + Math.random() * 0.3).toFixed(2)); // Too fast
+          }
+        }
+        
+        repData.push({ repNumber: r, velocity });
+        totalVelocity += velocity;
+        maxVelocity = Math.max(maxVelocity, velocity);
+      }
       
       exercises.push({
         id: `ex-${i}-${j}`,
@@ -289,11 +338,13 @@ export const generateSessionLogs = (athleteId: string): Session[] => {
         reps,
         weight,
         weightUnit: "lbs",
-        avgVelocity: parseFloat((Math.random() * 0.5 + 1.5).toFixed(2)),
-        peakVelocity: parseFloat((Math.random() * 0.5 + 2.0).toFixed(2)),
+        avgVelocity: parseFloat((totalVelocity / totalReps).toFixed(2)),
+        peakVelocity: maxVelocity,
         rom: Math.floor(Math.random() * 10) + 40,
         tempo: parseFloat((Math.random() * 0.5 + 2.5).toFixed(1)),
-        targetVelocityRange: [1.2, 1.8],
+        targetVelocityMin,
+        targetVelocityMax,
+        repData,
         targetROMRange: [40, 50]
       });
     }
@@ -313,27 +364,27 @@ export const workoutTemplates: WorkoutTemplate[] = [
     id: "template-1",
     name: "Lower Body Power",
     exercises: [
-      { name: "Back Squat", sets: 4, reps: 5, weight: 185, weightUnit: "lbs", targetVelocityRange: [1.0, 1.5], targetROMRange: [45, 55] },
-      { name: "Romanian Deadlift", sets: 3, reps: 8, weight: 135, weightUnit: "lbs", targetVelocityRange: [0.8, 1.2], targetROMRange: [40, 50] },
-      { name: "Box Jump", sets: 4, reps: 6, weight: 0, weightUnit: "lbs", targetVelocityRange: [2.0, 2.5], targetROMRange: [50, 60] }
+      { name: "Back Squat", sets: 4, reps: 5, weight: 185, weightUnit: "lbs", targetVelocityMin: 1.0, targetVelocityMax: 1.5, targetROMRange: [45, 55] },
+      { name: "Romanian Deadlift", sets: 3, reps: 8, weight: 135, weightUnit: "lbs", targetVelocityMin: 0.8, targetVelocityMax: 1.2, targetROMRange: [40, 50] },
+      { name: "Box Jump", sets: 4, reps: 6, weight: 0, weightUnit: "lbs", targetVelocityMin: 2.0, targetVelocityMax: 2.5, targetROMRange: [50, 60] }
     ]
   },
   {
     id: "template-2",
     name: "Upper Body Strength",
     exercises: [
-      { name: "Bench Press", sets: 4, reps: 6, weight: 155, weightUnit: "lbs", targetVelocityRange: [0.8, 1.3], targetROMRange: [35, 45] },
-      { name: "Overhead Press", sets: 3, reps: 8, weight: 95, weightUnit: "lbs", targetVelocityRange: [0.7, 1.2], targetROMRange: [40, 50] },
-      { name: "Barbell Row", sets: 3, reps: 8, weight: 115, weightUnit: "lbs", targetVelocityRange: [0.9, 1.4], targetROMRange: [38, 48] }
+      { name: "Bench Press", sets: 4, reps: 6, weight: 155, weightUnit: "lbs", targetVelocityMin: 0.8, targetVelocityMax: 1.3, targetROMRange: [35, 45] },
+      { name: "Overhead Press", sets: 3, reps: 8, weight: 95, weightUnit: "lbs", targetVelocityMin: 0.7, targetVelocityMax: 1.2, targetROMRange: [40, 50] },
+      { name: "Barbell Row", sets: 3, reps: 8, weight: 115, weightUnit: "lbs", targetVelocityMin: 0.9, targetVelocityMax: 1.4, targetROMRange: [38, 48] }
     ]
   },
   {
     id: "template-3",
     name: "Olympic Lifting",
     exercises: [
-      { name: "Power Clean", sets: 5, reps: 3, weight: 135, weightUnit: "lbs", targetVelocityRange: [1.5, 2.0], targetROMRange: [45, 55] },
-      { name: "Front Squat", sets: 4, reps: 5, weight: 155, weightUnit: "lbs", targetVelocityRange: [1.0, 1.5], targetROMRange: [48, 58] },
-      { name: "Push Press", sets: 3, reps: 6, weight: 115, weightUnit: "lbs", targetVelocityRange: [1.2, 1.7], targetROMRange: [42, 52] }
+      { name: "Power Clean", sets: 5, reps: 3, weight: 135, weightUnit: "lbs", targetVelocityMin: 1.5, targetVelocityMax: 2.0, targetROMRange: [45, 55] },
+      { name: "Front Squat", sets: 4, reps: 5, weight: 155, weightUnit: "lbs", targetVelocityMin: 1.0, targetVelocityMax: 1.5, targetROMRange: [48, 58] },
+      { name: "Push Press", sets: 3, reps: 6, weight: 115, weightUnit: "lbs", targetVelocityMin: 1.2, targetVelocityMax: 1.7, targetROMRange: [42, 52] }
     ]
   }
 ];
