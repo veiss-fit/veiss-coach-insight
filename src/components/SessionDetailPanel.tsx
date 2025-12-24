@@ -1,8 +1,8 @@
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Session, Exercise } from "@/data/mockData";
-import { Dumbbell, TrendingUp, Activity, Clock, Target } from "lucide-react";
+import { Session } from "@/data/mockData";
+import { Dumbbell, Activity, Target } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Cell } from "recharts";
 
 interface SessionDetailPanelProps {
@@ -139,7 +139,7 @@ export const SessionDetailPanel = ({ session, open, onClose }: SessionDetailPane
                   </div>
 
                   {/* Stats Grid */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t border-border">
+                  <div className="grid grid-cols-3 gap-4 pt-4 border-t border-border">
                     <div className="space-y-1">
                       <div className="flex items-center gap-1 text-xs text-muted-foreground">
                         <Activity className="h-3 w-3" />
@@ -155,27 +155,11 @@ export const SessionDetailPanel = ({ session, open, onClose }: SessionDetailPane
 
                     <div className="space-y-1">
                       <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <TrendingUp className="h-3 w-3" />
-                        <span>ROM</span>
+                        <Target className="h-3 w-3" />
+                        <span>Target Range</span>
                       </div>
                       <div className="text-xl font-bold">
-                        {exercise.rom} cm
-                      </div>
-                      {exercise.targetROMRange && (
-                        <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                          <Target className="h-3 w-3" />
-                          {exercise.targetROMRange[0]}-{exercise.targetROMRange[1]} cm
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <Clock className="h-3 w-3" />
-                        <span>Tempo</span>
-                      </div>
-                      <div className="text-xl font-bold">
-                        {exercise.tempo} s
+                        {exercise.targetVelocityMin} - {exercise.targetVelocityMax} m/s
                       </div>
                     </div>
 
