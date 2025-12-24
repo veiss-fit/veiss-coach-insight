@@ -23,7 +23,7 @@ export const SessionDetailPanel = ({ session, open, onClose }: SessionDetailPane
 
   const getRepColor = (velocity: number, min: number, max: number) => {
     if (velocity >= min && velocity <= max) {
-      return "hsl(var(--chart-2))"; // Green for in target
+      return "hsl(142, 76%, 56%)"; // Light green for in target
     }
     return "hsl(var(--destructive))"; // Red for out of target
   };
@@ -80,7 +80,7 @@ export const SessionDetailPanel = ({ session, open, onClose }: SessionDetailPane
                     </div>
                     <div className="flex gap-3 mb-2 text-xs">
                       <div className="flex items-center gap-1">
-                        <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: "hsl(var(--chart-2))" }} />
+                        <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: "hsl(142, 76%, 56%)" }} />
                         <span>In Target</span>
                       </div>
                       <div className="flex items-center gap-1">
@@ -100,10 +100,8 @@ export const SessionDetailPanel = ({ session, open, onClose }: SessionDetailPane
                         <YAxis 
                           tick={{ fontSize: 11 }} 
                           stroke="hsl(var(--muted-foreground))"
-                          domain={[
-                            Math.min(exercise.targetVelocityMin - 0.2, Math.min(...exercise.repData.map(r => r.velocity)) - 0.1),
-                            Math.max(exercise.targetVelocityMax + 0.2, Math.max(...exercise.repData.map(r => r.velocity)) + 0.1)
-                          ]}
+                          domain={['auto', 'auto']}
+                          tickFormatter={(value) => typeof value === 'number' ? value.toFixed(2) : value}
                           label={{ value: 'm/s', angle: -90, position: 'insideLeft', fontSize: 11 }}
                         />
                         <Tooltip
