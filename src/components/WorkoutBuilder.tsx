@@ -165,6 +165,7 @@ export const WorkoutBuilder = ({ open, onClose }: WorkoutBuilderProps) => {
                     mode="single"
                     selected={scheduledDate}
                     onSelect={setScheduledDate}
+                    disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
                     initialFocus
                     className="p-3 pointer-events-auto"
                   />
