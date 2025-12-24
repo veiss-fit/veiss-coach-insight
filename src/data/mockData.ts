@@ -251,9 +251,11 @@ export const mockAthletes: Athlete[] = [
 ];
 
 // Seeded random number generator for consistent data
-function seededRandom(seed: number) {
+function seededRandom(seed: number): number {
   const x = Math.sin(seed) * 10000;
-  return x - Math.floor(x);
+  const result = x - Math.floor(x);
+  // Ensure we always return a value between 0 and 1
+  return Math.abs(result);
 }
 
 function hashString(str: string): number {
@@ -264,6 +266,11 @@ function hashString(str: string): number {
     hash = hash & hash;
   }
   return Math.abs(hash);
+}
+
+// Helper to get bounded random int
+function seededRandomInt(seed: number, min: number, max: number): number {
+  return Math.floor(seededRandom(seed) * (max - min + 1)) + min;
 }
 
 export const generatePerformanceHistory = (athleteId: string): PerformanceData[] => {
@@ -314,17 +321,17 @@ export const generateSessionLogs = (athleteId: string): Session[] => {
     const date = new Date("2024-12-24");
     date.setDate(date.getDate() - i * 3);
     
-    const numExercises = Math.floor(seededRandom(sessionSeed) * 3) + 3; // 3-5 exercises
+    const numExercises = seededRandomInt(sessionSeed, 3, 4); // 3-4 exercises
     const exercises: Exercise[] = [];
     
     for (let j = 0; j < numExercises; j++) {
       const exerciseSeed = sessionSeed + j * 100;
-      const exerciseIndex = Math.floor(seededRandom(exerciseSeed) * exerciseLibrary.length);
+      const exerciseIndex = seededRandomInt(exerciseSeed, 0, exerciseLibrary.length - 1);
       const exerciseName = exerciseLibrary[exerciseIndex];
-      const weight = Math.floor(seededRandom(exerciseSeed + 1) * 150) + 50; // 50-200 lbs
-      const sets = Math.floor(seededRandom(exerciseSeed + 2) * 3) + 3; // 3-5 sets
-      const reps = Math.floor(seededRandom(exerciseSeed + 3) * 6) + 5; // 5-10 reps
-      const totalReps = sets * reps;
+      const weight = seededRandomInt(exerciseSeed + 1, 95, 225); // 95-225 lbs (realistic weights)
+      const sets = seededRandomInt(exerciseSeed + 2, 3, 4); // 3-4 sets
+      const reps = seededRandomInt(exerciseSeed + 3, 5, 8); // 5-8 reps
+      const totalReps = sets * reps; // Max will be 4 * 8 = 32 reps
       
       // Generate target velocity range
       const targetVelocityMin = parseFloat((seededRandom(exerciseSeed + 4) * 0.3 + 1.2).toFixed(2)); // 1.2-1.5
