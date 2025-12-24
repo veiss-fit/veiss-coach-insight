@@ -303,14 +303,24 @@ export const WorkoutBuilder = ({ open, onClose }: WorkoutBuilderProps) => {
                   </SelectContent>
                 </Select>
               </div>
-              <Button
-                size="sm"
-                variant="outline"
-                className="mt-2 w-full"
-                onClick={selectAllFiltered}
-              >
-                Select All Filtered ({filteredAthletes.length})
-              </Button>
+              <div className="flex gap-2 mt-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="flex-1"
+                  onClick={selectAllFiltered}
+                >
+                  Select All ({filteredAthletes.length})
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => setSelectedAthletes([])}
+                >
+                  Clear Selection
+                </Button>
+              </div>
             </div>
 
             <div>
