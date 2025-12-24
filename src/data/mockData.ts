@@ -328,10 +328,10 @@ export const generateSessionLogs = (athleteId: string): Session[] => {
       const exerciseSeed = sessionSeed + j * 100;
       const exerciseIndex = seededRandomInt(exerciseSeed, 0, exerciseLibrary.length - 1);
       const exerciseName = exerciseLibrary[exerciseIndex];
-      const weight = seededRandomInt(exerciseSeed + 1, 95, 225); // 95-225 lbs (realistic weights)
-      const sets = seededRandomInt(exerciseSeed + 2, 3, 4); // 3-4 sets
-      const reps = seededRandomInt(exerciseSeed + 3, 8, 12); // 8-12 reps
-      const totalReps = sets * reps; // Max will be 4 * 12 = 48 reps
+      const weight = seededRandomInt(exerciseSeed + 1, 135, 225); // 135-225 lbs (realistic weights)
+      const sets = seededRandomInt(exerciseSeed + 2, 3, 5); // 3-5 sets
+      const reps = seededRandomInt(exerciseSeed + 3, 3, 6); // 3-6 reps per set (typical for VBT power training)
+      const totalReps = sets * reps; // Max will be 5 * 6 = 30 reps per exercise
       
       // Generate target velocity range
       const targetVelocityMin = parseFloat((seededRandom(exerciseSeed + 4) * 0.3 + 1.2).toFixed(2)); // 1.2-1.5
