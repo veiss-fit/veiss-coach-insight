@@ -61,49 +61,57 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-2">
-                {sessionLogs.map((session) => {
-                  const stats = getSessionStats(session);
-                  return (
-                    <Button
-                      key={session.id}
-                      variant="outline"
-                      className="w-full justify-between h-auto p-4 hover:bg-primary/10"
-                      onClick={() => setSelectedSession(session)}
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className="text-left">
-                          <p className="font-semibold">
-                            {new Date(session.date).toLocaleDateString('en-US', { 
-                              weekday: 'short', 
-                              month: 'short', 
-                              day: 'numeric' 
-                            })}
-                          </p>
-                          <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
-                            <Dumbbell className="h-3 w-3" />
-                            <span>{stats.totalExercises} exercises</span>
-                            <span>•</span>
-                            <span>{stats.totalReps} reps</span>
+              {sessionLogs.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Calendar className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                  <p className="font-medium">No training sessions yet</p>
+                  <p className="text-sm mt-1">Sessions will appear here once the athlete completes workouts.</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {sessionLogs.map((session) => {
+                    const stats = getSessionStats(session);
+                    return (
+                      <Button
+                        key={session.id}
+                        variant="outline"
+                        className="w-full justify-between h-auto p-4 hover:bg-primary/10"
+                        onClick={() => setSelectedSession(session)}
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className="text-left">
+                            <p className="font-semibold">
+                              {new Date(session.date).toLocaleDateString('en-US', { 
+                                weekday: 'short', 
+                                month: 'short', 
+                                day: 'numeric' 
+                              })}
+                            </p>
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
+                              <Dumbbell className="h-3 w-3" />
+                              <span>{stats.totalExercises} exercises</span>
+                              <span>•</span>
+                              <span>{stats.totalReps} reps</span>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <div className="text-right">
-                          <Badge 
-                            variant="secondary"
-                            className="flex items-center gap-1"
-                          >
-                            <Target className="h-3 w-3" />
-                            {stats.successRate}% on target
-                          </Badge>
+                        <div className="flex items-center gap-3">
+                          <div className="text-right">
+                            <Badge 
+                              variant="secondary"
+                              className="flex items-center gap-1"
+                            >
+                              <Target className="h-3 w-3" />
+                              {stats.successRate}% on target
+                            </Badge>
+                          </div>
+                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
                         </div>
-                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                      </div>
-                    </Button>
-                  );
-                })}
-              </div>
+                      </Button>
+                    );
+                  })}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

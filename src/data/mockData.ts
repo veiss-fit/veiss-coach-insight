@@ -357,6 +357,11 @@ export const generateSessionLogs = (athleteId: string): Session[] => {
   const athlete = mockAthletes.find((a) => a.id === athleteId);
   if (!athlete) return [];
 
+  // New players (added via the UI) have no sessions yet
+  if (athleteId.startsWith("new-")) {
+    return [];
+  }
+
   const baseSeed = hashString(athleteId);
   const sessions: Session[] = [];
   
