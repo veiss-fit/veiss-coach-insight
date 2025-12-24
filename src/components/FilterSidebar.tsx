@@ -174,7 +174,21 @@ export const FilterSidebar = ({
             </div>
 
             <div className="space-y-2">
-              <Label>Sport</Label>
+              <div className="flex items-center justify-between">
+                <Label>Sport</Label>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className="h-6 px-2 text-xs"
+                  onClick={() => {
+                    setIsCreateTeamOpen(false);
+                    setIsAddSportOpen(true);
+                  }}
+                >
+                  <Plus className="h-3 w-3 mr-1" />
+                  Add New
+                </Button>
+              </div>
               <Select value={teamSport} onValueChange={setTeamSport}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select a sport" />
