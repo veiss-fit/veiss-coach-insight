@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { format } from "date-fns";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,9 +9,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { mockAthletes } from "@/data/mockData";
-import { Megaphone, Send } from "lucide-react";
+import { Megaphone, Send, CalendarIcon } from "lucide-react";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 interface AnnouncementBuilderProps {
   open: boolean;
@@ -22,6 +26,7 @@ export const AnnouncementBuilder = ({ open, onClose }: AnnouncementBuilderProps)
   const [message, setMessage] = useState("");
   const [priority, setPriority] = useState<"normal" | "urgent">("normal");
   const [selectedAthletes, setSelectedAthletes] = useState<string[]>([]);
+  const [scheduledDate, setScheduledDate] = useState<Date>();
   const [filterSport, setFilterSport] = useState("all");
   const [filterLevel, setFilterLevel] = useState("all");
   const [filterGroup, setFilterGroup] = useState("all");
@@ -60,13 +65,15 @@ export const AnnouncementBuilder = ({ open, onClose }: AnnouncementBuilderProps)
       return;
     }
 
-    toast.success(`Announcement "${title}" sent to ${selectedAthletes.length} athlete(s)`);
+    const dateInfo = scheduledDate ? ` for ${format(scheduledDate, "PPP")}` : "";
+    toast.success(`Announcement "${title}" sent to ${selectedAthletes.length} athlete(s)${dateInfo}`);
     onClose();
     // Reset form
     setTitle("");
     setMessage("");
     setPriority("normal");
     setSelectedAthletes([]);
+    setScheduledDate(undefined);
   };
 
   return (
@@ -122,6 +129,33 @@ export const AnnouncementBuilder = ({ open, onClose }: AnnouncementBuilderProps)
                   <SelectItem value="urgent">Urgent</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Scheduled Date</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className={cn(
+                      "w-full justify-start text-left font-normal",
+                      !scheduledDate && "text-muted-foreground"
+                    )}
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {scheduledDate ? format(scheduledDate, "PPP") : <span>Pick a date</span>}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={scheduledDate}
+                    onSelect={setScheduledDate}
+                    initialFocus
+                    className="p-3 pointer-events-auto"
+                  />
+                </PopoverContent>
+              </Popover>
             </div>
 
             {priority === "urgent" && (
