@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Athlete, generateSessionLogs, Session } from "@/data/mockData";
-import { Activity, Calendar, ChevronRight, Dumbbell, Target } from "lucide-react";
+import { Calendar, ChevronRight, Dumbbell, Target } from "lucide-react";
 import { SessionDetailPanel } from "./SessionDetailPanel";
 
 interface AthleteDetailPanelProps {
@@ -52,17 +52,6 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
         </SheetHeader>
 
         <div className="mt-6 space-y-6">
-          {/* Current Stats */}
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Activity className="h-4 w-4 text-chart-1" />
-                <p className="text-xs text-muted-foreground">Average Velocity</p>
-              </div>
-              <p className="text-2xl font-bold">{athlete.avgVelocity} m/s</p>
-            </CardContent>
-          </Card>
-
           {/* Sessions List */}
           <Card>
             <CardHeader>
