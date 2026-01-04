@@ -1,12 +1,12 @@
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Session } from "@/data/mockData";
+import { SessionData } from "@/services/sessionsService";
 import { Dumbbell, Activity, Target } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Cell } from "recharts";
 
 interface SessionDetailPanelProps {
-  session: Session | null;
+  session: SessionData | null;
   open: boolean;
   onClose: () => void;
 }

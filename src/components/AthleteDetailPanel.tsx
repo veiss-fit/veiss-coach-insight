@@ -1,11 +1,14 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Athlete, generateSessionLogs, Session } from "@/data/mockData";
+import { Athlete } from "@/data/mockData";
 import { Calendar, ChevronRight, Dumbbell, Target } from "lucide-react";
 import { SessionDetailPanel } from "./SessionDetailPanel";
+import { getPlayerSessions, SessionData } from "@/services/sessionsService";
+import { toast } from "sonner";
+// import { useSessionsSubscription } from "@/hooks/useRealtimeSubscriptions"; // Disabled for free tier
 
 interface AthleteDetailPanelProps {
   athlete: Athlete | null;
@@ -14,14 +17,50 @@ interface AthleteDetailPanelProps {
 }
 
 export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPanelProps) => {
-  const [selectedSession, setSelectedSession] = useState<Session | null>(null);
+  const [selectedSession, setSelectedSession] = useState<SessionData | null>(null);
+  const [sessionLogs, setSessionLogs] = useState<SessionData[]>([]);
+  const [loading, setLoading] = useState(false);
+  
+  // Load sessions when athlete changes or panel opens
+  useEffect(() => {
+    if (athlete && open) {
+      loadSessions();
+    }
+  }, [athlete?.id, open]);
+
+  /* Real-time subscription disabled (requires Supabase Pro plan)
+  // Subscribe to new sessions for real-time updates
+  useSessionsSubscription(
+    (session) => {
+      // Reload sessions if this is for the current athlete
+      if (athlete && session.user_id === athlete.id) {
+        console.log('Real-time: New session for current athlete');
+        loadSessions();
+      }
+    },
+    !!(athlete && open) // Only subscribe when panel is open with an athlete
+  );
+  */
+
+  const loadSessions = async () => {
+    if (!athlete) return;
+    
+    try {
+      setLoading(true);
+      const sessions = await getPlayerSessions(athlete.id);
+      setSessionLogs(sessions);
+    } catch (error) {
+      console.error('Error loading sessions:', error);
+      toast.error('Failed to load workout sessions');
+    } finally {
+      setLoading(false);
+    }
+  };
   
   if (!athlete) return null;
 
-  const sessionLogs = generateSessionLogs(athlete.id);
-
   // Calculate session stats
-  const getSessionStats = (session: Session) => {
+  const getSessionStats = (session: SessionData) => {
     const totalExercises = session.exercises.length;
     let totalInTarget = 0;
     let totalReps = 0;
@@ -61,7 +100,11 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {sessionLogs.length === 0 ? (
+              {loading ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <p>Loading sessions...</p>
+                </div>
+              ) : sessionLogs.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   <Calendar className="h-12 w-12 mx-auto mb-3 opacity-50" />
                   <p className="font-medium">No training sessions yet</p>

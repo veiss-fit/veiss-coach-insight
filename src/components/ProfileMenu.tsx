@@ -13,11 +13,16 @@ import { User, Settings, LogOut, Bell } from "lucide-react";
 
 export const ProfileMenu = () => {
   const navigate = useNavigate();
-  const { logout } = useAuth();
+  const { profile, logout } = useAuth();
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     navigate("/login");
+  };
+  
+  const getInitials = (name: string | null) => {
+    if (!name) return "C";
+    return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
   };
 
   return (
@@ -26,15 +31,17 @@ export const ProfileMenu = () => {
         <button className="focus:outline-none focus:ring-2 focus:ring-gold rounded-full">
           <Avatar className="cursor-pointer hover:ring-2 hover:ring-gold transition-all">
             <AvatarImage src="" />
-            <AvatarFallback className="bg-navy-dark text-white font-semibold">CM</AvatarFallback>
+            <AvatarFallback className="bg-navy-dark text-white font-semibold">
+              {getInitials(profile?.full_name || null)}
+            </AvatarFallback>
           </Avatar>
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-56 bg-white border-border z-50" align="end">
         <DropdownMenuLabel className="font-normal">
           <div className="flex flex-col space-y-1">
-            <p className="text-sm font-medium leading-none">Coach Martin</p>
-            <p className="text-xs leading-none text-muted-foreground">coach.martin@veiss.com</p>
+            <p className="text-sm font-medium leading-none">{profile?.full_name || "Coach"}</p>
+            <p className="text-xs leading-none text-muted-foreground">{profile?.coach?.email || ""}</p>
           </div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />

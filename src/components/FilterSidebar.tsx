@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
@@ -8,20 +8,25 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Plus, Users } from "lucide-react";
 import { toast } from "sonner";
-import { sportsList, addSport, addTeam } from "@/data/mockData";
+import { getSportsList } from "@/services/playersService";
+import { supabase } from "@/lib/supabase";
 
 interface FilterSidebarProps {
   sportFilter: string;
   levelFilter: string;
+  teamFilter?: string;
   onSportChange: (value: string) => void;
   onLevelChange: (value: string) => void;
+  onTeamChange?: (value: string) => void;
 }
 
 export const FilterSidebar = ({
   sportFilter,
   levelFilter,
+  teamFilter = "all",
   onSportChange,
   onLevelChange,
+  onTeamChange,
 }: FilterSidebarProps) => {
   const [isCreateTeamOpen, setIsCreateTeamOpen] = useState(false);
   const [isAddSportOpen, setIsAddSportOpen] = useState(false);
@@ -29,25 +34,72 @@ export const FilterSidebar = ({
   const [teamSport, setTeamSport] = useState("");
   const [teamLevel, setTeamLevel] = useState("");
   const [newSport, setNewSport] = useState("");
-  const [, forceUpdate] = useState(0);
+  const [sportsList, setSportsList] = useState<string[]>([]);
+  const [teamsList, setTeamsList] = useState<Array<{ id: string; name: string; sport: string }>>([]);
 
-  const handleCreateTeam = () => {
-    if (!teamName.trim() || !teamSport || !teamLevel) {
-      toast.error("Please fill out all fields");
+  // Load sports and teams from database
+  useEffect(() => {
+    loadSports();
+    loadTeams();
+  }, []);
+
+  const loadSports = async () => {
+    try {
+      const sports = await getSportsList();
+      setSportsList(sports);
+    } catch (error) {
+      console.error('Error loading sports:', error);
+      // Fallback to default sports if loading fails
+      setSportsList(["Football", "Basketball", "Soccer", "Volleyball"]);
+    }
+  };
+
+  const loadTeams = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('teams')
+        .select('id, name, sport')
+        .order('name', { ascending: true });
+
+      if (error) throw error;
+      setTeamsList(data || []);
+    } catch (error) {
+      console.error('Error loading teams:', error);
+    }
+  };
+
+  const handleCreateTeam = async () => {
+    if (!teamName.trim() || !teamSport) {
+      toast.error("Please fill out team name and sport");
       return;
     }
     
-    addTeam({
-      name: teamName.trim(),
-      sport: teamSport,
-      level: teamLevel,
-    });
-    
-    toast.success(`Team "${teamName}" created successfully`);
-    setIsCreateTeamOpen(false);
-    setTeamName("");
-    setTeamSport("");
-    setTeamLevel("");
+    try {
+      const { error } = await supabase
+        .from('teams')
+        .insert({
+          name: teamName.trim(),
+          sport: teamSport,
+        });
+
+      if (error) throw error;
+      
+      toast.success(`Team "${teamName}" created successfully`);
+      setIsCreateTeamOpen(false);
+      setTeamName("");
+      setTeamSport("");
+      setTeamLevel("");
+      
+      // Reload sports and teams list
+      await loadSports();
+      await loadTeams();
+      
+      // Trigger page refresh to show new team
+      window.location.reload();
+    } catch (error) {
+      console.error('Error creating team:', error);
+      toast.error('Failed to create team');
+    }
   };
 
   const handleAddSport = () => {
@@ -59,11 +111,12 @@ export const FilterSidebar = ({
       toast.error("This sport already exists");
       return;
     }
-    addSport(newSport.trim());
+    
+    // Add to local list (will be added to DB when team is created with this sport)
+    setSportsList([...sportsList, newSport.trim()]);
     toast.success(`"${newSport.trim()}" added to sports list`);
     setNewSport("");
     setIsAddSportOpen(false);
-    forceUpdate(n => n + 1); // Trigger re-render
   };
 
   return (
@@ -101,6 +154,26 @@ export const FilterSidebar = ({
               </SelectContent>
             </Select>
           </div>
+
+          {onTeamChange && (
+            <div className="space-y-2">
+              <Label htmlFor="team-filter" className="text-navy-dark">Team</Label>
+              <Select value={teamFilter} onValueChange={onTeamChange}>
+                <SelectTrigger id="team-filter" className="bg-background">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Teams</SelectItem>
+                  <SelectItem value="unassigned">No Team (Unassigned)</SelectItem>
+                  {teamsList.map((team) => (
+                    <SelectItem key={team.id} value={team.id}>
+                      {team.name} ({team.sport})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           <Separator className="my-4" />
 
@@ -197,18 +270,8 @@ export const FilterSidebar = ({
               </Select>
             </div>
 
-            <div className="space-y-2">
-              <Label>Level</Label>
-              <Select value={teamLevel} onValueChange={setTeamLevel}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a level" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Varsity">Varsity</SelectItem>
-                  <SelectItem value="JV">JV</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            {/* Level removed - teams table doesn't have level column */}
+            {/* You can add level to team name if needed, e.g., "Varsity Football" */}
 
             <div className="flex justify-end gap-2 pt-4">
               <Button variant="outline" onClick={() => setIsCreateTeamOpen(false)}>

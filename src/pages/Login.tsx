@@ -14,15 +14,24 @@ const Login = () => {
   const { login } = useAuth();
   const navigate = useNavigate();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setLoading(true);
     
-    const success = login(email, password);
-    if (success) {
-      toast.success("Welcome back, Coach Martin!");
-      navigate("/");
-    } else {
-      toast.error("Invalid credentials. Please try again.");
+    try {
+      const result = await login(email, password);
+      if (result.success) {
+        toast.success("Welcome back, Coach!");
+        navigate("/");
+      } else {
+        toast.error(result.error || "Invalid credentials. Please try again.");
+      }
+    } catch (error) {
+      toast.error("An error occurred during login.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -71,8 +80,9 @@ const Login = () => {
             <Button 
               type="submit" 
               className="w-full bg-gold text-navy-dark hover:bg-gold/90 font-semibold"
+              disabled={loading}
             >
-              Sign In
+              {loading ? "Signing in..." : "Sign In"}
             </Button>
           </form>
         </CardContent>

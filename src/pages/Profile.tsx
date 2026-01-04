@@ -22,7 +22,7 @@ import { User, Mail, Shield, Calendar, Users, Upload, Camera, X } from "lucide-r
 import { toast } from "sonner";
 
 const Profile = () => {
-  const { user, changePassword } = useAuth();
+  const { user, profile, logout } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [isEditing, setIsEditing] = useState(false);
@@ -110,7 +110,7 @@ const Profile = () => {
     setNotificationsModalOpen(false);
   };
 
-  const handleChangePassword = () => {
+  const handleChangePassword = async () => {
     if (!currentPassword || !newPassword || !confirmPassword) {
       toast.error("Please fill in all password fields");
       return;
@@ -123,16 +123,26 @@ const Profile = () => {
       toast.error("Password must be at least 8 characters");
       return;
     }
-    const success = changePassword(currentPassword, newPassword);
-    if (!success) {
-      toast.error("Current password is incorrect");
-      return;
+    
+    try {
+      const { supabase } = await import("@/lib/supabase");
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword
+      });
+      
+      if (error) {
+        toast.error(error.message || "Failed to change password");
+        return;
+      }
+      
+      toast.success("Password changed successfully");
+      setPasswordModalOpen(false);
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (error) {
+      toast.error("An error occurred while changing password");
     }
-    toast.success("Password changed successfully");
-    setPasswordModalOpen(false);
-    setCurrentPassword("");
-    setNewPassword("");
-    setConfirmPassword("");
   };
 
   const handleToggleTwoFactor = () => {
@@ -170,9 +180,11 @@ const Profile = () => {
                 </AvatarFallback>
               </Avatar>
               <div className="text-center">
-                <h3 className="font-semibold text-lg">{user?.name}</h3>
+                <h3 className="font-semibold text-lg">{profile?.full_name || "Coach"}</h3>
                 <p className="text-sm text-muted-foreground">{user?.email}</p>
-                <Badge className="mt-2 bg-gold text-navy-dark">Head Coach</Badge>
+                <Badge className="mt-2 bg-gold text-navy-dark">
+                  {profile?.coach?.teams?.name || "Coach"}
+                </Badge>
               </div>
               <Button variant="outline" className="w-full" onClick={() => setPhotoModalOpen(true)}>
                 <Camera className="h-4 w-4 mr-2" />
@@ -200,20 +212,20 @@ const Profile = () => {
                 <div className="space-y-2">
                   <Label htmlFor="firstName">
                     <User className="inline mr-2 h-4 w-4" />
-                    First Name
+                    Full Name
                   </Label>
                   <Input 
                     id="firstName" 
-                    defaultValue="Coach" 
+                    defaultValue={profile?.full_name || ""} 
                     disabled={!isEditing}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="lastName">Last Name</Label>
+                  <Label htmlFor="lastName">Team</Label>
                   <Input 
                     id="lastName" 
-                    defaultValue="Martin" 
-                    disabled={!isEditing}
+                    defaultValue={profile?.coach?.teams?.name || ""} 
+                    disabled
                   />
                 </div>
               </div>

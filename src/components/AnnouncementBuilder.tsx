@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { format } from "date-fns";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -11,10 +11,12 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { mockAthletes, sportsList } from "@/data/mockData";
 import { Megaphone, Send, CalendarIcon } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/contexts/AuthContext";
+import { getPlayersByTeamIds, PlayerWithStats, getSportsList } from "@/services/playersService";
+import { sendMessage } from "@/services/messagesService";
 
 interface AnnouncementBuilderProps {
   open: boolean;
@@ -22,6 +24,7 @@ interface AnnouncementBuilderProps {
 }
 
 export const AnnouncementBuilder = ({ open, onClose }: AnnouncementBuilderProps) => {
+  const { profile, user } = useAuth();
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
   const [priority, setPriority] = useState<"normal" | "urgent">("normal");
@@ -30,6 +33,40 @@ export const AnnouncementBuilder = ({ open, onClose }: AnnouncementBuilderProps)
   const [filterSport, setFilterSport] = useState("all");
   const [filterLevel, setFilterLevel] = useState("all");
   const [filterGroup, setFilterGroup] = useState("all");
+  const [sending, setSending] = useState(false);
+
+  // Real data
+  const [athletes, setAthletes] = useState<PlayerWithStats[]>([]);
+  const [sportsList, setSportsList] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  // Load athletes and sports when modal opens
+  useEffect(() => {
+    if (open) {
+      loadData();
+    }
+  }, [open, profile]);
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      
+      // Load athletes based on coach's team
+      let players: PlayerWithStats[] = [];
+      if (profile?.coach?.team_id) {
+        players = await getPlayersByTeamIds([profile.coach.team_id]);
+      }
+      setAthletes(players);
+
+      // Load sports list
+      const sports = await getSportsList();
+      setSportsList(sports);
+    } catch (error) {
+      console.error('Error loading data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const toggleAthlete = (athleteId: string) => {
     setSelectedAthletes(prev =>
@@ -48,14 +85,14 @@ export const AnnouncementBuilder = ({ open, onClose }: AnnouncementBuilderProps)
     setSelectedAthletes([]);
   };
 
-  const filteredAthletes = mockAthletes.filter(athlete => {
+  const filteredAthletes = athletes.filter(athlete => {
     if (filterSport !== "all" && athlete.sport !== filterSport) return false;
     if (filterLevel !== "all" && athlete.level !== filterLevel) return false;
     if (filterGroup !== "all" && athlete.group !== filterGroup) return false;
     return true;
   });
 
-  const handleSendAnnouncement = () => {
+  const handleSendAnnouncement = async () => {
     if (!title.trim() || !message.trim()) {
       toast.error("Please enter both a title and message");
       return;
@@ -64,16 +101,44 @@ export const AnnouncementBuilder = ({ open, onClose }: AnnouncementBuilderProps)
       toast.error("Please select at least one athlete");
       return;
     }
+    if (!user?.id) {
+      toast.error("User not authenticated");
+      return;
+    }
 
-    const dateInfo = scheduledDate ? ` for ${format(scheduledDate, "PPP")}` : "";
-    toast.success(`Announcement "${title}" sent to ${selectedAthletes.length} athlete(s)${dateInfo}`);
-    onClose();
-    // Reset form
-    setTitle("");
-    setMessage("");
-    setPriority("normal");
-    setSelectedAthletes([]);
-    setScheduledDate(undefined);
+    try {
+      setSending(true);
+
+      // Send to Supabase
+      const result = await sendMessage(
+        user.id, // sender_id (coach's user ID)
+        selectedAthletes,
+        title.trim(),
+        message.trim(),
+        'announcement',
+        priority
+      );
+
+      if (result.success) {
+        const dateInfo = scheduledDate ? ` for ${format(scheduledDate, "PPP")}` : "";
+        toast.success(`Announcement "${title}" sent to ${result.count} athlete(s)${dateInfo}`);
+        onClose();
+        
+        // Reset form
+        setTitle("");
+        setMessage("");
+        setPriority("normal");
+        setSelectedAthletes([]);
+        setScheduledDate(undefined);
+      } else {
+        toast.error(result.error || "Failed to send announcement");
+      }
+    } catch (error) {
+      console.error('Error sending announcement:', error);
+      toast.error("An error occurred while sending the announcement");
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -132,7 +197,7 @@ export const AnnouncementBuilder = ({ open, onClose }: AnnouncementBuilderProps)
             </div>
 
             <div className="space-y-2">
-              <Label>Scheduled Date</Label>
+              <Label>Scheduled Date (Optional)</Label>
               <Popover>
                 <PopoverTrigger asChild>
                   <Button
@@ -143,7 +208,7 @@ export const AnnouncementBuilder = ({ open, onClose }: AnnouncementBuilderProps)
                     )}
                   >
                     <CalendarIcon className="mr-2 h-4 w-4" />
-                    {scheduledDate ? format(scheduledDate, "PPP") : <span>Pick a date</span>}
+                    {scheduledDate ? format(scheduledDate, "PPP") : <span>Pick a date (optional)</span>}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
@@ -157,6 +222,9 @@ export const AnnouncementBuilder = ({ open, onClose }: AnnouncementBuilderProps)
                   />
                 </PopoverContent>
               </Popover>
+              <p className="text-xs text-muted-foreground">
+                Note: Messages are sent immediately. Date is for reference only.
+              </p>
             </div>
 
             {priority === "urgent" && (
@@ -238,26 +306,36 @@ export const AnnouncementBuilder = ({ open, onClose }: AnnouncementBuilderProps)
               </Label>
               <Card className="max-h-[400px] overflow-y-auto">
                 <CardContent className="p-3 space-y-2">
-                  {filteredAthletes.map(athlete => (
-                    <div
-                      key={athlete.id}
-                      className="flex items-center space-x-2 p-2 hover:bg-muted rounded-md cursor-pointer"
-                      onClick={() => toggleAthlete(athlete.id)}
-                    >
-                      <Checkbox
-                        checked={selectedAthletes.includes(athlete.id)}
-                        onCheckedChange={() => toggleAthlete(athlete.id)}
-                      />
-                      <div className="flex-1">
-                        <p className="text-sm font-medium">{athlete.name}</p>
-                        <div className="flex gap-1 mt-1">
-                          <Badge variant="outline" className="text-xs">{athlete.sport}</Badge>
-                          <Badge variant="outline" className="text-xs">{athlete.level}</Badge>
-                          <Badge variant="outline" className="text-xs">{athlete.group}</Badge>
+                  {loading ? (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <p>Loading athletes...</p>
+                    </div>
+                  ) : filteredAthletes.length === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <p>No athletes found</p>
+                    </div>
+                  ) : (
+                    filteredAthletes.map(athlete => (
+                      <div
+                        key={athlete.id}
+                        className="flex items-center space-x-2 p-2 hover:bg-muted rounded-md cursor-pointer"
+                        onClick={() => toggleAthlete(athlete.id)}
+                      >
+                        <Checkbox
+                          checked={selectedAthletes.includes(athlete.id)}
+                          onCheckedChange={() => toggleAthlete(athlete.id)}
+                        />
+                        <div className="flex-1">
+                          <p className="text-sm font-medium">{athlete.name}</p>
+                          <div className="flex gap-1 mt-1">
+                            <Badge variant="outline" className="text-xs">{athlete.sport}</Badge>
+                            <Badge variant="outline" className="text-xs">{athlete.level}</Badge>
+                            <Badge variant="outline" className="text-xs">{athlete.group}</Badge>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </CardContent>
               </Card>
             </div>
@@ -265,10 +343,14 @@ export const AnnouncementBuilder = ({ open, onClose }: AnnouncementBuilderProps)
         </div>
 
         <div className="flex justify-end gap-2 mt-4">
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={handleSendAnnouncement} className="bg-primary text-navy-dark hover:bg-primary/90">
+          <Button variant="outline" onClick={onClose} disabled={sending}>Cancel</Button>
+          <Button 
+            onClick={handleSendAnnouncement} 
+            className="bg-primary text-navy-dark hover:bg-primary/90"
+            disabled={sending}
+          >
             <Send className="h-4 w-4 mr-2" />
-            Send Announcement
+            {sending ? "Sending..." : "Send Announcement"}
           </Button>
         </div>
       </DialogContent>
