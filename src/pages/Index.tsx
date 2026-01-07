@@ -15,7 +15,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { getPlayersByTeamIds, getAllPlayers, PlayerWithStats } from "@/services/playersService";
 import { getCoachDashboardStats, DashboardStats } from "@/services/statsService";
 // import { useDashboardSubscription } from "@/hooks/useRealtimeSubscriptions"; // Disabled for free tier
-
+import { TemplateBuilder } from '@/components/TemplateBuilder';
 
 const Index = () => {
   const { profile, loading: authLoading } = useAuth();
@@ -27,6 +27,7 @@ const Index = () => {
   const [levelFilter, setLevelFilter] = useState("all");
   const [teamFilter, setTeamFilter] = useState("all");
   const [refreshKey, setRefreshKey] = useState(0);
+  const [isTemplateBuilderOpen, setIsTemplateBuilderOpen] = useState(false);
   
   // Real data from Supabase
   const [athletes, setAthletes] = useState<PlayerWithStats[]>([]);
@@ -201,6 +202,11 @@ const Index = () => {
               <Megaphone className="h-4 w-4 mr-2" />
               Announcements
             </Button>
+            <Button variant="outline" onClick={() => setIsTemplateBuilderOpen(true)}>
+              <Layers className="h-4 w-4 mr-2" />
+              Create Template
+            </Button>
+            {/* ------------------------- */}
             <Button 
               variant="outline"
               onClick={() => setPlayerBuilderOpen(true)}
@@ -295,6 +301,11 @@ const Index = () => {
         open={playerBuilderOpen}
         onClose={handlePlayerBuilderClose}
       />
+      <TemplateBuilder 
+        open={isTemplateBuilderOpen} 
+        onClose={() => setIsTemplateBuilderOpen(false)} 
+      />
+      {/* ---------------------------- */}
     </div>
   );
 };
