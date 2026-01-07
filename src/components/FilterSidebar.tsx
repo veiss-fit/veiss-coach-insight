@@ -1,16 +1,19 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom"; // Import useNavigate
+import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Plus, Users, History, Clock } from "lucide-react"; // Import History/Clock icons
+import { Input } from "@/components/ui/input";
+// 1. Updated Imports: Added Trophy, removed Plus (if no longer used elsewhere)
+import { Users, History, Trophy, Plus } from "lucide-react"; 
 import { toast } from "sonner";
 import { getSportsList } from "@/services/playersService";
 import { supabase } from "@/lib/supabase";
+// 2. Import the new Manager
+import { TeamSportManager } from "@/components/TeamSportManager";
 
 interface FilterSidebarProps {
   sportFilter: string;
@@ -29,17 +32,17 @@ export const FilterSidebar = ({
   onLevelChange,
   onTeamChange,
 }: FilterSidebarProps) => {
-  const navigate = useNavigate(); // Initialize hook
-  const [isCreateTeamOpen, setIsCreateTeamOpen] = useState(false);
+  const navigate = useNavigate();
+  // 3. New State for the Manager
+  const [isManagerOpen, setIsManagerOpen] = useState(false);
+  
+  // Keep these for the separate "Add Sport" dialog if you still want it
   const [isAddSportOpen, setIsAddSportOpen] = useState(false);
-  const [teamName, setTeamName] = useState("");
-  const [teamSport, setTeamSport] = useState("");
-  // const [teamLevel, setTeamLevel] = useState(""); // Unused
   const [newSport, setNewSport] = useState("");
+  
   const [sportsList, setSportsList] = useState<string[]>([]);
   const [teamsList, setTeamsList] = useState<Array<{ id: string; name: string; sport: string }>>([]);
 
-  // Load sports and teams from database
   useEffect(() => {
     loadSports();
     loadTeams();
@@ -51,7 +54,6 @@ export const FilterSidebar = ({
       setSportsList(sports);
     } catch (error) {
       console.error('Error loading sports:', error);
-      // Fallback to default sports if loading fails
       setSportsList(["Football", "Basketball", "Soccer", "Volleyball"]);
     }
   };
@@ -70,39 +72,6 @@ export const FilterSidebar = ({
     }
   };
 
-  const handleCreateTeam = async () => {
-    if (!teamName.trim() || !teamSport) {
-      toast.error("Please fill out team name and sport");
-      return;
-    }
-    
-    try {
-      const { error } = await supabase
-        .from('teams')
-        .insert({
-          name: teamName.trim(),
-          sport: teamSport,
-        });
-
-      if (error) throw error;
-      
-      toast.success(`Team "${teamName}" created successfully`);
-      setIsCreateTeamOpen(false);
-      setTeamName("");
-      setTeamSport("");
-      
-      // Reload sports and teams list
-      await loadSports();
-      await loadTeams();
-      
-      // Trigger page refresh to show new team
-      window.location.reload();
-    } catch (error) {
-      console.error('Error creating team:', error);
-      toast.error('Failed to create team');
-    }
-  };
-
   const handleAddSport = () => {
     if (!newSport.trim()) {
       toast.error("Please enter a sport name");
@@ -112,8 +81,6 @@ export const FilterSidebar = ({
       toast.error("This sport already exists");
       return;
     }
-    
-    // Add to local list (will be added to DB when team is created with this sport)
     setSportsList([...sportsList, newSport.trim()]);
     toast.success(`"${newSport.trim()}" added to sports list`);
     setNewSport("");
@@ -122,7 +89,7 @@ export const FilterSidebar = ({
 
   return (
     <div className="space-y-4">
-      {/* 1. Quick Actions Card (New) */}
+      {/* Management Card */}
       <Card className="bg-white border-border">
         <CardHeader>
           <CardTitle className="text-navy-dark flex items-center gap-2">
@@ -142,18 +109,19 @@ export const FilterSidebar = ({
           
           <Separator />
 
+          {/* 4. REPLACED: Old "Create New Team" with "Manage Teams & Sports" */}
           <Button 
-            onClick={() => setIsCreateTeamOpen(true)} 
+            onClick={() => setIsManagerOpen(true)} 
             className="w-full justify-start"
             variant="ghost"
           >
-            <Plus className="h-4 w-4 mr-2" />
-            Create New Team
+            <Trophy className="h-4 w-4 mr-2" />
+            Manage Teams & Sports
           </Button>
         </CardContent>
       </Card>
 
-      {/* 2. Filters Card (Existing) */}
+      {/* Filters Card */}
       <Card className="bg-white border-border">
         <CardHeader>
           <CardTitle className="text-navy-dark">Filters</CardTitle>
@@ -210,14 +178,22 @@ export const FilterSidebar = ({
         </CardContent>
       </Card>
 
-      {/* Add Sport Dialog */}
+      {/* 5. ADDED: New Manager Component */}
+      <TeamSportManager 
+        open={isManagerOpen} 
+        onClose={() => {
+          setIsManagerOpen(false);
+          loadTeams(); // Reload teams when manager closes to reflect updates
+          loadSports();
+        }} 
+      />
+
+      {/* Legacy Add Sport Dialog (Optional, can be removed if handled in Manager) */}
       <Dialog open={isAddSportOpen} onOpenChange={setIsAddSportOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add New Sport</DialogTitle>
-            <DialogDescription>
-              Add a new sport to your organization
-            </DialogDescription>
+            <DialogDescription>Add a new sport to your organization</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 mt-4">
             <div className="space-y-2">
@@ -230,75 +206,8 @@ export const FilterSidebar = ({
               />
             </div>
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setIsAddSportOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={handleAddSport}>
-                Add Sport
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={isCreateTeamOpen} onOpenChange={setIsCreateTeamOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Users className="h-5 w-5 text-primary" />
-              Create New Team
-            </DialogTitle>
-            <DialogDescription>
-              Add a new team to your organization
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 mt-4">
-            <div className="space-y-2">
-              <Label htmlFor="team-name">Team Name</Label>
-              <Input
-                id="team-name"
-                placeholder="e.g., Varsity Football"
-                value={teamName}
-                onChange={(e) => setTeamName(e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label>Sport</Label>
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  className="h-6 px-2 text-xs"
-                  onClick={() => {
-                    setIsCreateTeamOpen(false);
-                    setIsAddSportOpen(true);
-                  }}
-                >
-                  <Plus className="h-3 w-3 mr-1" />
-                  Add New
-                </Button>
-              </div>
-              <Select value={teamSport} onValueChange={setTeamSport}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a sport" />
-                </SelectTrigger>
-                <SelectContent>
-                  {sportsList.map((sport) => (
-                    <SelectItem key={sport} value={sport}>{sport}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-4">
-              <Button variant="outline" onClick={() => setIsCreateTeamOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={handleCreateTeam}>
-                Create Team
-              </Button>
+              <Button variant="outline" onClick={() => setIsAddSportOpen(false)}>Cancel</Button>
+              <Button onClick={handleAddSport}>Add Sport</Button>
             </div>
           </div>
         </DialogContent>

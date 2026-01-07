@@ -20,6 +20,64 @@ export interface PlayerWithStats extends Player {
 }
 
 /**
+ * Update a team's details
+ */
+export const updateTeam = async (
+  teamId: string, 
+  updates: { name?: string; sport?: string }
+): Promise<boolean> => {
+  try {
+    const { error } = await supabase
+      .from('teams')
+      .update(updates)
+      .eq('id', teamId);
+
+    if (error) throw error;
+    return true;
+  } catch (error) {
+    console.error('Error updating team:', error);
+    return false;
+  }
+};
+
+/**
+ * Delete a team
+ * Note: This might fail if players are linked to it, depending on your DB constraints
+ */
+export const deleteTeam = async (teamId: string): Promise<boolean> => {
+  try {
+    const { error } = await supabase
+      .from('teams')
+      .delete()
+      .eq('id', teamId);
+
+    if (error) throw error;
+    return true;
+  } catch (error) {
+    console.error('Error deleting team:', error);
+    return false;
+  }
+};
+
+/**
+ * Batch rename a sport across all teams
+ * Useful for fixing typos (e.g. "Socer" -> "Soccer")
+ */
+export const updateSportName = async (oldName: string, newName: string): Promise<boolean> => {
+  try {
+    const { error } = await supabase
+      .from('teams')
+      .update({ sport: newName })
+      .eq('sport', oldName);
+
+    if (error) throw error;
+    return true;
+  } catch (error) {
+    console.error('Error updating sport name:', error);
+    return false;
+  }
+};
+/**
  * Fetch all players for a specific team(s) that the coach manages
  */
 export const getPlayersByTeamIds = async (teamIds: string[]): Promise<PlayerWithStats[]> => {
