@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom"; // Import useNavigate
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
@@ -6,7 +7,7 @@ import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Plus, Users } from "lucide-react";
+import { Plus, Users, History, Clock } from "lucide-react"; // Import History/Clock icons
 import { toast } from "sonner";
 import { getSportsList } from "@/services/playersService";
 import { supabase } from "@/lib/supabase";
@@ -28,11 +29,12 @@ export const FilterSidebar = ({
   onLevelChange,
   onTeamChange,
 }: FilterSidebarProps) => {
+  const navigate = useNavigate(); // Initialize hook
   const [isCreateTeamOpen, setIsCreateTeamOpen] = useState(false);
   const [isAddSportOpen, setIsAddSportOpen] = useState(false);
   const [teamName, setTeamName] = useState("");
   const [teamSport, setTeamSport] = useState("");
-  const [teamLevel, setTeamLevel] = useState("");
+  // const [teamLevel, setTeamLevel] = useState(""); // Unused
   const [newSport, setNewSport] = useState("");
   const [sportsList, setSportsList] = useState<string[]>([]);
   const [teamsList, setTeamsList] = useState<Array<{ id: string; name: string; sport: string }>>([]);
@@ -88,7 +90,6 @@ export const FilterSidebar = ({
       setIsCreateTeamOpen(false);
       setTeamName("");
       setTeamSport("");
-      setTeamLevel("");
       
       // Reload sports and teams list
       await loadSports();
@@ -120,7 +121,39 @@ export const FilterSidebar = ({
   };
 
   return (
-    <>
+    <div className="space-y-4">
+      {/* 1. Quick Actions Card (New) */}
+      <Card className="bg-white border-border">
+        <CardHeader>
+          <CardTitle className="text-navy-dark flex items-center gap-2">
+            <Users className="h-5 w-5" />
+            Management
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Button 
+            onClick={() => navigate('/history')} 
+            className="w-full justify-start"
+            variant="ghost"
+          >
+            <History className="h-4 w-4 mr-2" />
+            Communication History
+          </Button>
+          
+          <Separator />
+
+          <Button 
+            onClick={() => setIsCreateTeamOpen(true)} 
+            className="w-full justify-start"
+            variant="ghost"
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Create New Team
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* 2. Filters Card (Existing) */}
       <Card className="bg-white border-border">
         <CardHeader>
           <CardTitle className="text-navy-dark">Filters</CardTitle>
@@ -174,17 +207,6 @@ export const FilterSidebar = ({
               </Select>
             </div>
           )}
-
-          <Separator className="my-4" />
-
-          <Button 
-            onClick={() => setIsCreateTeamOpen(true)} 
-            className="w-full"
-            variant="outline"
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Create New Team
-          </Button>
         </CardContent>
       </Card>
 
@@ -270,9 +292,6 @@ export const FilterSidebar = ({
               </Select>
             </div>
 
-            {/* Level removed - teams table doesn't have level column */}
-            {/* You can add level to team name if needed, e.g., "Varsity Football" */}
-
             <div className="flex justify-end gap-2 pt-4">
               <Button variant="outline" onClick={() => setIsCreateTeamOpen(false)}>
                 Cancel
@@ -284,6 +303,6 @@ export const FilterSidebar = ({
           </div>
         </DialogContent>
       </Dialog>
-    </>
+    </div>
   );
 };

@@ -275,3 +275,49 @@ export const getCoachMessageStats = async (
   }
 };
 
+/**
+ * Get aggregated message history for the History page.
+ * Groups individual message rows into single "Announcement Events".
+ */
+export const getCoachMessageHistory = async (userId: string) => {
+  try {
+    const { data, error } = await supabase
+      .from('messages')
+      .select('*')
+      .eq('sender_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    const groupedMessages: any[] = [];
+    
+    data?.forEach((msg) => {
+      const msgTime = new Date(msg.created_at).getTime();
+      
+      // Try to find a batch with same Title (subject) sent within 60 seconds
+      const existingBatch = groupedMessages.find(b => 
+        b.title === msg.subject &&
+        Math.abs(new Date(b.sentAt).getTime() - msgTime) < 60000
+      );
+
+      if (existingBatch) {
+        existingBatch.recipientCount++;
+      } else {
+        groupedMessages.push({
+          id: msg.id,
+          title: msg.subject, // Map subject -> title
+          content: msg.message, // Map message -> content
+          // Since priority isn't in DB, assume normal or derive from content if you added a tag
+          priority: 'normal', 
+          sentAt: msg.created_at,
+          recipientCount: 1
+        });
+      }
+    });
+
+    return groupedMessages;
+  } catch (error) {
+    console.error('Error fetching message history:', error);
+    return [];
+  }
+};

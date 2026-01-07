@@ -10,6 +10,7 @@ import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import Profile from "./pages/Profile";
 import NotFound from "./pages/NotFound";
+import History from "./pages/History";
 
 const queryClient = new QueryClient();
 
@@ -23,6 +24,14 @@ const App = () => (
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<Signup />} />
+            <Route
+              path="/history"
+              element={
+                <ProtectedRoute allowedRoles={['coach']}>
+                  <History />
+                </ProtectedRoute>
+              }
+            />
             <Route
               path="/"
               element={
