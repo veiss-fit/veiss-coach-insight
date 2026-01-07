@@ -15,7 +15,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { getPlayersByTeamIds, getAllPlayers, PlayerWithStats } from "@/services/playersService";
 import { getCoachDashboardStats, DashboardStats } from "@/services/statsService";
 // import { useDashboardSubscription } from "@/hooks/useRealtimeSubscriptions"; // Disabled for free tier
-import { TemplateBuilder } from '@/components/TemplateBuilder';
+import { TemplateManager } from '@/components/TemplateManager';
 
 const Index = () => {
   const { profile, loading: authLoading } = useAuth();
@@ -123,13 +123,20 @@ const Index = () => {
       // Sidebar filters
       if (sportFilter !== "all" && athlete.sport !== sportFilter) return false;
       if (levelFilter !== "all" && athlete.level !== levelFilter) return false;
+      
+      // TEAM FILTER LOGIC
       if (teamFilter === "unassigned") {
-        // Show only players with no team
+        // Explicitly show ONLY unassigned players
         if (athlete.team_id !== null) return false;
-      } else if (teamFilter !== "all") {
-        // Show only players in selected team
+      } else if (teamFilter === "all") {
+        // "All Teams" now means "Anyone assigned to a team"
+        // Hides unassigned players from the default view
+        if (athlete.team_id === null) return false; 
+      } else {
+        // Specific team selected (e.g., "Varsity Basketball")
         if (athlete.team_id !== teamFilter) return false;
       }
+      
       return true;
     });
   }, [athletes, sportFilter, levelFilter, teamFilter]);
@@ -301,7 +308,7 @@ const Index = () => {
         open={playerBuilderOpen}
         onClose={handlePlayerBuilderClose}
       />
-      <TemplateBuilder 
+      <TemplateManager 
         open={isTemplateBuilderOpen} 
         onClose={() => setIsTemplateBuilderOpen(false)} 
       />
