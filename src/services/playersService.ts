@@ -207,33 +207,33 @@ export const calculatePlayerStats = async (playerId: string) => {
   }
 };
 
-/**
- * Add a new player
- */
-export const addPlayer = async (playerData: {
-  full_name: string;
-  team_id: string | null;
-  jersey_number?: number | null;
-  user_id?: string | null;
-}): Promise<Player> => {
-  try {
-    const { data, error } = await supabase
-      .from('players')
-      .insert(playerData)
-      .select()
-      .single();
+// /**
+//  * Add a new player
+//  */
+// export const addPlayer = async (playerData: {
+//   full_name: string;
+//   team_id: string | null;
+//   jersey_number?: number | null;
+//   user_id?: string | null;
+// }): Promise<Player> => {
+//   try {
+//     const { data, error } = await supabase
+//       .from('players')
+//       .insert(playerData)
+//       .select()
+//       .single();
 
-    if (error) {
-      console.error('Error adding player:', error);
-      throw error;
-    }
+//     if (error) {
+//       console.error('Error adding player:', error);
+//       throw error;
+//     }
 
-    return data;
-  } catch (error) {
-    console.error('Error in addPlayer:', error);
-    throw error;
-  }
-};
+//     return data;
+//   } catch (error) {
+//     console.error('Error in addPlayer:', error);
+//     throw error;
+//   }
+// };
 
 /**
  * Assign an existing player to a team
