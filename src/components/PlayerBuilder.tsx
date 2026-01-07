@@ -3,11 +3,15 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Users } from "lucide-react";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Users, Check, ChevronsUpDown, X } from "lucide-react";
 import { toast } from "sonner";
 import { assignPlayerToTeam, getAllPlayersForAssignment } from "@/services/playersService";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
+import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
 
 interface PlayerBuilderProps {
   open: boolean;
@@ -17,20 +21,21 @@ interface PlayerBuilderProps {
 export const PlayerBuilder = ({ open, onClose }: PlayerBuilderProps) => {
   const { profile } = useAuth();
   
-  // Assign existing player state
-  const [selectedPlayerId, setSelectedPlayerId] = useState("");
+  // State changes: selectedPlayerId (string) -> selectedPlayerIds (array)
+  const [selectedPlayerIds, setSelectedPlayerIds] = useState<string[]>([]);
   const [assignTeamId, setAssignTeamId] = useState("");
+  const [comboboxOpen, setComboboxOpen] = useState(false);
   
   const [teams, setTeams] = useState<Array<{ id: string; name: string; sport: string }>>([]);
   const [existingPlayers, setExistingPlayers] = useState<Array<{ id: string; full_name: string; team_id: string | null; current_team_name?: string | null }>>([]);
   const [loading, setLoading] = useState(false);
   const [loadingPlayers, setLoadingPlayers] = useState(false);
 
-  // Load teams and existing players when modal opens
   useEffect(() => {
     if (open) {
       loadTeams();
       loadExistingPlayers();
+      setSelectedPlayerIds([]); // Reset selection on open
     }
   }, [open]);
 
@@ -44,7 +49,6 @@ export const PlayerBuilder = ({ open, onClose }: PlayerBuilderProps) => {
       if (error) throw error;
       setTeams(data || []);
       
-      // Auto-select coach's team for the assignment dropdown
       if (profile?.coach?.team_id) {
         setAssignTeamId(profile.coach.team_id);
       }
@@ -61,46 +65,48 @@ export const PlayerBuilder = ({ open, onClose }: PlayerBuilderProps) => {
     } catch (error) {
       console.error('Error loading existing players:', error);
       toast.error('Failed to load existing players');
-      setExistingPlayers([]);
+      setExistingPlayers([]); 
     } finally {
       setLoadingPlayers(false);
     }
   };
 
-  const handleAssignPlayer = async () => {
-    if (!selectedPlayerId) {
-      toast.error("Please select a player");
+  const togglePlayerSelection = (playerId: string) => {
+    setSelectedPlayerIds(prev => 
+      prev.includes(playerId) 
+        ? prev.filter(id => id !== playerId) 
+        : [...prev, playerId]
+    );
+  };
+
+  const handleAssignPlayers = async () => {
+    if (selectedPlayerIds.length === 0) {
+      toast.error("Please select at least one player");
       return;
     }
     
-    // Convert "null" string to null for unassigning, empty string also means unassign
     const teamIdToAssign = assignTeamId === "" || assignTeamId === "null" ? null : assignTeamId;
     
     try {
       setLoading(true);
       
-      await assignPlayerToTeam(selectedPlayerId, teamIdToAssign);
+      // Execute all assignments in parallel
+      const promises = selectedPlayerIds.map(playerId => 
+        assignPlayerToTeam(playerId, teamIdToAssign)
+      );
+
+      await Promise.all(promises);
       
-      const player = existingPlayers.find(p => p.id === selectedPlayerId);
-      const team = teamIdToAssign ? teams.find(t => t.id === teamIdToAssign) : null;
+      const teamName = teamIdToAssign ? teams.find(t => t.id === teamIdToAssign)?.name : "No Team";
       
-      if (teamIdToAssign) {
-        toast.success(`Player "${player?.full_name}" assigned to "${team?.name}"`);
-      } else {
-        toast.success(`Player "${player?.full_name}" unassigned from team`);
-      }
+      toast.success(`Successfully assigned ${selectedPlayerIds.length} player(s) to ${teamName}`);
       
       onClose();
-      
-      // Reset form
-      setSelectedPlayerId("");
-      // Note: We keep the team ID selected so they can easily add multiple players to the same team
-      
-      // Reload players list
+      setSelectedPlayerIds([]);
       await loadExistingPlayers();
     } catch (error) {
-      console.error('Error assigning player:', error);
-      toast.error('Failed to assign player to team');
+      console.error('Error assigning players:', error);
+      toast.error('Failed to assign players');
     } finally {
       setLoading(false);
     }
@@ -108,48 +114,91 @@ export const PlayerBuilder = ({ open, onClose }: PlayerBuilderProps) => {
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-2xl overflow-visible">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Users className="h-5 w-5 text-primary" />
             Manage Roster
           </DialogTitle>
           <DialogDescription>
-            Assign existing players to teams or remove them from the roster
+            Search and select multiple players to bulk assign them to a team.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 mt-4">
-          {/* Added Header here */}
-          <h3 className="font-semibold text-lg">Assign Player</h3>
-
           {loadingPlayers ? (
             <div className="text-center py-4 text-muted-foreground">
               Loading players...
             </div>
           ) : (
             <>
-              <div className="space-y-2">
-                <Label>Select Player</Label>
-                <Select value={selectedPlayerId} onValueChange={setSelectedPlayerId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Choose a player" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {existingPlayers.length === 0 ? (
-                      <SelectItem value="" disabled>No players available</SelectItem>
-                    ) : (
-                      existingPlayers.map((player) => (
-                        <SelectItem key={player.id} value={player.id}>
-                          {player.full_name}
-                          {player.current_team_name ? ` (Current: ${player.current_team_name})` : ' (No team)'}
-                        </SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
+              {/* Multi-Select Combobox */}
+              <div className="space-y-2 flex flex-col">
+                <Label>Select Players</Label>
+                <Popover open={comboboxOpen} onOpenChange={setComboboxOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={comboboxOpen}
+                      className="justify-between w-full font-normal h-auto min-h-[40px]"
+                    >
+                      {selectedPlayerIds.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          <Badge variant="secondary" className="mr-1">
+                            {selectedPlayerIds.length} selected
+                          </Badge>
+                          <span className="text-muted-foreground text-xs my-auto">
+                            (Click to add more)
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">Search and select players...</span>
+                      )}
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Search player name..." />
+                      <CommandList>
+                        <CommandEmpty>No player found.</CommandEmpty>
+                        <CommandGroup className="max-h-[300px] overflow-y-auto">
+                          {existingPlayers.map((player) => (
+                            <CommandItem
+                              key={player.id}
+                              value={player.full_name}
+                              onSelect={() => togglePlayerSelection(player.id)}
+                            >
+                              <div className={cn(
+                                "mr-2 flex h-4 w-4 items-center justify-center rounded-sm border border-primary",
+                                selectedPlayerIds.includes(player.id) ? "bg-primary text-primary-foreground" : "opacity-50 [&_svg]:invisible"
+                              )}>
+                                <Check className={cn("h-4 w-4")} />
+                              </div>
+                              <div className="flex flex-col">
+                                <span>{player.full_name}</span>
+                                <span className="text-xs text-muted-foreground">
+                                  {player.current_team_name ? `Current: ${player.current_team_name}` : "Unassigned"}
+                                </span>
+                              </div>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </div>
 
+              {/* Selected Summary (Optional visual confirmation) */}
+              {selectedPlayerIds.length > 0 && (
+                <div className="text-sm text-muted-foreground">
+                  Selected: {selectedPlayerIds.map(id => existingPlayers.find(p => p.id === id)?.full_name).join(", ")}
+                </div>
+              )}
+
+              {/* Team Dropdown */}
               <div className="space-y-2">
                 <Label>Assign to Team</Label>
                 <Select value={assignTeamId || ""} onValueChange={setAssignTeamId}>
@@ -171,8 +220,11 @@ export const PlayerBuilder = ({ open, onClose }: PlayerBuilderProps) => {
                 <Button variant="outline" onClick={onClose} disabled={loading || loadingPlayers}>
                   Cancel
                 </Button>
-                <Button onClick={handleAssignPlayer} disabled={loading || loadingPlayers || !selectedPlayerId}>
-                  {loading ? "Saving..." : "Save Assignment"}
+                <Button 
+                  onClick={handleAssignPlayers} 
+                  disabled={loading || loadingPlayers || selectedPlayerIds.length === 0}
+                >
+                  {loading ? "Assigning..." : `Assign ${selectedPlayerIds.length} Player(s)`}
                 </Button>
               </div>
             </>
