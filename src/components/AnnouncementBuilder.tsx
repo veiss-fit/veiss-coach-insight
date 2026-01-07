@@ -32,7 +32,7 @@ export const AnnouncementBuilder = ({ open, onClose }: AnnouncementBuilderProps)
   const [scheduledDate, setScheduledDate] = useState<Date>();
   const [filterSport, setFilterSport] = useState("all");
   const [filterLevel, setFilterLevel] = useState("all");
-  const [filterGroup, setFilterGroup] = useState("all");
+  // Removed filterGroup state
   const [sending, setSending] = useState(false);
 
   // Real data
@@ -88,7 +88,7 @@ export const AnnouncementBuilder = ({ open, onClose }: AnnouncementBuilderProps)
   const filteredAthletes = athletes.filter(athlete => {
     if (filterSport !== "all" && athlete.sport !== filterSport) return false;
     if (filterLevel !== "all" && athlete.level !== filterLevel) return false;
-    if (filterGroup !== "all" && athlete.group !== filterGroup) return false;
+    // Removed filterGroup check
     return true;
   });
 
@@ -150,7 +150,7 @@ export const AnnouncementBuilder = ({ open, onClose }: AnnouncementBuilderProps)
             Send Announcement
           </DialogTitle>
           <DialogDescription>
-            Compose and send announcements to athletes or groups
+            Compose and send announcements to athletes
           </DialogDescription>
         </DialogHeader>
 
@@ -240,7 +240,8 @@ export const AnnouncementBuilder = ({ open, onClose }: AnnouncementBuilderProps)
           <div className="space-y-4">
             <div>
               <Label className="mb-2 block">Filter Athletes</Label>
-              <div className="grid grid-cols-3 gap-2">
+              {/* Changed to grid-cols-2 */}
+              <div className="grid grid-cols-2 gap-2">
                 <Select value={filterSport} onValueChange={setFilterSport}>
                   <SelectTrigger>
                     <SelectValue placeholder="Sport" />
@@ -261,22 +262,6 @@ export const AnnouncementBuilder = ({ open, onClose }: AnnouncementBuilderProps)
                     <SelectItem value="all">All Levels</SelectItem>
                     <SelectItem value="Varsity">Varsity</SelectItem>
                     <SelectItem value="JV">JV</SelectItem>
-                  </SelectContent>
-                </Select>
-
-                <Select value={filterGroup} onValueChange={setFilterGroup}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Group" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Groups</SelectItem>
-                    <SelectItem value="Offense">Offense</SelectItem>
-                    <SelectItem value="Defense">Defense</SelectItem>
-                    <SelectItem value="Guards">Guards</SelectItem>
-                    <SelectItem value="Forwards">Forwards</SelectItem>
-                    <SelectItem value="Midfield">Midfield</SelectItem>
-                    <SelectItem value="Setters">Setters</SelectItem>
-                    <SelectItem value="Hitters">Hitters</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
