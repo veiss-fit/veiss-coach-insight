@@ -296,6 +296,7 @@ interface AuthContextType {
 	user: User | null
 	profile: CoachProfile | null
 	login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>
+	signup: (email: string, password: string, fullName: string) => Promise<{ success: boolean; error?: string }>
 	logout: () => Promise<void>
 	loading: boolean
 }
@@ -584,6 +585,62 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 		}
 	}
 
+	const signup = async (email: string, password: string, fullName: string) => {
+		try {
+			setLoading(true)
+			ensureLoadingEnds()
+
+			// Create auth account
+			const { data, error } = await supabase.auth.signUp({
+				email,
+				password,
+				options: {
+					data: {
+						full_name: fullName,
+					},
+				},
+			})
+
+			if (error) {
+				console.error('Signup error:', error)
+				if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current)
+				return { success: false, error: error.message }
+			}
+
+			if (data.user) {
+				// Create a profile for the new user
+				const { error: profileError } = await supabase
+					.from('profiles')
+					.insert([
+						{
+							id: data.user.id,
+							full_name: fullName,
+							role: 'coach', // Default new signups to coach role
+							created_at: new Date().toISOString(),
+						},
+					])
+
+				if (profileError) {
+					console.error('Error creating profile:', profileError)
+					if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current)
+					return { success: false, error: 'Account created but failed to initialize profile' }
+				}
+
+				if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current)
+				return { success: true }
+			}
+
+			if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current)
+			return { success: false, error: 'Signup failed' }
+		} catch (error: any) {
+			console.error('Signup exception:', error)
+			if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current)
+			return { success: false, error: error.message || 'An error occurred during signup' }
+		} finally {
+			setLoading(false)
+		}
+	}
+
 	const logout = async () => {
 		try {
 			await supabase.auth.signOut()
@@ -598,7 +655,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 	const isAuthenticated = !!user && !!profile && profile.role === 'coach'
 
 	return (
-		<AuthContext.Provider value={{ isAuthenticated, user, profile, login, logout, loading }}>
+		<AuthContext.Provider value={{ isAuthenticated, user, profile, login, signup, logout, loading }}>
 			{children}
 		</AuthContext.Provider>
 	)
