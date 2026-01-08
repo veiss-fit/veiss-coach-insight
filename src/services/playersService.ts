@@ -12,6 +12,11 @@ export interface PlayerWithStats extends Player {
   attendance: number;
   loadRec: string;
   engagement: 'High' | 'Moderate' | 'Low';
+  
+  // ✅ PHASE 22 NEW METRICS
+  avgROM: number;   
+  avgTempo: number; 
+
   // For compatibility with existing UI components
   sport: string;
   group: string;
@@ -165,10 +170,8 @@ export const getPlayersByTeamId = async (teamId: string): Promise<PlayerWithStat
 
 /**
  * Calculate player statistics from their workout data
- */
-export const calculatePlayerStats = async (playerId: string) => {
+ */export const calculatePlayerStats = async (playerId: string) => {
   try {
-    // First get the user_id from the player record
     const { data: player, error: playerError } = await supabase
       .from('players')
       .select('user_id')
@@ -176,91 +179,65 @@ export const calculatePlayerStats = async (playerId: string) => {
       .single();
 
     if (playerError || !player?.user_id) {
-      // Player doesn't have a linked user account yet, return defaults
-      return {
-        avgVelocity: 0,
-        attendance: 0,
-        loadRec: 'New',
-        engagement: 'Moderate' as const,
-      };
+      return { avgVelocity: 0, attendance: 0, loadRec: 'New', engagement: 'Moderate' as const, avgROM: 0, avgTempo: 0 };
     }
 
-    // Get sessions for this player (last 30 days for stats)
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    const { data: sessions, error: sessionsError } = await supabase
+    const { data: sessions } = await supabase
       .from('sessions')
-      .select('id, created_at')
+      .select('id')
       .eq('user_id', player.user_id)
-      .gte('created_at', thirtyDaysAgo.toISOString())
-      .order('created_at', { ascending: false });
-
-    if (sessionsError) {
-      console.error('Error fetching player sessions:', sessionsError);
-    }
+      .gte('created_at', thirtyDaysAgo.toISOString());
 
     const totalSessions = sessions?.length || 0;
-
-    // Calculate average velocity from reps
     let avgVelocity = 0;
+    let avgROM = 0;
+    let avgTempo = 0;
+
     if (sessions && sessions.length > 0) {
       const sessionIds = sessions.map(s => s.id);
       
-      const { data: reps, error: repsError } = await supabase
+      // Pull ALL Phase 22 metrics
+      const { data: reps } = await supabase
         .from('reps')
-        .select('average_rep_speed')
+        .select('average_rep_speed, rom_mm, concentric_duration_s, eccentric_duration_s')
         .in('session_id', sessionIds)
         .not('average_rep_speed', 'is', null);
 
-      if (repsError) {
-        console.error('Error fetching player reps:', repsError);
-      }
-
       if (reps && reps.length > 0) {
-        const totalVelocity = reps.reduce((sum, rep) => sum + (rep.average_rep_speed || 0), 0);
-        avgVelocity = parseFloat((totalVelocity / reps.length).toFixed(2));
+        const totalV = reps.reduce((sum, r) => sum + (Number(r.average_rep_speed) || 0), 0);
+        const totalR = reps.reduce((sum, r) => sum + (Number(r.rom_mm) || 0), 0);
+        const totalC = reps.reduce((sum, r) => sum + (Number(r.concentric_duration_s) || 0), 0);
+
+        avgVelocity = parseFloat((totalV / reps.length).toFixed(2));
+        avgROM = Math.round(totalR / reps.length);
+        avgTempo = parseFloat((totalC / reps.length).toFixed(2));
       }
     }
 
-    // Calculate attendance (percentage of sessions in last 30 days)
-    // Assuming expected sessions is ~12 per month (3 per week)
-    const expectedSessions = 12;
-    const attendance = Math.min(100, Math.round((totalSessions / expectedSessions) * 100));
+    // Attendance calculation
+    const attendance = Math.min(100, Math.round((totalSessions / 12) * 100));
 
-    // Calculate load recommendation based on velocity trends
+    // Improved Load Recommendation (Velocity Based Training Logic)
     let loadRec = 'Maintain';
-    if (avgVelocity >= 1.85) {
-      loadRec = '+5%';
-    } else if (avgVelocity >= 1.75) {
-      loadRec = '+3%';
-    } else if (avgVelocity <= 1.65) {
-      loadRec = '-3%';
-    }
-
-    // Calculate engagement based on attendance and velocity
-    let engagement: 'High' | 'Moderate' | 'Low' = 'Moderate';
-    if (attendance >= 90 && avgVelocity >= 1.75) {
-      engagement = 'High';
-    } else if (attendance < 70 || avgVelocity < 1.65) {
-      engagement = 'Low';
+    if (avgVelocity > 0) {
+      if (avgVelocity > 0.85) loadRec = 'Increase Load (+5%)'; 
+      else if (avgVelocity < 0.40) loadRec = 'Fatigue: Decrease Load (-10%)';
     }
 
     return {
       avgVelocity,
       attendance,
       loadRec,
-      engagement,
+      avgROM,      // NEW
+      avgTempo,    // NEW
+      engagement: (attendance >= 90 && avgVelocity >= 0.7) ? 'High' : 'Moderate',
     };
   } catch (error) {
-    console.error('Error calculating player stats:', error);
-    // Return default values if calculation fails
-    return {
-      avgVelocity: 0,
-      attendance: 0,
-      loadRec: 'New',
-      engagement: 'Moderate' as const,
-    };
+    console.error(error);
+    return { avgVelocity: 0, attendance: 0, loadRec: 'Error', engagement: 'Low' };
   }
 };
 

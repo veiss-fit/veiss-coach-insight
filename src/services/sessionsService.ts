@@ -7,7 +7,10 @@ type Rep = Database['public']['Tables']['reps']['Row'];
 
 export interface RepData {
   repNumber: number;
+  setNumber: number; // Added to distinguish sets
   velocity: number;
+  rom: number;       // NEW: rom_mm
+  tempo: number;     // NEW: concentric_duration_s
 }
 
 export interface ExerciseData {
@@ -18,6 +21,8 @@ export interface ExerciseData {
   weight: number;
   weightUnit: 'lbs' | 'kg';
   avgVelocity: number;
+  avgROM: number;    // NEW
+  avgTempo: number;  // NEW
   peakVelocity: number;
   targetVelocityMin: number;
   targetVelocityMax: number;
@@ -79,10 +84,10 @@ export const getPlayerSessions = async (playerId: string): Promise<SessionData[]
  */
 export const getSessionExercises = async (sessionId: string): Promise<ExerciseData[]> => {
   try {
-    // Fetch reps for this session, grouped by exercise
+    // 1. Fetch reps with the NEW Phase 22 columns
     const { data: reps, error: repsError } = await supabase
       .from('reps')
-      .select('*')
+      .select('*, concentric_duration_s, rom_mm') // Explicitly select new columns
       .eq('session_id', sessionId)
       .order('exercise_name', { ascending: true })
       .order('set_number', { ascending: true })
@@ -93,60 +98,69 @@ export const getSessionExercises = async (sessionId: string): Promise<ExerciseDa
       throw repsError;
     }
 
-    if (!reps || reps.length === 0) {
-      return [];
-    }
+    if (!reps || reps.length === 0) return [];
 
-    // Group reps by exercise
+    // 2. Group reps by exercise
     const exerciseMap = new Map<string, Rep[]>();
     reps.forEach((rep) => {
       const key = rep.exercise_name;
-      if (!exerciseMap.has(key)) {
-        exerciseMap.set(key, []);
-      }
+      if (!exerciseMap.has(key)) exerciseMap.set(key, []);
       exerciseMap.get(key)!.push(rep);
     });
 
-    // Convert to ExerciseData format
     const exercises: ExerciseData[] = [];
+
+    // 3. Process each exercise group
     exerciseMap.forEach((exerciseReps, exerciseName) => {
       const sets = Math.max(...exerciseReps.map(r => r.set_number));
-      const repsPerSet = exerciseReps.filter(r => r.set_number === 1).length;
+      // Calculate real counts based on the actual algorithm output
+      const totalRepsAcrossAllSets = exerciseReps.length;
       const weight = exerciseReps[0]?.weight || 0;
-      
-      // Calculate velocities
-      const velocities = exerciseReps
-        .map(r => r.average_rep_speed)
-        .filter((v): v is number => v !== null);
-      
+
+      // Extract Bare Metrics for calculation
+      const velocities = exerciseReps.map(r => Number(r.average_rep_speed)).filter(v => v > 0);
+      const roms = exerciseReps.map(r => Number(r.rom_mm)).filter(v => v > 0);
+      const tempos = exerciseReps.map(r => Number(r.concentric_duration_s)).filter(v => v > 0);
+
+      // Averages
       const avgVelocity = velocities.length > 0
-        ? parseFloat((velocities.reduce((sum, v) => sum + v, 0) / velocities.length).toFixed(2))
-        : 0;
-      
-      const peakVelocity = velocities.length > 0
-        ? parseFloat(Math.max(...velocities).toFixed(2))
+        ? parseFloat((velocities.reduce((a, b) => a + b, 0) / velocities.length).toFixed(2))
         : 0;
 
-      // For target velocity, we'll use reasonable defaults based on avg
-      // In a real system, this would come from the workout plan
-      const targetVelocityMin = Math.max(0.8, avgVelocity - 0.2);
-      const targetVelocityMax = avgVelocity + 0.2;
+      const avgROM = roms.length > 0
+        ? Math.round(roms.reduce((a, b) => a + b, 0) / roms.length)
+        : 0;
 
-      // Convert reps to RepData format
+      const avgTempo = tempos.length > 0
+        ? parseFloat((tempos.reduce((a, b) => a + b, 0) / tempos.length).toFixed(2))
+        : 0;
+
+      const peakVelocity = velocities.length > 0 ? Math.max(...velocities) : 0;
+
+      // Logic for target zones (Standard VBT defaults)
+      const targetVelocityMin = Math.max(0.1, avgVelocity - 0.15);
+      const targetVelocityMax = avgVelocity + 0.15;
+
+      // 4. Map the repData (The Bare Metrics)
       const repData: RepData[] = exerciseReps.map((rep) => ({
-        repNumber: (rep.set_number - 1) * repsPerSet + rep.rep_number,
-        velocity: rep.average_rep_speed || 0,
+        repNumber: rep.rep_number,
+        setNumber: rep.set_number, // We keep the set number separate now for better graphing
+        velocity: Number(rep.average_rep_speed) || 0,
+        rom: Number(rep.rom_mm) || 0,
+        tempo: Number(rep.concentric_duration_s) || 0,
       }));
 
       exercises.push({
         id: `${sessionId}-${exerciseName}`,
         name: exerciseName,
         sets,
-        reps: repsPerSet,
+        reps: Math.round(totalRepsAcrossAllSets / sets), // Estimated reps per set
         weight: weight || 0,
         weightUnit: 'lbs',
         avgVelocity,
-        peakVelocity,
+        avgROM,   // NEW: Used in UI summary
+        avgTempo, // NEW: Used in UI summary
+        peakVelocity: parseFloat(peakVelocity.toFixed(2)),
         targetVelocityMin: parseFloat(targetVelocityMin.toFixed(2)),
         targetVelocityMax: parseFloat(targetVelocityMax.toFixed(2)),
         repData,
