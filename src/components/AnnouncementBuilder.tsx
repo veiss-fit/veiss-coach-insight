@@ -18,6 +18,7 @@ import { Validators } from "@/lib/validators";
 import { useAuth } from "@/contexts/AuthContext";
 import { getPlayersByTeamIds, PlayerWithStats, getSportsList } from "@/services/playersService";
 import { sendMessage } from "@/services/messagesService";
+import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 interface AnnouncementBuilderProps {
   open: boolean;
@@ -155,6 +156,8 @@ export const AnnouncementBuilder = ({ open, onClose }: AnnouncementBuilderProps)
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <LoadingOverlay isLoading={loading} fullScreen message="Loading athletes..." />
+        <LoadingOverlay isLoading={sending} fullScreen message="Sending announcement..." />
         <DialogHeader>
           <DialogTitle className="text-2xl flex items-center gap-2">
             <Megaphone className="h-6 w-6 text-primary" />

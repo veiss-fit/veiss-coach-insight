@@ -1,5 +1,6 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { Navigate, useLocation } from "react-router-dom";
+import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 // 1. Update the interface to include allowedRoles (optional array of strings)
 interface ProtectedRouteProps {
@@ -12,8 +13,7 @@ export const ProtectedRoute = ({ children, allowedRoles }: ProtectedRouteProps) 
   const location = useLocation();
 
   if (loading) {
-    // Optional: Return a loading spinner here if you have one
-    return <div className="h-screen w-full flex items-center justify-center">Loading...</div>;
+    return <LoadingOverlay isLoading={loading} fullScreen message="Authenticating..." />;
   }
 
   // 2. Check if user is logged in

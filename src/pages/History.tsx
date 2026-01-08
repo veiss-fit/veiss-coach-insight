@@ -11,6 +11,7 @@ import { CalendarDays, Megaphone, Users, Clock, ArrowLeft } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { getCoachWorkoutHistory } from "@/services/workoutPlansService";
 import { getCoachMessageHistory } from "@/services/messagesService";
+import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 export default function History() {
   const { profile } = useAuth();
@@ -46,6 +47,7 @@ export default function History() {
     <div className="min-h-screen bg-background">
       <TopNav />
       <main className="container mx-auto p-6 max-w-5xl">
+        <LoadingOverlay isLoading={loading} fullScreen message="Loading history..." />
         
         {/* 4. Back Button Section */}
         <div className="mb-2">

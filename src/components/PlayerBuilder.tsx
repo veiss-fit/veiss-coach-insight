@@ -13,6 +13,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Validators } from "@/lib/validators";
+import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
 interface PlayerBuilderProps {
   open: boolean;
   onClose: () => void;
@@ -115,6 +116,7 @@ export const PlayerBuilder = ({ open, onClose }: PlayerBuilderProps) => {
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-2xl overflow-visible">
+        <LoadingOverlay isLoading={loadingPlayers || loading} fullScreen message="Loading players..." />
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Users className="h-5 w-5 text-primary" />

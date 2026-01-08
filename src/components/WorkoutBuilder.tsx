@@ -30,6 +30,7 @@ import { Validators } from '@/lib/validators'
 import { useAuth } from '@/contexts/AuthContext'
 import { getPlayersByTeamIds, PlayerWithStats, getSportsList } from '@/services/playersService'
 import { sendWorkoutPlan } from '@/services/workoutPlansService'
+import { LoadingOverlay } from '@/components/ui/LoadingOverlay'
 
 interface WorkoutBuilderProps {
     open: boolean
@@ -276,6 +277,8 @@ export const WorkoutBuilder = ({ open, onClose }: WorkoutBuilderProps) => {
     return (
         <Dialog open={open} onOpenChange={onClose}>
             <DialogContent className='max-w-6xl max-h-[90vh] overflow-y-auto'>
+                <LoadingOverlay isLoading={loading} fullScreen message="Loading athletes..." />
+                <LoadingOverlay isLoading={sending} fullScreen message="Sending workout..." />
                 <DialogHeader>
                     <DialogTitle className='text-2xl flex items-center gap-2'>
                         <Dumbbell className='h-6 w-6 text-primary' />

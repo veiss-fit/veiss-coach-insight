@@ -71,7 +71,8 @@ const Profile = () => {
       setFormData({
         fullName: profile.full_name || "",
         // If no team is assigned (null), we treat it as "all" in the UI
-        teamId: profile.coach?.teams?.id || "all",
+        // Prefer the canonical team_id field; fallback to joined teams relation
+        teamId: profile.coach?.team_id || profile.coach?.teams?.id || "all",
         jobTitle: "Head Coach - Strength & Conditioning" 
       });
       setProfilePhoto(null); 
@@ -98,19 +99,34 @@ const Profile = () => {
       if (profile?.coach?.id) {
         // Convert "all" back to null for the database
         const teamIdToSave = formData.teamId === "all" ? null : formData.teamId;
+        console.log('Profile: saving coach.team_id ->', teamIdToSave, 'coachId=', profile.coach.id)
 
-        const { error: coachError } = await supabase
+        const { data: updatedCoach, error: coachError } = await supabase
           .from('coaches')
-          .update({ 
-            team_id: teamIdToSave
+          .update({
+            team_id: teamIdToSave,
           })
-          .eq('id', profile.coach.id);
+          .eq('id', profile.coach.id)
+          .select('*');
 
-        if (coachError) throw coachError;
+        console.log('Supabase update returned:', { updatedCoach, coachError });
+
+        if (coachError) {
+          console.error('Failed to update coach record:', coachError);
+          throw coachError;
+        }
+
+        if (!updatedCoach || (Array.isArray(updatedCoach) && updatedCoach.length === 0)) {
+          console.warn('No coach rows were updated. This may be due to RLS policies blocking the update.');
+          toast.error('Could not save team assignment due to backend permissions.');
+          return;
+        }
       }
 
       toast.success("Profile updated successfully");
       setIsEditing(false);
+      // Reload to refresh AuthContext/profile from backend
+      //window.location.reload();
     } catch (error: any) {
       console.error(error);
       toast.error("Failed to update profile");

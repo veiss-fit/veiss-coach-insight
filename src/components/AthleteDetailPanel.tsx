@@ -19,6 +19,7 @@ import { toast } from "sonner";
 import { getPlayerWorkoutPlans } from "@/services/workoutPlansService";
 import { getPlayerSessions, SessionData } from "@/services/sessionsService"; // Import this back
 import { SessionDetailPanel } from "./SessionDetailPanel"; // Import this back
+import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { format, isPast, isToday, parseISO, isSameDay } from "date-fns";
 
 interface AthleteDetailPanelProps {
@@ -98,6 +99,7 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
     <>
       <Sheet open={open} onOpenChange={onClose}>
         <SheetContent className="w-full sm:max-w-xl overflow-hidden flex flex-col bg-background">
+          <LoadingOverlay isLoading={loading} fullScreen message="Loading history..." />
           <SheetHeader className="pb-4 border-b">
             <SheetTitle className="text-2xl font-bold">{athlete.name}</SheetTitle>
             <div className="flex gap-2 mt-2">

@@ -16,6 +16,7 @@ import { getPlayersByTeamIds, getPlayersByTeamId, PlayerWithStats } from "@/serv
 import { getCoachDashboardStats, DashboardStats } from "@/services/statsService";
 // import { useDashboardSubscription } from "@/hooks/useRealtimeSubscriptions"; // Disabled for free tier
 import { TemplateManager } from '@/components/TemplateManager';
+import { LoadingOverlay } from '@/components/ui/LoadingOverlay';
 
 const Index = () => {
   const { profile, loading: authLoading } = useAuth();
@@ -200,6 +201,7 @@ const Index = () => {
 
         {/* Main Content */}
         <main className="flex-1 p-6 space-y-6">
+          <LoadingOverlay isLoading={loading} fullScreen message="Loading dashboard..." />
           {/* Action Buttons */}
           <div className="flex justify-end gap-2">
             <Button 

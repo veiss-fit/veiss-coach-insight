@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { 
   Trophy, 
   Users, 
@@ -18,6 +19,7 @@ import { toast } from "sonner";
 import { Validators } from "@/lib/validators";
 import { supabase } from "@/lib/supabase";
 import { updateTeam, deleteTeam, updateSportName, getSportsList } from "@/services/playersService";
+import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 interface TeamSportManagerProps {
   open: boolean;
@@ -37,6 +39,10 @@ export const TeamSportManager = ({ open, onClose }: TeamSportManagerProps) => {
   const [isCreatingTeam, setIsCreatingTeam] = useState(false);
   const [newTeamData, setNewTeamData] = useState({ name: '', sport: '' });
 
+  // ADDED: State for Adding a Sport
+  const [isAddingSport, setIsAddingSport] = useState(false);
+  const [newSportName, setNewSportName] = useState("");
+
   useEffect(() => {
     if (open) {
       loadData();
@@ -46,14 +52,12 @@ export const TeamSportManager = ({ open, onClose }: TeamSportManagerProps) => {
   const loadData = async () => {
     setLoading(true);
     try {
-      // Load Teams
       const { data: teamsData } = await supabase
         .from('teams')
         .select('*')
         .order('name');
       setTeams(teamsData || []);
 
-      // Load Sports
       const sportsList = await getSportsList();
       setSports(sportsList);
     } catch (error) {
@@ -66,18 +70,11 @@ export const TeamSportManager = ({ open, onClose }: TeamSportManagerProps) => {
   // --- TEAM ACTIONS ---
 
   const handleCreateTeam = async () => {
-    // Validation
-    const nameError = Validators.teamName(newTeamData.name);
-    if (nameError) {
-      toast.error(nameError);
-      return;
-    }
+    const nameError = Validators.required(newTeamData.name, "Team Name");
+    if (nameError) return toast.error(nameError);
 
-    const sportError = Validators.sport(newTeamData.sport);
-    if (sportError) {
-      toast.error(sportError);
-      return;
-    }
+    const sportError = Validators.required(newTeamData.sport, "Sport Category");
+    if (sportError) return toast.error(sportError);
 
     try {
       const { error } = await supabase.from('teams').insert(newTeamData);
@@ -93,19 +90,8 @@ export const TeamSportManager = ({ open, onClose }: TeamSportManagerProps) => {
 
   const handleUpdateTeam = async () => {
     if (!editingTeam) return;
-
-    // Validation
-    const nameError = Validators.teamName(editingTeam.name);
-    if (nameError) {
-      toast.error(nameError);
-      return;
-    }
-
-    const sportError = Validators.sport(editingTeam.sport);
-    if (sportError) {
-      toast.error(sportError);
-      return;
-    }
+    const nameError = Validators.required(editingTeam.name, "Team Name");
+    if (nameError) return toast.error(nameError);
 
     const success = await updateTeam(editingTeam.id, { 
       name: editingTeam.name, 
@@ -133,27 +119,36 @@ export const TeamSportManager = ({ open, onClose }: TeamSportManagerProps) => {
 
   // --- SPORT ACTIONS ---
 
+  // ADDED: Logic to add a new sport to the local list
+  const handleAddSport = () => {
+    if (!newSportName || newSportName.trim() === "") {
+      toast.error("Sport name cannot be empty");
+      return;
+    }
+
+    if (sports.some(s => s.toLowerCase() === newSportName.toLowerCase())) {
+      toast.error("This sport already exists");
+      return;
+    }
+
+    // Add to local state immediately so it shows up in the dropdowns
+    setSports([...sports, newSportName]);
+    setNewSportName("");
+    setIsAddingSport(false);
+    
+    toast.success("Sport category added! Now create a team with this sport to save it permanently.");
+  };
+
   const handleRenameSport = async () => {
     if (!editingSport) return;
-
-    // Validation
-    const oldError = Validators.sport(editingSport.old);
-    if (oldError) {
-      toast.error(`Old sport: ${oldError}`);
-      return;
+    if (!editingSport.new || editingSport.new.trim() === "") {
+        toast.error("New sport name cannot be empty");
+        return;
     }
-
-    const newError = Validators.sport(editingSport.new);
-    if (newError) {
-      toast.error(`New sport: ${newError}`);
-      return;
-    }
-
     if (editingSport.old === editingSport.new) {
-      toast.error("New sport name must be different from the old name");
+      toast.error("New sport name must be different");
       return;
     }
-
     const success = await updateSportName(editingSport.old, editingSport.new);
     if (success) {
       toast.success(`Renamed ${editingSport.old} to ${editingSport.new}`);
@@ -167,8 +162,8 @@ export const TeamSportManager = ({ open, onClose }: TeamSportManagerProps) => {
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-2xl h-[85vh] flex flex-col p-0 gap-0 overflow-hidden outline-none">
+        <LoadingOverlay isLoading={loading} fullScreen message="Loading teams & sports..." />
         
-        {/* Header - Fixed Height */}
         <DialogHeader className="p-6 pb-2 border-b shrink-0">
           <DialogTitle className="text-2xl flex items-center gap-2">
             <Trophy className="h-6 w-6 text-primary" />
@@ -179,9 +174,7 @@ export const TeamSportManager = ({ open, onClose }: TeamSportManagerProps) => {
           </DialogDescription>
         </DialogHeader>
 
-        {/* Tabs - Flex Column that Fills Space */}
         <Tabs defaultValue="teams" className="flex-1 flex flex-col overflow-hidden w-full">
-          
           <div className="px-6 py-4 shrink-0 border-b">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="teams">Teams</TabsTrigger>
@@ -189,18 +182,13 @@ export const TeamSportManager = ({ open, onClose }: TeamSportManagerProps) => {
             </TabsList>
           </div>
 
-          {/* === TEAMS TAB === */}
-          {/* FIX: h-full, w-full, overflow-hidden to contain ScrollArea */}
-          <TabsContent 
-            value="teams" 
-            className="flex-1 flex flex-col h-full w-full overflow-hidden m-0 p-0 data-[state=inactive]:hidden"
-          >
+          {/* TEAMS TAB */}
+          <TabsContent value="teams" className="flex-1 flex flex-col h-full w-full overflow-hidden m-0 p-0 data-[state=inactive]:hidden">
             <div className="px-6 py-4 flex justify-end shrink-0 bg-background z-10">
               <Button size="sm" onClick={() => setIsCreatingTeam(true)}>
                 <Plus className="h-4 w-4 mr-2" /> Add Team
               </Button>
             </div>
-
             <ScrollArea className="flex-1 h-full w-full">
               <div className="px-6 pb-6 space-y-3">
                 {teams.length === 0 && !loading && (
@@ -219,19 +207,10 @@ export const TeamSportManager = ({ open, onClose }: TeamSportManagerProps) => {
                         </div>
                       </div>
                       <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Button 
-                          size="icon" 
-                          variant="ghost" 
-                          onClick={() => setEditingTeam(team)}
-                        >
+                        <Button size="icon" variant="ghost" onClick={() => setEditingTeam(team)}>
                           <Pencil className="h-4 w-4" />
                         </Button>
-                        <Button 
-                          size="icon" 
-                          variant="ghost" 
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => handleDeleteTeam(team.id)}
-                        >
+                        <Button size="icon" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => handleDeleteTeam(team.id)}>
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
@@ -242,18 +221,20 @@ export const TeamSportManager = ({ open, onClose }: TeamSportManagerProps) => {
             </ScrollArea>
           </TabsContent>
 
-          {/* === SPORTS TAB === */}
-          <TabsContent 
-            value="sports" 
-            className="flex-1 flex flex-col h-full w-full overflow-hidden m-0 p-0 data-[state=inactive]:hidden"
-          >
+          {/* SPORTS TAB */}
+          <TabsContent value="sports" className="flex-1 flex flex-col h-full w-full overflow-hidden m-0 p-0 data-[state=inactive]:hidden">
             <div className="px-6 pt-4 shrink-0">
               <div className="bg-muted/30 p-3 rounded-md mb-4 flex gap-2 text-sm text-muted-foreground">
                 <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
                 <p>Renaming a sport here will update it for all associated teams automatically.</p>
               </div>
+              {/* ADDED: Button to Open Add Sport Modal */}
+              <div className="flex justify-end mb-4">
+                 <Button size="sm" onClick={() => setIsAddingSport(true)} variant="secondary">
+                   <Plus className="h-4 w-4 mr-2" /> Add New Category
+                 </Button>
+              </div>
             </div>
-
             <ScrollArea className="flex-1 h-full w-full">
               <div className="px-6 pb-6 space-y-3">
                 {sports.map((sport) => (
@@ -265,11 +246,7 @@ export const TeamSportManager = ({ open, onClose }: TeamSportManagerProps) => {
                         </div>
                         <p className="font-medium">{sport}</p>
                       </div>
-                      <Button 
-                        size="sm" 
-                        variant="outline"
-                        onClick={() => setEditingSport({ old: sport, new: sport })}
-                      >
+                      <Button size="sm" variant="outline" onClick={() => setEditingSport({ old: sport, new: sport })}>
                         Rename
                       </Button>
                     </CardContent>
@@ -283,24 +260,45 @@ export const TeamSportManager = ({ open, onClose }: TeamSportManagerProps) => {
 
       {/* --- MODALS --- */}
 
-      {/* Edit Team Modal */}
+      {/* ADDED: Add Sport Modal */}
+      <Dialog open={isAddingSport} onOpenChange={setIsAddingSport}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Add Sport Category</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Sport Name</Label>
+              <Input 
+                placeholder="e.g. Lacrosse"
+                value={newSportName} 
+                onChange={e => setNewSportName(e.target.value)}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              This will add the sport to your list so you can create a team for it.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button onClick={handleAddSport}>Add Category</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={!!editingTeam} onOpenChange={() => setEditingTeam(null)}>
         <DialogContent>
           <DialogHeader><DialogTitle>Edit Team</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
               <Label>Team Name</Label>
-              <Input 
-                value={editingTeam?.name || ''} 
-                onChange={e => setEditingTeam({...editingTeam, name: e.target.value})}
-              />
+              <Input value={editingTeam?.name || ''} onChange={e => setEditingTeam({...editingTeam, name: e.target.value})} />
             </div>
             <div className="space-y-2">
-              <Label>Sport</Label>
-              <Input 
-                value={editingTeam?.sport || ''} 
-                onChange={e => setEditingTeam({...editingTeam, sport: e.target.value})}
-              />
+              <Label>Sport Category</Label>
+              <Select value={editingTeam?.sport} onValueChange={(val) => setEditingTeam({...editingTeam, sport: val})}>
+                <SelectTrigger><SelectValue placeholder="Select Sport" /></SelectTrigger>
+                <SelectContent>
+                  {sports.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <DialogFooter>
@@ -309,26 +307,26 @@ export const TeamSportManager = ({ open, onClose }: TeamSportManagerProps) => {
         </DialogContent>
       </Dialog>
 
-      {/* Create Team Modal */}
       <Dialog open={isCreatingTeam} onOpenChange={setIsCreatingTeam}>
         <DialogContent>
           <DialogHeader><DialogTitle>Create New Team</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
               <Label>Team Name</Label>
-              <Input 
-                placeholder="e.g. JV Basketball"
-                value={newTeamData.name} 
-                onChange={e => setNewTeamData({...newTeamData, name: e.target.value})}
-              />
+              <Input placeholder="e.g. JV Basketball" value={newTeamData.name} onChange={e => setNewTeamData({...newTeamData, name: e.target.value})} />
             </div>
             <div className="space-y-2">
-              <Label>Sport</Label>
-              <Input 
-                placeholder="e.g. Basketball"
-                value={newTeamData.sport} 
-                onChange={e => setNewTeamData({...newTeamData, sport: e.target.value})}
-              />
+              <Label>Sport Category</Label>
+              <Select value={newTeamData.sport} onValueChange={(val) => setNewTeamData({...newTeamData, sport: val})}>
+                <SelectTrigger><SelectValue placeholder="Select Sport" /></SelectTrigger>
+                <SelectContent>
+                  {sports.length > 0 ? (
+                    sports.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)
+                  ) : (
+                    <div className="p-2 text-sm text-muted-foreground text-center">No sports found.</div>
+                  )}
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <DialogFooter>
@@ -337,28 +335,21 @@ export const TeamSportManager = ({ open, onClose }: TeamSportManagerProps) => {
         </DialogContent>
       </Dialog>
 
-      {/* Rename Sport Modal */}
       <Dialog open={!!editingSport} onOpenChange={() => setEditingSport(null)}>
         <DialogContent>
           <DialogHeader><DialogTitle>Rename Sport Category</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
               <Label>Sport Name</Label>
-              <Input 
-                value={editingSport?.new || ''} 
-                onChange={e => setEditingSport(prev => prev ? {...prev, new: e.target.value} : null)}
-              />
+              <Input value={editingSport?.new || ''} onChange={e => setEditingSport(prev => prev ? {...prev, new: e.target.value} : null)} />
             </div>
-            <p className="text-xs text-muted-foreground">
-              This will change "{editingSport?.old}" to "{editingSport?.new}" for all teams.
-            </p>
+            <p className="text-xs text-muted-foreground">This will change "{editingSport?.old}" to "{editingSport?.new}" for all teams.</p>
           </div>
           <DialogFooter>
             <Button onClick={handleRenameSport}>Update All Teams</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
     </Dialog>
   );
 };
