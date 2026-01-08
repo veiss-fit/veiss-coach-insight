@@ -125,32 +125,31 @@ export const getPlayersByTeamIds = async (teamIds: string[]): Promise<PlayerWith
 /**
  * Fetch all players (for admins or viewing all)
  */
-export const getAllPlayers = async (): Promise<PlayerWithStats[]> => {
+export const getPlayersByTeamId = async (teamId: string): Promise<PlayerWithStats[]> => {
+  if (!teamId) {
+    console.warn('getPlayersByTeamId called with null teamId');
+    return [];
+  }
+
   try {
     const { data: players, error } = await supabase
       .from('players')
       .select('*, teams(*)')
+      .eq('team_id', teamId) // <--- CRITICAL SECURITY FIX
       .order('full_name', { ascending: true });
 
-    if (error) {
-      console.error('Error fetching all players:', error);
-      throw error;
-    }
+    if (error) throw error;
 
-    if (!players || players.length === 0) {
-      return [];
-    }
+    if (!players || players.length === 0) return [];
 
+    // Map stats (keep your existing stats logic here)
     const playersWithStats = await Promise.all(
       players.map(async (player) => {
         const stats = await calculatePlayerStats(player.id);
-        
         return {
           ...player,
           name: player.full_name,
           sport: player.teams?.sport || 'Unknown',
-          group: 'General',
-          level: 'Varsity',
           team: player.teams,
           ...stats,
         } as PlayerWithStats;
@@ -159,7 +158,7 @@ export const getAllPlayers = async (): Promise<PlayerWithStats[]> => {
 
     return playersWithStats;
   } catch (error) {
-    console.error('Error in getAllPlayers:', error);
+    console.error('Error in getPlayersByTeamId:', error);
     throw error;
   }
 };

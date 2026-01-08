@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Athlete } from "@/data/mockData";
 import { Users, UserCheck, Layers, Send, CalendarDays, Megaphone, UserPlus } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { getPlayersByTeamIds, getAllPlayers, PlayerWithStats } from "@/services/playersService";
+import { getPlayersByTeamIds, getPlayersByTeamId, PlayerWithStats } from "@/services/playersService";
 import { getCoachDashboardStats, DashboardStats } from "@/services/statsService";
 // import { useDashboardSubscription } from "@/hooks/useRealtimeSubscriptions"; // Disabled for free tier
 import { TemplateManager } from '@/components/TemplateManager';
@@ -87,7 +87,7 @@ const Index = () => {
       // Always load all players initially - team filter will handle filtering
       // This allows coaches to see unassigned players (team_id = null) and assign them
       console.log('Loading players...');
-      const players = await getAllPlayers();
+      const players = await getPlayersByTeamId(profile.coach.team_id);
       console.log(`Loaded ${players.length} players`);
       setAthletes(players);
 
