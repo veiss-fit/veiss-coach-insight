@@ -20,6 +20,9 @@ import {
 } from "@/components/ui/dialog";
 import { User, Mail, Shield, Calendar, Users, Upload, Camera, X } from "lucide-react";
 import { toast } from "sonner";
+import { Validators } from "@/lib/validators";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { supabase } from "@/lib/supabase";
 
 const Profile = () => {
   const { user, profile, logout } = useAuth();
@@ -27,6 +30,14 @@ const Profile = () => {
   const [searchParams] = useSearchParams();
   const [isEditing, setIsEditing] = useState(false);
   
+  // State for editable fields
+  const [formData, setFormData] = useState({
+    fullName: "",
+    teamId: "",
+    jobTitle: ""
+  });
+  const [teams, setTeams] = useState<any[]>([]);
+
   // Modal states
   const [photoModalOpen, setPhotoModalOpen] = useState(false);
   const [notificationsModalOpen, setNotificationsModalOpen] = useState(false);
@@ -47,20 +58,63 @@ const Profile = () => {
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Handle section navigation from URL params
+  // Load initial data and available teams
   useEffect(() => {
     const section = searchParams.get("section");
     if (section === "notifications") {
       setNotificationsModalOpen(true);
     } else if (section === "settings") {
-      // Scroll to settings section
       document.getElementById("account-settings")?.scrollIntoView({ behavior: "smooth" });
     }
-  }, [searchParams]);
 
-  const handleSaveChanges = () => {
-    toast.success("Profile updated successfully");
-    setIsEditing(false);
+    if (profile) {
+      setFormData({
+        fullName: profile.full_name || "",
+        // If no team is assigned (null), we treat it as "all" in the UI
+        teamId: profile.coach?.teams?.id || "all",
+        jobTitle: "Head Coach - Strength & Conditioning" 
+      });
+      setProfilePhoto(null); 
+    }
+    fetchTeams();
+  }, [profile, searchParams]);
+
+  const fetchTeams = async () => {
+    const { data } = await supabase.from('teams').select('id, name');
+    setTeams(data || []);
+  };
+
+ const handleSaveChanges = async () => {
+    try {
+      // 1. Update Profile (Name)
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update({ full_name: formData.fullName })
+        .eq('id', user?.id);
+
+      if (profileError) throw profileError;
+
+      // 2. Update Coach Details (Team)
+      if (profile?.coach?.id) {
+        // Convert "all" back to null for the database
+        const teamIdToSave = formData.teamId === "all" ? null : formData.teamId;
+
+        const { error: coachError } = await supabase
+          .from('coaches')
+          .update({ 
+            team_id: teamIdToSave
+          })
+          .eq('id', profile.coach.id);
+
+        if (coachError) throw coachError;
+      }
+
+      toast.success("Profile updated successfully");
+      setIsEditing(false);
+    } catch (error: any) {
+      console.error(error);
+      toast.error("Failed to update profile");
+    }
   };
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -111,16 +165,21 @@ const Profile = () => {
   };
 
   const handleChangePassword = async () => {
+    // Validation
     if (!currentPassword || !newPassword || !confirmPassword) {
       toast.error("Please fill in all password fields");
       return;
     }
-    if (newPassword !== confirmPassword) {
-      toast.error("New passwords do not match");
+
+    const passwordError = Validators.password(newPassword);
+    if (passwordError) {
+      toast.error(passwordError);
       return;
     }
-    if (newPassword.length < 8) {
-      toast.error("Password must be at least 8 characters");
+
+    const confirmError = Validators.passwordConfirm(newPassword, confirmPassword);
+    if (confirmError) {
+      toast.error(confirmError);
       return;
     }
     
@@ -210,25 +269,42 @@ const Profile = () => {
             <CardContent className="space-y-6">
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="firstName">
+                  <Label htmlFor="fullName">
                     <User className="inline mr-2 h-4 w-4" />
                     Full Name
                   </Label>
                   <Input 
-                    id="firstName" 
-                    defaultValue={profile?.full_name || ""} 
+                    id="fullName" 
+                    value={formData.fullName} 
+                    onChange={(e) => setFormData({...formData, fullName: e.target.value})}
                     disabled={!isEditing}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="lastName">Team</Label>
-                  <Input 
-                    id="lastName" 
-                    defaultValue={profile?.coach?.teams?.name || ""} 
-                    disabled
-                  />
-                </div>
+                <Label htmlFor="team">Team Assignment</Label>
+                <Select 
+                  disabled={!isEditing} 
+                  value={formData.teamId} 
+                  onValueChange={(val) => setFormData({...formData, teamId: val})}
+                >
+                  <SelectTrigger id="team" className="bg-background">
+                    <SelectValue placeholder="Select a Team" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {/* ADDED: Option for All Teams */}
+                    <SelectItem value="all" className="font-semibold">
+                      All Teams (Head Coach)
+                    </SelectItem>
+                    
+                    {teams.map((team) => (
+                      <SelectItem key={team.id} value={team.id}>
+                        {team.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
+            </div>
 
               <div className="space-y-2">
                 <Label htmlFor="email">
@@ -239,19 +315,22 @@ const Profile = () => {
                   id="email" 
                   type="email" 
                   defaultValue={user?.email} 
-                  disabled={!isEditing}
+                  disabled
                 />
+                <p className="text-xs text-muted-foreground">Email cannot be changed directly.</p>
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="role">
                   <Shield className="inline mr-2 h-4 w-4" />
-                  Role
+                  Role / Job Title
                 </Label>
                 <Input 
                   id="role" 
-                  defaultValue="Head Coach - Strength & Conditioning" 
-                  disabled
+                  value={formData.jobTitle}
+                  onChange={(e) => setFormData({...formData, jobTitle: e.target.value})}
+                  disabled={!isEditing}
+                  placeholder="e.g. Head Coach"
                 />
               </div>
 

@@ -15,6 +15,7 @@ import {
   AlertCircle 
 } from "lucide-react";
 import { toast } from "sonner";
+import { Validators } from "@/lib/validators";
 import { supabase } from "@/lib/supabase";
 import { updateTeam, deleteTeam, updateSportName, getSportsList } from "@/services/playersService";
 
@@ -65,10 +66,19 @@ export const TeamSportManager = ({ open, onClose }: TeamSportManagerProps) => {
   // --- TEAM ACTIONS ---
 
   const handleCreateTeam = async () => {
-    if (!newTeamData.name || !newTeamData.sport) {
-      toast.error("Name and Sport are required");
+    // Validation
+    const nameError = Validators.teamName(newTeamData.name);
+    if (nameError) {
+      toast.error(nameError);
       return;
     }
+
+    const sportError = Validators.sport(newTeamData.sport);
+    if (sportError) {
+      toast.error(sportError);
+      return;
+    }
+
     try {
       const { error } = await supabase.from('teams').insert(newTeamData);
       if (error) throw error;
@@ -83,6 +93,20 @@ export const TeamSportManager = ({ open, onClose }: TeamSportManagerProps) => {
 
   const handleUpdateTeam = async () => {
     if (!editingTeam) return;
+
+    // Validation
+    const nameError = Validators.teamName(editingTeam.name);
+    if (nameError) {
+      toast.error(nameError);
+      return;
+    }
+
+    const sportError = Validators.sport(editingTeam.sport);
+    if (sportError) {
+      toast.error(sportError);
+      return;
+    }
+
     const success = await updateTeam(editingTeam.id, { 
       name: editingTeam.name, 
       sport: editingTeam.sport 
@@ -111,6 +135,25 @@ export const TeamSportManager = ({ open, onClose }: TeamSportManagerProps) => {
 
   const handleRenameSport = async () => {
     if (!editingSport) return;
+
+    // Validation
+    const oldError = Validators.sport(editingSport.old);
+    if (oldError) {
+      toast.error(`Old sport: ${oldError}`);
+      return;
+    }
+
+    const newError = Validators.sport(editingSport.new);
+    if (newError) {
+      toast.error(`New sport: ${newError}`);
+      return;
+    }
+
+    if (editingSport.old === editingSport.new) {
+      toast.error("New sport name must be different from the old name");
+      return;
+    }
+
     const success = await updateSportName(editingSport.old, editingSport.new);
     if (success) {
       toast.success(`Renamed ${editingSport.old} to ${editingSport.new}`);

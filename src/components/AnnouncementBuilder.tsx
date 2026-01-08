@@ -14,6 +14,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Megaphone, Send, CalendarIcon } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { Validators } from "@/lib/validators";
 import { useAuth } from "@/contexts/AuthContext";
 import { getPlayersByTeamIds, PlayerWithStats, getSportsList } from "@/services/playersService";
 import { sendMessage } from "@/services/messagesService";
@@ -93,14 +94,24 @@ export const AnnouncementBuilder = ({ open, onClose }: AnnouncementBuilderProps)
   });
 
   const handleSendAnnouncement = async () => {
-    if (!title.trim() || !message.trim()) {
-      toast.error("Please enter both a title and message");
+    // Validation
+    const titleError = Validators.announcementTitle(title);
+    if (titleError) {
+      toast.error(titleError);
       return;
     }
+
+    const messageError = Validators.announcementMessage(message);
+    if (messageError) {
+      toast.error(messageError);
+      return;
+    }
+
     if (selectedAthletes.length === 0) {
       toast.error("Please select at least one athlete");
       return;
     }
+
     if (!user?.id) {
       toast.error("User not authenticated");
       return;

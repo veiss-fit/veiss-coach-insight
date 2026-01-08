@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
+import { Validators } from "@/lib/validators";
 import veissLogo from "@/assets/veiss-logo.png";
 
 const Signup = () => {
@@ -21,18 +22,27 @@ const Signup = () => {
     e.preventDefault();
     
     // Validation
-    if (!email || !password || !confirmPassword || !fullName) {
-      toast.error("Please fill in all fields");
+    const fullNameError = Validators.fullName(fullName);
+    if (fullNameError) {
+      toast.error(fullNameError);
       return;
     }
 
-    if (password.length < 6) {
-      toast.error("Password must be at least 6 characters");
+    const emailError = Validators.email(email);
+    if (emailError) {
+      toast.error(emailError);
       return;
     }
 
-    if (password !== confirmPassword) {
-      toast.error("Passwords do not match");
+    const passwordError = Validators.password(password);
+    if (passwordError) {
+      toast.error(passwordError);
+      return;
+    }
+
+    const confirmError = Validators.passwordConfirm(password, confirmPassword);
+    if (confirmError) {
+      toast.error(confirmError);
       return;
     }
 

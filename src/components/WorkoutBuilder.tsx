@@ -26,6 +26,7 @@ import { workoutTemplates } from '@/data/mockData'
 import { Plus, Trash2, Send, Dumbbell, CalendarIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import { Validators } from '@/lib/validators'
 import { useAuth } from '@/contexts/AuthContext'
 import { getPlayersByTeamIds, PlayerWithStats, getSportsList } from '@/services/playersService'
 import { sendWorkoutPlan } from '@/services/workoutPlansService'
@@ -179,14 +180,55 @@ export const WorkoutBuilder = ({ open, onClose }: WorkoutBuilderProps) => {
     })
 
     const handleSendWorkout = async () => {
-        if (!workoutName || exercises.length === 0 || selectedAthletes.length === 0) {
-            toast.error('Please fill out workout name, add exercises, and select athletes')
-            return
+        // Validation
+        const nameError = Validators.workoutName(workoutName);
+        if (nameError) {
+            toast.error(nameError);
+            return;
+        }
+
+        if (exercises.length === 0) {
+            toast.error("Please add at least one exercise");
+            return;
+        }
+
+        if (selectedAthletes.length === 0) {
+            toast.error("Please select at least one athlete");
+            return;
         }
 
         if (!scheduledDate) {
-            toast.error('Please select a scheduled date')
-            return
+            toast.error("Please select a scheduled date");
+            return;
+        }
+
+        // Validate all exercises
+        for (let i = 0; i < exercises.length; i++) {
+            const ex = exercises[i];
+            
+            const exNameError = Validators.exerciseName(ex.name);
+            if (exNameError) {
+                toast.error(`Exercise ${i + 1}: ${exNameError}`);
+                return;
+            }
+
+            const setsError = Validators.workoutSets(ex.sets);
+            if (setsError) {
+                toast.error(`Exercise ${i + 1}: ${setsError}`);
+                return;
+            }
+
+            const repsError = Validators.workoutReps(ex.reps);
+            if (repsError) {
+                toast.error(`Exercise ${i + 1}: ${repsError}`);
+                return;
+            }
+
+            const weightError = Validators.workoutWeight(ex.weight);
+            if (weightError) {
+                toast.error(`Exercise ${i + 1}: ${weightError}`);
+                return;
+            }
         }
 
         try {

@@ -12,7 +12,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-
+import { Validators } from "@/lib/validators";
 interface PlayerBuilderProps {
   open: boolean;
   onClose: () => void;

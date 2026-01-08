@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
+import { Validators } from "@/lib/validators";
 import veissLogo from "@/assets/veiss-logo.png";
 
 const Login = () => {
@@ -18,6 +19,20 @@ const Login = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Validation
+    const emailError = Validators.email(email);
+    if (emailError) {
+      toast.error(emailError);
+      return;
+    }
+
+    const passwordError = Validators.password(password);
+    if (passwordError) {
+      toast.error(passwordError);
+      return;
+    }
+
     setLoading(true);
     
     try {
