@@ -9,8 +9,7 @@ import {
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Search, ChevronLeft, ChevronRight, Activity, Maximize2, Timer } from "lucide-react";
-import { Athlete } from "@/data/mockData";
+import { Search, ChevronLeft, ChevronRight } from "lucide-react";
 import { PlayerWithStats } from "@/services/playersService";
 
 interface AthleteTableProps {
@@ -57,35 +56,19 @@ export const AthleteTable = ({ athletes, onAthleteSelect, filtersActive = false 
       </div>
 
       <div className="rounded-md border border-border bg-card overflow-hidden">
-        <Table>
+        <Table className="w-full table-fixed">
           <TableHeader>
             <TableRow className="bg-muted/50 hover:bg-muted/50">
-              <TableHead className="font-semibold">Athlete</TableHead>
-              <TableHead className="font-semibold text-center">Sport</TableHead>
-              {/* --- PHASE 22 NEW COLUMNS --- */}
-              <TableHead className="font-semibold text-center">
-                <div className="flex items-center justify-center gap-1">
-                  <Activity className="h-3 w-3" /> Velocity
-                </div>
-              </TableHead>
-              <TableHead className="font-semibold text-center">
-                <div className="flex items-center justify-center gap-1">
-                  <Maximize2 className="h-3 w-3" /> ROM
-                </div>
-              </TableHead>
-              <TableHead className="font-semibold text-center">
-                <div className="flex items-center justify-center gap-1">
-                  <Timer className="h-3 w-3" /> Explosiveness
-                </div>
-              </TableHead>
-              {/* ----------------------------- */}
-              <TableHead className="font-semibold text-center">Attendance</TableHead>
+              <TableHead className="w-1/4 py-2 font-semibold text-center">Athlete</TableHead>
+              <TableHead className="w-1/4 py-2 font-semibold text-center">Sport</TableHead>
+              <TableHead className="w-1/4 py-2 font-semibold text-center">Level</TableHead>
+              <TableHead className="w-1/4 py-2 font-semibold text-center">Attendance</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {displayedAthletes.length === 0 ? (
                 <TableRow>
-                    <TableCell colSpan={6} className="text-center py-10 text-muted-foreground">
+                    <TableCell colSpan={4} className="text-center py-10 text-muted-foreground">
                         No athletes found.
                     </TableCell>
                 </TableRow>
@@ -93,30 +76,21 @@ export const AthleteTable = ({ athletes, onAthleteSelect, filtersActive = false 
                 displayedAthletes.map((athlete) => (
                     <TableRow
                       key={athlete.id}
-                      className="cursor-pointer hover:bg-muted/50 transition-colors"
+                      className="h-12 cursor-pointer hover:bg-muted/50 transition-colors"
                       onClick={() => onAthleteSelect(athlete)}
                     >
-                      <TableCell className="font-medium">{athlete.name}</TableCell>
-                      <TableCell className="text-center">
-                        <span className="text-xs bg-muted px-2 py-1 rounded-full">{athlete.sport}</span>
+                      <TableCell className="py-2 text-center font-medium">{athlete.name}</TableCell>
+                      <TableCell className="py-2 text-center">
+                        <span className="text-xs bg-muted px-2 py-0.5 rounded-full">{athlete.sport}</span>
                       </TableCell>
-                      
-                      {/* Velocity with color coding */}
-                      <TableCell className={`text-center font-bold ${athlete.avgVelocity < 0.4 ? 'text-destructive' : 'text-chart-2'}`}>
-                        {athlete.avgVelocity > 0 ? `${athlete.avgVelocity} m/s` : '--'}
+                      <TableCell className="py-2 text-center">
+                        <span className={`inline-flex min-w-16 items-center justify-center rounded-full border px-2.5 py-1 text-sm font-semibold ${
+                          athlete.level === 'Varsity'
+                            ? 'border-amber-300 bg-amber-100 text-amber-900'
+                            : 'border-slate-300 bg-slate-100 text-slate-900'
+                        }`}>{athlete.level}</span>
                       </TableCell>
-
-                      {/* ROM Summary */}
-                      <TableCell className="text-center">
-                        {athlete.avgROM > 0 ? `${athlete.avgROM}mm` : '--'}
-                      </TableCell>
-
-                      {/* Tempo/Concentric Duration */}
-                      <TableCell className="text-center">
-                        {athlete.avgTempo > 0 ? `${athlete.avgTempo}s` : '--'}
-                      </TableCell>
-
-                      <TableCell className="text-center font-medium">{athlete.attendance}%</TableCell>
+                      <TableCell className="py-2 text-center font-medium">{athlete.attendance}%</TableCell>
                     </TableRow>
                   ))
             )}

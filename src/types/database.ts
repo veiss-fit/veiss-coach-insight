@@ -92,6 +92,7 @@ export interface Database {
           jersey_number: number | null;
           created_at: string;
           user_id: string | null;
+          level: 'Varsity' | 'JV';
         };
         Insert: {
           id?: string;
@@ -100,6 +101,7 @@ export interface Database {
           jersey_number?: number | null;
           created_at?: string;
           user_id?: string | null;
+          level?: 'Varsity' | 'JV';
         };
         Update: {
           id?: string;
@@ -108,6 +110,7 @@ export interface Database {
           jersey_number?: number | null;
           created_at?: string;
           user_id?: string | null;
+          level?: 'Varsity' | 'JV';
         };
       };
       sessions: {

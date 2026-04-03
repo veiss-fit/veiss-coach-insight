@@ -20,6 +20,7 @@ import { getPlayerWorkoutPlans } from "@/services/workoutPlansService";
 import { getPlayerSessions, SessionData } from "@/services/sessionsService"; // Import this back
 import { SessionDetailPanel } from "./SessionDetailPanel"; // Import this back
 import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
+import { findMatchingSessionForPlan, getAttendanceSummary, WorkoutSessionLike } from "@/lib/workoutAttendance";
 import { format, isPast, isToday, parseISO, isSameDay } from "date-fns";
 
 interface AthleteDetailPanelProps {
@@ -31,6 +32,8 @@ interface AthleteDetailPanelProps {
 export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPanelProps) => {
   const [plans, setPlans] = useState<any[]>([]);
   const [sessions, setSessions] = useState<SessionData[]>([]); // Store actual performance data
+  // Combined timeline state
+  const [timeline, setTimeline] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   
   // Two types of selected state
@@ -50,11 +53,42 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
       // Fetch both Plans (Assignments) and Sessions (Actual Results)
       const [plansData, sessionsData] = await Promise.all([
         getPlayerWorkoutPlans(athlete.id),
-        getPlayerSessions(athlete.id) // This fetches the data with velocity/graphs
+        getPlayerSessions(athlete.id, (athlete as any).user_id)
       ]);
-      
       setPlans(plansData);
       setSessions(sessionsData);
+
+      const attendanceSummary = getAttendanceSummary(
+        plansData.map((plan: any) => ({
+          date: plan.date,
+          title: plan.title,
+          is_completed: plan.is_completed,
+        })),
+        sessionsData.map((session: SessionData) => ({
+          id: session.id,
+          date: session.date,
+          name: session.notes,
+        }))
+      );
+
+      // Merge and sort timeline: each item gets a type
+      const planItems = plansData.map((plan: any) => ({
+        ...plan,
+        _timelineType: 'plan',
+        _timelineDate: plan.date,
+      }));
+      const sessionItems = sessionsData
+        .filter((session) => !attendanceSummary.matchedSessionIds.has(session.id))
+        .map((session: any) => ({
+          ...session,
+          _timelineType: 'session',
+          _timelineDate: session.date,
+        }));
+      // Merge and sort by date descending
+      const merged = [...planItems, ...sessionItems].sort(
+        (a, b) => parseISO(b._timelineDate).getTime() - parseISO(a._timelineDate).getTime()
+      );
+      setTimeline(merged);
     } catch (error) {
       console.error('Error loading data:', error);
       toast.error('Failed to load athlete history');
@@ -65,11 +99,90 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
   
   if (!athlete) return null;
 
+  const normalize = (value?: string) => (value || '').trim().toLowerCase();
+  const attendanceSessions: WorkoutSessionLike[] = sessions.map((session) => ({
+    id: session.id,
+    date: session.date,
+    name: session.notes,
+  }));
+  const attendanceSummary = getAttendanceSummary(
+    plans.map((plan: any) => ({
+      date: plan.date,
+      title: plan.title,
+      is_completed: plan.is_completed,
+    })),
+    attendanceSessions
+  );
+
+  const applyPlanTargetsToSession = (session: SessionData, plan: any): SessionData => {
+    const planExercises = Array.isArray(plan?.exercises) ? plan.exercises : [];
+
+    return {
+      ...session,
+      exercises: session.exercises.map((exercise) => {
+        const matchingPlanExercise = planExercises.find(
+          (planExercise: any) => normalize(planExercise?.name) === normalize(exercise.name)
+        );
+
+        if (!matchingPlanExercise) {
+          return exercise;
+        }
+
+        return {
+          ...exercise,
+          targetVelocityMin: Number(matchingPlanExercise.targetVelocityMin) || 0,
+          targetVelocityMax: Number(matchingPlanExercise.targetVelocityMax) || 0,
+        };
+      }),
+    };
+  };
+
+  const hasSessionForPlan = (plan: any) => {
+    return !!findMatchingSessionForPlan(
+      { date: plan.date, title: plan.title },
+      attendanceSessions
+    );
+  };
+
+  const getMatchingSessionForPlan = (plan: any) => {
+    const matchedSession = findMatchingSessionForPlan(
+      { date: plan.date, title: plan.title },
+      attendanceSessions
+    );
+    return matchedSession ? sessions.find((session) => session.id === matchedSession.id) || null : null;
+  };
+
   const getPlanStatus = (plan: any) => {
-    if (plan.is_completed) return 'completed';
+    if (plan.is_completed || hasSessionForPlan(plan)) return 'completed';
     const planDate = parseISO(plan.date);
     if (isPast(planDate) && !isToday(planDate)) return 'missed';
     return 'pending';
+  };
+
+  const completedPlanCount = attendanceSummary.completedPlanCount;
+  const pendingPlanCount = attendanceSummary.pendingPlanCount;
+  const missedPlanCount = attendanceSummary.missedPlanCount;
+  const selfLoggedCompletedCount = attendanceSummary.selfLoggedCompletedCount;
+  const completedWorkoutCount = attendanceSummary.completedTrackedCount;
+
+  // Handle click for timeline items
+  const handleTimelineItemClick = (item: any) => {
+    if (item._timelineType === 'plan') {
+      // Use existing logic for plans
+      const status = getPlanStatus(item);
+      if (status === 'completed') {
+        const matchingSession = getMatchingSessionForPlan(item);
+        if (matchingSession) {
+          setSelectedSession(applyPlanTargetsToSession(matchingSession, item));
+        } else {
+          setSelectedPlan(item);
+        }
+      } else {
+        setSelectedPlan(item);
+      }
+    } else if (item._timelineType === 'session') {
+      setSelectedSession(item);
+    }
   };
 
   // Logic to handle click: 
@@ -79,13 +192,10 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
     const status = getPlanStatus(plan);
 
     if (status === 'completed') {
-      // Try to find the matching actual session by date
-      // (Ideally, we would link by ID, but Date is a good fallback for now)
-      const planDate = parseISO(plan.date);
-      const matchingSession = sessions.find(s => isSameDay(new Date(s.date), planDate));
+      const matchingSession = getMatchingSessionForPlan(plan);
 
       if (matchingSession) {
-        setSelectedSession(matchingSession); // Open the Graphs View
+        setSelectedSession(applyPlanTargetsToSession(matchingSession, plan)); // Open the Graphs View
       } else {
         // Fallback if completed manually without data
         setSelectedPlan(plan); 
@@ -105,7 +215,6 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
             <div className="flex gap-2 mt-2">
               <Badge variant="outline">{athlete.sport}</Badge>
               <Badge variant="outline">{athlete.level}</Badge>
-              <Badge variant="outline">{athlete.group}</Badge>
             </div>
           </SheetHeader>
 
@@ -115,7 +224,7 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
               <Card>
                 <CardContent className="p-4 text-center">
                   <div className="text-2xl font-bold text-green-600">
-                    {plans.filter(p => p.is_completed).length}
+                    {completedWorkoutCount}
                   </div>
                   <div className="text-xs text-muted-foreground">Completed</div>
                 </CardContent>
@@ -123,7 +232,7 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
               <Card>
                 <CardContent className="p-4 text-center">
                   <div className="text-2xl font-bold text-destructive">
-                    {plans.filter(p => getPlanStatus(p) === 'missed').length}
+                    {missedPlanCount}
                   </div>
                   <div className="text-xs text-muted-foreground">Missed</div>
                 </CardContent>
@@ -131,14 +240,14 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
               <Card>
                 <CardContent className="p-4 text-center">
                   <div className="text-2xl font-bold text-blue-600">
-                    {plans.filter(p => getPlanStatus(p) === 'pending').length}
+                    {pendingPlanCount}
                   </div>
                   <div className="text-xs text-muted-foreground">Pending</div>
                 </CardContent>
               </Card>
             </div>
 
-            {/* Timeline List */}
+            {/* Timeline List: Assigned Plans + Self-Logged Sessions */}
             <div className="space-y-4">
               <h3 className="text-lg font-semibold flex items-center gap-2">
                 <Calendar className="h-5 w-5" />
@@ -147,49 +256,49 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
 
               {loading ? (
                 <div className="text-center py-8 text-muted-foreground">Loading history...</div>
-              ) : plans.length === 0 ? (
+              ) : timeline.length === 0 ? (
                 <div className="text-center py-8 border-2 border-dashed rounded-lg">
-                  <p className="text-muted-foreground">No workouts assigned yet.</p>
+                  <p className="text-muted-foreground">No workouts found.</p>
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {plans.map((plan) => {
-                    const status = getPlanStatus(plan);
-                    const dateObj = parseISO(plan.date);
-
+                  {timeline.map((item) => {
+                    const isPlan = item._timelineType === 'plan';
+                    const isSession = item._timelineType === 'session';
+                    const dateObj = parseISO(item._timelineDate);
+                    let status = null;
+                    if (isPlan) status = getPlanStatus(item);
                     return (
-                      <div 
-                        key={plan.id}
+                      <div
+                        key={item._timelineType + '-' + item.id}
                         className="group flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 cursor-pointer transition-colors"
-                        onClick={() => handleItemClick(plan)}
+                        onClick={() => handleTimelineItemClick(item)}
                       >
                         <div className="flex items-start gap-4">
-                          {/* Status Icon */}
+                          {/* Status/Icon */}
                           <div className="mt-1">
-                            {status === 'completed' && <CheckCircle2 className="h-5 w-5 text-green-500" />}
-                            {status === 'missed' && <AlertCircle className="h-5 w-5 text-destructive" />}
-                            {status === 'pending' && <Clock className="h-5 w-5 text-blue-500" />}
+                            {isPlan && status === 'completed' && <CheckCircle2 className="h-5 w-5 text-green-500" />}
+                            {isPlan && status === 'missed' && <AlertCircle className="h-5 w-5 text-destructive" />}
+                            {isPlan && status === 'pending' && <Clock className="h-5 w-5 text-blue-500" />}
+                            {isSession && <Activity className="h-5 w-5 text-primary" />}
                           </div>
-
                           <div>
                             <div className="flex items-center gap-2">
-                              <h4 className="font-semibold">{plan.title}</h4>
-                              {/* Show Activity Icon if we have graph data for this */}
-                              {status === 'completed' && sessions.some(s => isSameDay(new Date(s.date), dateObj)) && (
-                                <Badge variant="secondary" className="text-[10px] px-1 h-5 gap-1">
-                                  <Activity className="h-3 w-3" /> Data
-                                </Badge>
-                              )}
+                              <h4 className="font-semibold">
+                                {isPlan ? item.title : (item.notes || 'Self-Logged Session')}
+                              </h4>
+                              <Badge variant={isPlan ? 'secondary' : 'default'} className="text-[10px] px-1 h-5 gap-1">
+                                {isPlan ? 'Assigned Plan' : 'Self-Logged'}
+                              </Badge>
                             </div>
                             <p className="text-sm text-muted-foreground">
                               {format(dateObj, 'EEEE, MMM d')}
                             </p>
-                            {status === 'missed' && (
+                            {isPlan && status === 'missed' && (
                               <span className="text-xs text-destructive font-medium">Missed Workout</span>
                             )}
                           </div>
                         </div>
-
                         <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground" />
                       </div>
                     );
@@ -251,6 +360,7 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
         session={selectedSession}
         open={!!selectedSession}
         onClose={() => setSelectedSession(null)}
+        isSelfLoggedSession={selectedSession ? !attendanceSummary.matchedSessionIds.has(selectedSession.id) : false}
       />
     </>
   );

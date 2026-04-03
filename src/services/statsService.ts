@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { getAttendanceSummary, WorkoutPlanLike, WorkoutSessionLike } from '@/lib/workoutAttendance';
 
 export interface DashboardStats {
   totalSessions: number;
@@ -43,113 +44,84 @@ export const getCoachDashboardStats = async (
       };
     }
 
-    // Get sessions for these players (last 30 days)
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const playerIds = players.map((p) => p.id);
+    const sessionOwnerIds = Array.from(
+      new Set(players.flatMap((p) => [p.id, p.user_id].filter(Boolean) as string[]))
+    );
 
-    const playerUserIds = players.map(p => p.user_id).filter(id => id !== null);
+    const [{ data: allWorkoutPlans }, { data: allSessions }] = await Promise.all([
+      supabase
+        .from('workout_plans')
+        .select('player_id, date, title, is_completed')
+        .in('player_id', playerIds),
+      sessionOwnerIds.length > 0
+        ? supabase
+            .from('sessions')
+            .select('id, user_id, created_at, name')
+            .in('user_id', sessionOwnerIds)
+        : Promise.resolve({ data: [] as Array<{ id: string; user_id: string; created_at: string; name: string }> }),
+    ]);
 
-    const { data: sessions, error: sessionsError } = await supabase
-      .from('sessions')
-      .select('id, user_id, created_at')
-      .in('user_id', playerUserIds)
-      .gte('created_at', thirtyDaysAgo.toISOString());
+    const plansByPlayerId = new Map<string, Array<{ date: string; title: string; is_completed: boolean }>>();
+    (allWorkoutPlans || []).forEach((plan) => {
+      const existing = plansByPlayerId.get(plan.player_id) || [];
+      existing.push({ date: plan.date, title: plan.title, is_completed: plan.is_completed });
+      plansByPlayerId.set(plan.player_id, existing);
+    });
 
-    if (sessionsError) {
-      console.error('Error fetching sessions:', sessionsError);
-    }
+    let totalSessions = 0;
+    let totalCompletedSessions = 0;
+    const attendancePercentages: number[] = [];
+    let lowestAttendance = 0;
+    let topPerformer = 'N/A';
+    let topAttendance = -1;
 
-    const totalSessions = sessions?.length || 0;
+    players.forEach((player) => {
+      const ownerIds = new Set([player.id, player.user_id].filter(Boolean) as string[]);
+      const playerSessions = (allSessions || [])
+        .filter((session) => ownerIds.has(session.user_id))
+        .map((session) => ({
+          id: session.id,
+          date: session.created_at.slice(0, 10),
+          name: session.name,
+        })) as WorkoutSessionLike[];
+      const playerPlans = (plansByPlayerId.get(player.id) || []).map((plan) => ({
+        date: plan.date,
+        title: plan.title,
+        is_completed: plan.is_completed,
+      })) as WorkoutPlanLike[];
+      const attendanceSummary = getAttendanceSummary(playerPlans, playerSessions);
 
-    // Calculate attendance per player
-    const expectedSessions = 12; // Assume ~3 sessions per week for 4 weeks
-    const playerAttendance = new Map<string, number>();
-    const playerNames = new Map<string, string>();
+      const playerTotalWorkouts = attendanceSummary.totalTrackedCount;
+      const playerCompletedWorkouts = attendanceSummary.completedTrackedCount;
+      const playerAttendance = attendanceSummary.attendancePercent;
 
-    players.forEach(player => {
-      if (player.user_id) {
-        playerNames.set(player.user_id, player.full_name);
-        playerAttendance.set(player.user_id, 0);
+      totalSessions += playerTotalWorkouts;
+      totalCompletedSessions += playerCompletedWorkouts;
+      attendancePercentages.push(playerAttendance);
+
+      if (playerAttendance > topAttendance) {
+        topAttendance = playerAttendance;
+        topPerformer = player.full_name;
       }
     });
 
-    sessions?.forEach(session => {
-      const current = playerAttendance.get(session.user_id) || 0;
-      playerAttendance.set(session.user_id, current + 1);
-    });
-
-    // Calculate average attendance percentage
-    const attendancePercentages: number[] = [];
-    playerAttendance.forEach((sessionCount) => {
-      const percentage = Math.min(100, Math.round((sessionCount / expectedSessions) * 100));
-      attendancePercentages.push(percentage);
-    });
-
-    const avgAttendance = attendancePercentages.length > 0
-      ? Math.round(attendancePercentages.reduce((sum, p) => sum + p, 0) / attendancePercentages.length)
+    const avgAttendance = totalSessions > 0
+      ? Math.round((totalCompletedSessions / totalSessions) * 100)
       : 0;
 
-    const lowestAttendance = attendancePercentages.length > 0
+    lowestAttendance = attendancePercentages.length > 0
       ? Math.min(...attendancePercentages)
       : 0;
 
-    // Calculate velocities for top performer
-    const sessionIds = sessions?.map(s => s.id) || [];
-    
-    let topPerformer = 'N/A';
-    if (sessionIds.length > 0) {
-      const { data: reps } = await supabase
-        .from('reps')
-        .select('session_id, average_rep_speed')
-        .in('session_id', sessionIds)
-        .not('average_rep_speed', 'is', null);
-
-      if (reps && reps.length > 0) {
-        // Group by session, then by user
-        const sessionToUser = new Map<string, string>();
-        sessions?.forEach(s => {
-          sessionToUser.set(s.id, s.user_id);
-        });
-
-        const userVelocities = new Map<string, number[]>();
-        reps.forEach(rep => {
-          const userId = sessionToUser.get(rep.session_id);
-          if (userId && rep.average_rep_speed) {
-            if (!userVelocities.has(userId)) {
-              userVelocities.set(userId, []);
-            }
-            userVelocities.get(userId)!.push(rep.average_rep_speed);
-          }
-        });
-
-        // Calculate average velocity per user
-        let maxAvgVelocity = 0;
-        let topUserId: string | null = null;
-
-        userVelocities.forEach((velocities, userId) => {
-          const avgVelocity = velocities.reduce((sum, v) => sum + v, 0) / velocities.length;
-          if (avgVelocity > maxAvgVelocity) {
-            maxAvgVelocity = avgVelocity;
-            topUserId = userId;
-          }
-        });
-
-        if (topUserId) {
-          topPerformer = playerNames.get(topUserId) || 'Unknown';
-        }
-      }
-    }
-
-    // Get total teams count
-    const { count: teamCount } = await supabase
-      .from('teams')
-      .select('*', { count: 'exact', head: true });
+    // Each coach record has a single canonical team_id in the current schema.
+    const teamCount = teamId ? 1 : 0;
 
     return {
       totalSessions,
       activeAthletes,
       avgAttendance,
-      totalTeams: teamCount || 0,
+      totalTeams: teamCount,
       avgTeamLoad: avgAttendance, // Team load is essentially attendance
       topPerformer,
       lowestAttendance,

@@ -18,6 +18,7 @@ import {
 import { toast } from "sonner";
 import { Validators } from "@/lib/validators";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/contexts/AuthContext";
 import { updateTeam, deleteTeam, updateSportName, getSportsList } from "@/services/playersService";
 import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
 
@@ -27,6 +28,7 @@ interface TeamSportManagerProps {
 }
 
 export const TeamSportManager = ({ open, onClose }: TeamSportManagerProps) => {
+  const { profile } = useAuth();
   const [teams, setTeams] = useState<any[]>([]);
   const [sports, setSports] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -47,15 +49,17 @@ export const TeamSportManager = ({ open, onClose }: TeamSportManagerProps) => {
     if (open) {
       loadData();
     }
-  }, [open]);
+  }, [open, profile?.coach?.team_id]);
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const { data: teamsData } = await supabase
-        .from('teams')
-        .select('*')
-        .order('name');
+      const coachTeamId = profile?.coach?.team_id;
+      const teamsQuery = coachTeamId
+        ? supabase.from('teams').select('*').eq('id', coachTeamId).order('name')
+        : supabase.from('teams').select('*').limit(0);
+
+      const { data: teamsData } = await teamsQuery;
       setTeams(teamsData || []);
 
       const sportsList = await getSportsList();

@@ -1,10 +1,12 @@
 import { supabase } from '@/lib/supabase';
+import { getAttendanceSummary, WorkoutPlanLike, WorkoutSessionLike } from '@/lib/workoutAttendance';
 import { Database } from '@/types/database';
 
 type Player = Database['public']['Tables']['players']['Row'];
 type Team = Database['public']['Tables']['teams']['Row'];
 type Session = Database['public']['Tables']['sessions']['Row'];
 type Rep = Database['public']['Tables']['reps']['Row'];
+type WorkoutPlan = Database['public']['Tables']['workout_plans']['Row'];
 
 export interface PlayerWithStats extends Player {
   team?: Team;
@@ -20,7 +22,6 @@ export interface PlayerWithStats extends Player {
   // For compatibility with existing UI components
   sport: string;
   group: string;
-  level: string;
   name: string;
 }
 
@@ -112,8 +113,7 @@ export const getPlayersByTeamIds = async (teamIds: string[]): Promise<PlayerWith
           ...player,
           name: player.full_name, // Map to 'name' for UI compatibility
           sport: player.teams?.sport || 'Unknown',
-          group: 'General', // TODO: Add position/group to players table if needed
-          level: 'Varsity', // TODO: Add level to players table if needed
+          group: 'General',
           team: player.teams,
           ...stats,
         } as PlayerWithStats;
@@ -155,6 +155,7 @@ export const getPlayersByTeamId = async (teamId: string): Promise<PlayerWithStat
           ...player,
           name: player.full_name,
           sport: player.teams?.sport || 'Unknown',
+          group: 'General',
           team: player.teams,
           ...stats,
         } as PlayerWithStats;
@@ -178,18 +179,34 @@ export const getPlayersByTeamId = async (teamId: string): Promise<PlayerWithStat
       .eq('id', playerId)
       .single();
 
-    if (playerError || !player?.user_id) {
+    if (playerError || !player) {
       return { avgVelocity: 0, attendance: 0, loadRec: 'New', engagement: 'Moderate' as const, avgROM: 0, avgTempo: 0 };
     }
+
+    const { data: workoutPlans } = await supabase
+      .from('workout_plans')
+      .select('date, title, is_completed')
+      .eq('player_id', playerId);
+
+    const sessionOwnerIds = Array.from(new Set([playerId, player.user_id].filter(Boolean) as string[]));
+
+    const { data: allSessions } = sessionOwnerIds.length > 0
+      ? await supabase
+          .from('sessions')
+          .select('id, created_at, name')
+          .in('user_id', sessionOwnerIds)
+      : { data: [] as Pick<Session, 'id' | 'created_at' | 'name'>[] };
 
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    const { data: sessions } = await supabase
-      .from('sessions')
-      .select('id')
-      .eq('user_id', player.user_id)
-      .gte('created_at', thirtyDaysAgo.toISOString());
+    const { data: sessions } = sessionOwnerIds.length > 0
+      ? await supabase
+          .from('sessions')
+          .select('id')
+          .in('user_id', sessionOwnerIds)
+          .gte('created_at', thirtyDaysAgo.toISOString())
+      : { data: [] as Pick<Session, 'id'>[] };
 
     const totalSessions = sessions?.length || 0;
     let avgVelocity = 0;
@@ -217,8 +234,19 @@ export const getPlayersByTeamId = async (teamId: string): Promise<PlayerWithStat
       }
     }
 
-    // Attendance calculation
-    const attendance = Math.min(100, Math.round((totalSessions / 12) * 100));
+    const attendanceSummary = getAttendanceSummary(
+      ((workoutPlans || []) as Pick<WorkoutPlan, 'date' | 'title' | 'is_completed'>[]).map((plan) => ({
+        date: plan.date,
+        title: plan.title,
+        is_completed: plan.is_completed,
+      })) as WorkoutPlanLike[],
+      ((allSessions || []) as Pick<Session, 'id' | 'created_at' | 'name'>[]).map((session) => ({
+        id: session.id,
+        date: session.created_at.slice(0, 10),
+        name: session.name,
+      })) as WorkoutSessionLike[]
+    );
+    const attendance = attendanceSummary.attendancePercent;
 
     // Improved Load Recommendation (Velocity Based Training Logic)
     let loadRec = 'Maintain';
@@ -237,7 +265,7 @@ export const getPlayersByTeamId = async (teamId: string): Promise<PlayerWithStat
     };
   } catch (error) {
     console.error(error);
-    return { avgVelocity: 0, attendance: 0, loadRec: 'Error', engagement: 'Low' };
+    return { avgVelocity: 0, attendance: 0, loadRec: 'Error', engagement: 'Low' as const, avgROM: 0, avgTempo: 0 };
   }
 };
 
@@ -383,7 +411,6 @@ export const getPlayerById = async (playerId: string): Promise<PlayerWithStats |
       name: player.full_name,
       sport: player.teams?.sport || 'Unknown',
       group: 'General',
-      level: 'Varsity',
       team: player.teams,
       ...stats,
     } as PlayerWithStats;

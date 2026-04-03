@@ -67,6 +67,20 @@ const Index = () => {
     }
   }, [profile, refreshKey, authLoading]);
 
+  useEffect(() => {
+    if (authLoading || !profile) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      loadData();
+    }, 15000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [profile, authLoading]);
+
   const loadData = async () => {
     // Safety check: don't load if profile is not available
     if (!profile) {
@@ -84,17 +98,17 @@ const Index = () => {
 
     try {
       setLoading(true);
-      
-      // Always load all players initially - team filter will handle filtering
-      // This allows coaches to see unassigned players (team_id = null) and assign them
-      console.log('Loading players...');
-      const players = await getPlayersByTeamId(profile.coach.team_id);
+
+      // Load players and coach-level stats together so attendance stays in sync across the dashboard and table.
+      console.log('Loading players and stats...');
+      const [players, dashboardStats] = await Promise.all([
+        getPlayersByTeamId(profile.coach.team_id),
+        getCoachDashboardStats(profile?.coach?.team_id || null),
+      ]);
+
       console.log(`Loaded ${players.length} players`);
       setAthletes(players);
 
-      // Load dashboard statistics (scoped to coach's team if they have one)
-      console.log('Loading stats...');
-      const dashboardStats = await getCoachDashboardStats(profile?.coach?.team_id || null);
       console.log('Stats loaded:', dashboardStats);
       setStats(dashboardStats);
       
@@ -145,6 +159,11 @@ const Index = () => {
   const handlePlayerBuilderClose = () => {
     setPlayerBuilderOpen(false);
     setRefreshKey(prev => prev + 1); // Trigger re-render to show new player
+  };
+
+  const handleWorkoutBuilderClose = () => {
+    setWorkoutBuilderOpen(false);
+    setRefreshKey(prev => prev + 1);
   };
 
   /* Real-time subscription disabled (requires Supabase Pro plan)
@@ -296,7 +315,7 @@ const Index = () => {
       {/* Workout Builder */}
       <WorkoutBuilder
         open={workoutBuilderOpen}
-        onClose={() => setWorkoutBuilderOpen(false)}
+        onClose={handleWorkoutBuilderClose}
       />
 
       {/* Announcement Builder */}

@@ -39,15 +39,19 @@ export interface SessionData {
 /**
  * Fetch all sessions for a specific player
  */
-export const getPlayerSessions = async (playerId: string): Promise<SessionData[]> => {
+export const getPlayerSessions = async (
+  playerId: string,
+  linkedUserId?: string | null
+): Promise<SessionData[]> => {
   try {
+    const ownerIds = Array.from(new Set([playerId, linkedUserId].filter(Boolean) as string[]));
+
     // Fetch sessions for this player
     const { data: sessions, error: sessionsError } = await supabase
       .from('sessions')
       .select('*')
-      .eq('user_id', playerId)
-      .order('created_at', { ascending: false })
-      .limit(20); // Last 20 sessions
+      .in('user_id', ownerIds)
+      .order('created_at', { ascending: false });
 
     if (sessionsError) {
       console.error('Error fetching sessions:', sessionsError);

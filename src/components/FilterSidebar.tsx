@@ -10,8 +10,8 @@ import { Input } from "@/components/ui/input";
 // 1. Updated Imports: Added Trophy, removed Plus (if no longer used elsewhere)
 import { Users, History, Trophy, Plus } from "lucide-react"; 
 import { toast } from "sonner";
-import { getSportsList } from "@/services/playersService";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/contexts/AuthContext";
 // 2. Import the new Manager
 import { TeamSportManager } from "@/components/TeamSportManager";
 
@@ -33,6 +33,7 @@ export const FilterSidebar = ({
   onTeamChange,
 }: FilterSidebarProps) => {
   const navigate = useNavigate();
+  const { profile } = useAuth();
   // 3. New State for the Manager
   const [isManagerOpen, setIsManagerOpen] = useState(false);
   
@@ -44,31 +45,33 @@ export const FilterSidebar = ({
   const [teamsList, setTeamsList] = useState<Array<{ id: string; name: string; sport: string }>>([]);
 
   useEffect(() => {
-    loadSports();
     loadTeams();
-  }, []);
-
-  const loadSports = async () => {
-    try {
-      const sports = await getSportsList();
-      setSportsList(sports);
-    } catch (error) {
-      console.error('Error loading sports:', error);
-      setSportsList(["Football", "Basketball", "Soccer", "Volleyball"]);
-    }
-  };
+  }, [profile?.coach?.team_id]);
 
   const loadTeams = async () => {
     try {
+      const coachTeamId = profile?.coach?.team_id;
+      if (!coachTeamId) {
+        setSportsList([]);
+        setTeamsList([]);
+        return;
+      }
+
       const { data, error } = await supabase
         .from('teams')
         .select('id, name, sport')
+        .eq('id', coachTeamId)
         .order('name', { ascending: true });
 
       if (error) throw error;
-      setTeamsList(data || []);
+      const scopedTeams = data || [];
+      setTeamsList(scopedTeams);
+      const coachSports = Array.from(new Set(scopedTeams.map((team) => team.sport))).sort();
+      setSportsList(coachSports);
     } catch (error) {
       console.error('Error loading teams:', error);
+      setSportsList([]);
+      setTeamsList([]);
     }
   };
 
@@ -165,7 +168,6 @@ export const FilterSidebar = ({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Teams</SelectItem>
-                  <SelectItem value="unassigned">No Team (Unassigned)</SelectItem>
                   {teamsList.map((team) => (
                     <SelectItem key={team.id} value={team.id}>
                       {team.name} ({team.sport})
