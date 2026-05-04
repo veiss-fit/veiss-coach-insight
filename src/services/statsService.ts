@@ -84,6 +84,7 @@ export const getCoachDashboardStats = async (
           id: session.id,
           date: session.created_at.slice(0, 10),
           name: session.name,
+          createdAt: session.created_at,
         })) as WorkoutSessionLike[];
       const playerPlans = (plansByPlayerId.get(player.id) || []).map((plan) => ({
         date: plan.date,

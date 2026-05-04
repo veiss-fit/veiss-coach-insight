@@ -68,6 +68,7 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
           id: session.id,
           date: session.date,
           name: session.notes,
+          createdAt: session.createdAt,
         }))
       );
 
@@ -104,6 +105,7 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
     id: session.id,
     date: session.date,
     name: session.notes,
+    createdAt: session.createdAt,
   }));
   const attendanceSummary = getAttendanceSummary(
     plans.map((plan: any) => ({

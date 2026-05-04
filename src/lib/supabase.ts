@@ -211,3 +211,43 @@ export const signOut = async () => {
 		throw error
 	}
 }
+
+// Helper function to request password reset
+export const resetPassword = async (email: string) => {
+	try {
+		const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
+			redirectTo: `${window.location.origin}/reset-password`,
+		})
+
+		if (error) {
+			console.error('Error requesting password reset:', error)
+			return { success: false, error: error.message }
+		}
+
+		console.log('Password reset email sent to:', email)
+		return { success: true, data }
+	} catch (error: any) {
+		console.error('Password reset exception:', error)
+		return { success: false, error: error.message || 'An error occurred while requesting password reset' }
+	}
+}
+
+// Helper function to update password with recovery token
+export const updatePassword = async (newPassword: string) => {
+	try {
+		const { data, error } = await supabase.auth.updateUser({
+			password: newPassword,
+		})
+
+		if (error) {
+			console.error('Error updating password:', error)
+			return { success: false, error: error.message }
+		}
+
+		console.log('Password updated successfully')
+		return { success: true, data }
+	} catch (error: any) {
+		console.error('Update password exception:', error)
+		return { success: false, error: error.message || 'An error occurred while updating password' }
+	}
+}

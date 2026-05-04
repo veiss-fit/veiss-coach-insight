@@ -8,6 +8,7 @@ export interface WorkoutSessionLike {
   id: string;
   date: string;
   name?: string | null;
+  createdAt?: string | null;
 }
 
 export interface AttendanceSummary {
@@ -28,9 +29,14 @@ export const findMatchingSessionForPlan = (
   sessions: WorkoutSessionLike[],
   excludedSessionIds: Set<string> = new Set()
 ) => {
-  const sameDaySessions = sessions.filter(
-    (session) => session.date === plan.date && !excludedSessionIds.has(session.id)
-  );
+  const sameDaySessions = sessions
+    .filter((session) => session.date === plan.date && !excludedSessionIds.has(session.id))
+    .sort((a, b) => {
+      // Always prefer latest completion when multiple same-day sessions exist.
+      const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return bTime - aTime;
+    });
 
   if (sameDaySessions.length === 0) {
     return null;

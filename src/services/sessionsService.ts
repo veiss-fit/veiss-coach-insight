@@ -32,6 +32,7 @@ export interface ExerciseData {
 export interface SessionData {
   id: string;
   date: string;
+  createdAt: string;
   exercises: ExerciseData[];
   notes?: string;
 }
@@ -70,6 +71,7 @@ export const getPlayerSessions = async (
         return {
           id: session.id,
           date: session.created_at.split('T')[0], // Format as YYYY-MM-DD
+          createdAt: session.created_at,
           exercises,
           notes: session.name || undefined,
         };
@@ -281,6 +283,7 @@ export const getSessionById = async (sessionId: string): Promise<SessionData | n
     return {
       id: session.id,
       date: session.created_at.split('T')[0],
+      createdAt: session.created_at,
       exercises,
       notes: session.name || undefined,
     };

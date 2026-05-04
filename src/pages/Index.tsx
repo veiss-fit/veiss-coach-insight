@@ -67,20 +67,6 @@ const Index = () => {
     }
   }, [profile, refreshKey, authLoading]);
 
-  useEffect(() => {
-    if (authLoading || !profile) {
-      return;
-    }
-
-    const intervalId = window.setInterval(() => {
-      loadData();
-    }, 15000);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [profile, authLoading]);
-
   const loadData = async () => {
     // Safety check: don't load if profile is not available
     if (!profile) {
@@ -101,9 +87,18 @@ const Index = () => {
 
       // Load players and coach-level stats together so attendance stays in sync across the dashboard and table.
       console.log('Loading players and stats...');
+      const teamId = profile?.coach?.team_id;
+      if (!teamId) {
+        console.warn('Coach has no team_id, skipping player load');
+        setAthletes([]);
+        setLoading(false);
+        clearTimeout(timeoutId);
+        return;
+      }
+
       const [players, dashboardStats] = await Promise.all([
-        getPlayersByTeamId(profile.coach.team_id),
-        getCoachDashboardStats(profile?.coach?.team_id || null),
+        getPlayersByTeamId(teamId),
+        getCoachDashboardStats(teamId),
       ]);
 
       console.log(`Loaded ${players.length} players`);
@@ -158,7 +153,8 @@ const Index = () => {
 
   const handlePlayerBuilderClose = () => {
     setPlayerBuilderOpen(false);
-    setRefreshKey(prev => prev + 1); // Trigger re-render to show new player
+    // Small delay to allow Supabase to commit the assignment before re-fetching
+    setTimeout(() => setRefreshKey(prev => prev + 1), 300);
   };
 
   const handleWorkoutBuilderClose = () => {

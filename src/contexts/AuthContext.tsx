@@ -271,7 +271,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react'
 import { User } from '@supabase/supabase-js'
-import { supabase, getUserProfile } from '@/lib/supabase'
+import { supabase, getUserProfile, resetPassword as supabaseResetPassword } from '@/lib/supabase'
 
 interface CoachProfile {
 	id: string
@@ -297,6 +297,7 @@ interface AuthContextType {
 	profile: CoachProfile | null
 	login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>
 	signup: (email: string, password: string, fullName: string) => Promise<{ success: boolean; error?: string }>
+	resetPassword: (email: string) => Promise<{ success: boolean; error?: string }>
 	logout: () => Promise<void>
 	loading: boolean
 }
@@ -310,7 +311,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 	const loadingProfileRef = useRef(false)
 	const profileLoadPromiseRef = useRef<Promise<void> | null>(null)
 	const initializingRef = useRef(false)
-	const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+	const loadingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
 	// Refs to avoid stale closures
 	const userRef = useRef<User | null>(null)
@@ -616,7 +617,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 						{
 							id: data.user.id,
 							full_name: fullName,
-							role: 'coach', // Default new signups to coach role
+							role: 'coach' as const, // Default new signups to coach role
 							created_at: new Date().toISOString(),
 						},
 					])
@@ -652,11 +653,20 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 			console.error('Error signing out:', error)
 		}
 	}
+	const resetPassword = async (email: string) => {
+		try {
+			const result = await supabaseResetPassword(email)
+			return result
+		} catch (error: any) {
+			console.error('Reset password exception:', error)
+			return { success: false, error: error.message || 'An error occurred during password reset' }
+		}
+	}
 
 	const isAuthenticated = !!user && !!profile && profile.role === 'coach'
 
 	return (
-		<AuthContext.Provider value={{ isAuthenticated, user, profile, login, signup, logout, loading }}>
+		<AuthContext.Provider value={{ isAuthenticated, user, profile, login, signup, resetPassword, logout, loading }}>
 			{children}
 		</AuthContext.Provider>
 	)

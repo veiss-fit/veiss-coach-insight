@@ -138,11 +138,18 @@ const Signup = () => {
             >
               {loading ? "Creating Account..." : "Sign Up"}
             </Button>
-            <div className="text-center text-sm text-muted-foreground">
-              Already have an account?{" "}
-              <Link to="/login" className="text-gold hover:text-gold/80 font-medium">
-                Sign In
-              </Link>
+            <div className="space-y-2 text-center text-sm text-muted-foreground">
+              <div>
+                Already have an account?{" "}
+                <Link to="/login" className="text-gold hover:text-gold/80 font-medium">
+                  Sign In
+                </Link>
+              </div>
+              <div>
+                <Link to="/forgot-password" className="text-gold hover:text-gold/80 font-medium">
+                  Forgot Password?
+                </Link>
+              </div>
             </div>
           </form>
         </CardContent>

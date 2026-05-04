@@ -155,10 +155,10 @@ export const SessionDetailPanel = ({ session, open, onClose, isSelfLoggedSession
                     </ResponsiveContainer>
                   </div>
 
-                  {/* 2. RANGE OF MOTION CHART - PHASE 22 NEW */}
+                  {/* 2. RANGE OF CONTRACTION CHART - PHASE 22 NEW */}
                   <div className="space-y-2 pt-4 border-t border-border/50">
                     <div className="flex justify-between items-center text-xs text-muted-foreground">
-                      <span className="flex items-center gap-1"><Maximize2 className="h-3 w-3" /> Range of Motion Consistency (mm)</span>
+                      <span className="flex items-center gap-1"><Maximize2 className="h-3 w-3" /> Range of Contraction (mm)</span>
                     </div>
                     <ResponsiveContainer width="100%" height={180}>
                       <LineChart data={chartData} margin={{ top: 8, right: 8, left: 4, bottom: 4 }}>
@@ -195,7 +195,7 @@ export const SessionDetailPanel = ({ session, open, onClose, isSelfLoggedSession
 
                     <div className="space-y-1">
                       <span className="text-[10px] uppercase text-muted-foreground flex items-center gap-1">
-                        <Maximize2 className="h-3 w-3" /> Avg ROM
+                        <Maximize2 className="h-3 w-3" /> Avg ROC
                       </span>
                       <div className="text-lg font-bold">
                         {exercise.avgROM} <span className="text-xs font-normal">mm</span>
