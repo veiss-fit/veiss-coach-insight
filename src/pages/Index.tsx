@@ -22,7 +22,6 @@ const Index = () => {
   const [selectedAthlete, setSelectedAthlete] = useState<Athlete | null>(null);
   const [workoutBuilderOpen, setWorkoutBuilderOpen] = useState(false);
   const [announcementBuilderOpen, setAnnouncementBuilderOpen] = useState(false);
-  const [levelFilter, setLevelFilter] = useState("all");
   const [teamFilter, setTeamFilter] = useState("all");
   const [refreshKey, setRefreshKey] = useState(0);
   const [isTemplateBuilderOpen, setIsTemplateBuilderOpen] = useState(false);
@@ -127,8 +126,6 @@ const Index = () => {
 
   const filteredAthletes = useMemo(() => {
     return athletes.filter((athlete) => {
-      if (levelFilter !== "all" && athlete.level !== levelFilter) return false;
-      
       // TEAM FILTER LOGIC
       if (teamFilter === "unassigned") {
         // Explicitly show ONLY unassigned players
@@ -144,7 +141,7 @@ const Index = () => {
       
       return true;
     });
-  }, [athletes, levelFilter, teamFilter]);
+  }, [athletes, teamFilter]);
 
   const handleWorkoutBuilderClose = () => {
     setWorkoutBuilderOpen(false);
@@ -194,9 +191,7 @@ const Index = () => {
         {/* Sidebar */}
         <aside className="w-80 p-6 border-r border-border bg-background">
           <FilterSidebar
-            levelFilter={levelFilter}
             teamFilter={teamFilter}
-            onLevelChange={setLevelFilter}
             onTeamChange={setTeamFilter}
             onPlayersChanged={() => setTimeout(() => setRefreshKey(prev => prev + 1), 300)}
           />
@@ -267,7 +262,7 @@ const Index = () => {
               <AthleteTable 
                 athletes={filteredAthletes} 
                 onAthleteSelect={setSelectedAthlete}
-                filtersActive={levelFilter !== "all" || teamFilter !== "all"}
+                filtersActive={teamFilter !== "all"}
               />
             )}
           </div>

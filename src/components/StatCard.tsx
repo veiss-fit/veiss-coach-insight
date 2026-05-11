@@ -19,18 +19,18 @@ export const StatCard = ({ title, value, icon: Icon, status, subtitle }: StatCar
   return (
     <Card className="bg-card border-border hover:border-gold transition-colors">
       <CardContent className="p-6">
-        <div className="flex items-start justify-between">
-          <div className="space-y-2">
+        <div className="flex items-center justify-between gap-4">
+          <div className="space-y-1 min-w-0">
             <p className="text-sm text-muted-foreground font-medium">{title}</p>
-            <p className="text-3xl font-bold text-foreground">{value}</p>
+            <p className="text-3xl font-bold text-foreground leading-tight">{value}</p>
             {subtitle && (
               <p className={`text-sm font-medium ${status ? statusColors[status] : "text-muted-foreground"}`}>
                 {subtitle}
               </p>
             )}
           </div>
-          <div className={`p-3 rounded-lg ${status ? "bg-navy-light/20" : "bg-muted"}`}>
-            <Icon className={`h-8 w-8 ${status ? statusColors[status] : "text-navy-light"}`} />
+          <div className="shrink-0 p-3 rounded-lg bg-muted">
+            <Icon className={`h-7 w-7 ${status ? statusColors[status] : "text-muted-foreground"}`} />
           </div>
         </div>
       </CardContent>

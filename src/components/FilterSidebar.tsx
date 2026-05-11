@@ -11,17 +11,13 @@ import { useAuth } from "@/contexts/AuthContext";
 import { TeamSportManager } from "@/components/TeamSportManager";
 
 interface FilterSidebarProps {
-  levelFilter: string;
   teamFilter?: string;
-  onLevelChange: (value: string) => void;
   onTeamChange?: (value: string) => void;
   onPlayersChanged?: () => void;
 }
 
 export const FilterSidebar = ({
-  levelFilter,
   teamFilter = "all",
-  onLevelChange,
   onTeamChange,
   onPlayersChanged,
 }: FilterSidebarProps) => {
@@ -88,20 +84,6 @@ export const FilterSidebar = ({
           <CardTitle className="text-navy-dark">Filters</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="level-filter" className="text-navy-dark">Level</Label>
-            <Select value={levelFilter} onValueChange={onLevelChange}>
-              <SelectTrigger id="level-filter" className="bg-background">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Levels</SelectItem>
-                <SelectItem value="Varsity">Varsity</SelectItem>
-                <SelectItem value="JV">JV</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
           {onTeamChange && (
             <div className="space-y-2">
               <Label htmlFor="team-filter" className="text-navy-dark">Group</Label>
