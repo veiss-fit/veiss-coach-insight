@@ -7,12 +7,11 @@ import { AthleteDetailPanel } from "@/components/AthleteDetailPanel";
 import { FilterSidebar } from "@/components/FilterSidebar";
 import { WorkoutBuilder } from "@/components/WorkoutBuilder";
 import { AnnouncementBuilder } from "@/components/AnnouncementBuilder";
-import { PlayerBuilder } from "@/components/PlayerBuilder";
 import { Button } from "@/components/ui/button";
 import { Athlete } from "@/data/mockData";
-import { Users, UserCheck, Layers, Send, CalendarDays, Megaphone, UserPlus } from "lucide-react";
+import { Users, UserCheck, Layers, Send, CalendarDays, Megaphone } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { getPlayersByTeamIds, getPlayersByTeamId, PlayerWithStats } from "@/services/playersService";
+import { getPlayersByTeamId, PlayerWithStats } from "@/services/playersService";
 import { getCoachDashboardStats, DashboardStats } from "@/services/statsService";
 // import { useDashboardSubscription } from "@/hooks/useRealtimeSubscriptions"; // Disabled for free tier
 import { TemplateManager } from '@/components/TemplateManager';
@@ -23,8 +22,6 @@ const Index = () => {
   const [selectedAthlete, setSelectedAthlete] = useState<Athlete | null>(null);
   const [workoutBuilderOpen, setWorkoutBuilderOpen] = useState(false);
   const [announcementBuilderOpen, setAnnouncementBuilderOpen] = useState(false);
-  const [playerBuilderOpen, setPlayerBuilderOpen] = useState(false);
-  const [sportFilter, setSportFilter] = useState("all");
   const [levelFilter, setLevelFilter] = useState("all");
   const [teamFilter, setTeamFilter] = useState("all");
   const [refreshKey, setRefreshKey] = useState(0);
@@ -130,8 +127,6 @@ const Index = () => {
 
   const filteredAthletes = useMemo(() => {
     return athletes.filter((athlete) => {
-      // Sidebar filters
-      if (sportFilter !== "all" && athlete.sport !== sportFilter) return false;
       if (levelFilter !== "all" && athlete.level !== levelFilter) return false;
       
       // TEAM FILTER LOGIC
@@ -149,13 +144,7 @@ const Index = () => {
       
       return true;
     });
-  }, [athletes, sportFilter, levelFilter, teamFilter]);
-
-  const handlePlayerBuilderClose = () => {
-    setPlayerBuilderOpen(false);
-    // Small delay to allow Supabase to commit the assignment before re-fetching
-    setTimeout(() => setRefreshKey(prev => prev + 1), 300);
-  };
+  }, [athletes, levelFilter, teamFilter]);
 
   const handleWorkoutBuilderClose = () => {
     setWorkoutBuilderOpen(false);
@@ -205,12 +194,11 @@ const Index = () => {
         {/* Sidebar */}
         <aside className="w-80 p-6 border-r border-border bg-background">
           <FilterSidebar
-            sportFilter={sportFilter}
             levelFilter={levelFilter}
             teamFilter={teamFilter}
-            onSportChange={setSportFilter}
             onLevelChange={setLevelFilter}
             onTeamChange={setTeamFilter}
+            onPlayersChanged={() => setTimeout(() => setRefreshKey(prev => prev + 1), 300)}
           />
         </aside>
 
@@ -230,15 +218,7 @@ const Index = () => {
               <Layers className="h-4 w-4 mr-2" />
               Create Template
             </Button>
-            {/* ------------------------- */}
-            <Button 
-              variant="outline"
-              onClick={() => setPlayerBuilderOpen(true)}
-            >
-              <UserPlus className="h-4 w-4 mr-2" />
-              Add New Player
-            </Button>
-            <Button 
+            <Button
               onClick={() => setWorkoutBuilderOpen(true)}
               className="bg-primary text-navy-dark hover:bg-primary/90"
             >
@@ -249,7 +229,7 @@ const Index = () => {
 
           {/* Overview Stats */}
           <div>
-            <h2 className="text-2xl font-bold mb-4">Team Overview</h2>
+            <h2 className="text-2xl font-bold mb-4">Group Overview</h2>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <StatCard
                 title="Workout Sessions"
@@ -269,7 +249,7 @@ const Index = () => {
                 status="success"
               />
               <StatCard
-                title="Total Teams"
+                title="Total Groups"
                 value={loading ? "..." : stats.totalTeams}
                 icon={Layers}
               />
@@ -287,7 +267,7 @@ const Index = () => {
               <AthleteTable 
                 athletes={filteredAthletes} 
                 onAthleteSelect={setSelectedAthlete}
-                filtersActive={sportFilter !== "all" || levelFilter !== "all" || teamFilter !== "all"}
+                filtersActive={levelFilter !== "all" || teamFilter !== "all"}
               />
             )}
           </div>
@@ -320,12 +300,7 @@ const Index = () => {
         onClose={() => setAnnouncementBuilderOpen(false)}
       />
 
-      {/* Player Builder */}
-      <PlayerBuilder
-        open={playerBuilderOpen}
-        onClose={handlePlayerBuilderClose}
-      />
-      <TemplateManager 
+      <TemplateManager
         open={isTemplateBuilderOpen} 
         onClose={() => setIsTemplateBuilderOpen(false)} 
       />

@@ -7,196 +7,191 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { 
-  Trophy, 
-  Users, 
-  Pencil, 
-  Trash2, 
-  Plus, 
-  AlertCircle 
-} from "lucide-react";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Badge } from "@/components/ui/badge";
+import { Users, Pencil, Trash2, Plus, Check, ChevronsUpDown } from "lucide-react";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 import { Validators } from "@/lib/validators";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
-import { updateTeam, deleteTeam, updateSportName, getSportsList } from "@/services/playersService";
+import { updateTeam, deleteTeam, assignPlayerToTeam, getAllPlayersForAssignment } from "@/services/playersService";
 import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 interface TeamSportManagerProps {
   open: boolean;
   onClose: () => void;
+  onPlayersChanged?: () => void;
 }
 
-export const TeamSportManager = ({ open, onClose }: TeamSportManagerProps) => {
+export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportManagerProps) => {
   const { profile } = useAuth();
+
+  // Groups state
   const [teams, setTeams] = useState<any[]>([]);
-  const [sports, setSports] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
-
-  // Edit States
   const [editingTeam, setEditingTeam] = useState<any | null>(null);
-  const [editingSport, setEditingSport] = useState<{ old: string, new: string } | null>(null);
-  
-  // Create States
   const [isCreatingTeam, setIsCreatingTeam] = useState(false);
-  const [newTeamData, setNewTeamData] = useState({ name: '', sport: '' });
+  const [newTeamName, setNewTeamName] = useState("");
 
-  // ADDED: State for Adding a Sport
-  const [isAddingSport, setIsAddingSport] = useState(false);
-  const [newSportName, setNewSportName] = useState("");
+  // Players state
+  const [existingPlayers, setExistingPlayers] = useState<Array<{
+    id: string;
+    full_name: string;
+    team_id: string | null;
+    current_team_name?: string | null;
+  }>>([]);
+  const [selectedPlayerIds, setSelectedPlayerIds] = useState<string[]>([]);
+  const [assignTeamId, setAssignTeamId] = useState("");
+  const [comboboxOpen, setComboboxOpen] = useState(false);
+  const [loadingPlayers, setLoadingPlayers] = useState(false);
+  const [assigning, setAssigning] = useState(false);
 
   useEffect(() => {
     if (open) {
-      loadData();
+      loadTeams();
+      loadPlayers();
     }
   }, [open, profile?.coach?.team_id]);
 
-  const loadData = async () => {
+  const loadTeams = async () => {
     setLoading(true);
     try {
       const coachTeamId = profile?.coach?.team_id;
-      const teamsQuery = coachTeamId
+      const query = coachTeamId
         ? supabase.from('teams').select('*').eq('id', coachTeamId).order('name')
         : supabase.from('teams').select('*').limit(0);
-
-      const { data: teamsData } = await teamsQuery;
-      setTeams(teamsData || []);
-
-      const sportsList = await getSportsList();
-      setSports(sportsList);
-    } catch (error) {
-      toast.error("Failed to load data");
+      const { data } = await query;
+      const fetched = data || [];
+      setTeams(fetched);
+      if (coachTeamId && !assignTeamId) {
+        setAssignTeamId(coachTeamId);
+      }
+    } catch {
+      toast.error("Failed to load groups");
     } finally {
       setLoading(false);
     }
   };
 
-  // --- TEAM ACTIONS ---
+  const loadPlayers = async () => {
+    try {
+      setLoadingPlayers(true);
+      const players = await getAllPlayersForAssignment();
+      setExistingPlayers(players || []);
+    } catch {
+      toast.error("Failed to load players");
+      setExistingPlayers([]);
+    } finally {
+      setLoadingPlayers(false);
+    }
+  };
+
+  // --- Group actions ---
 
   const handleCreateTeam = async () => {
-    const nameError = Validators.required(newTeamData.name, "Team Name");
+    const nameError = Validators.required(newTeamName, "Group Name");
     if (nameError) return toast.error(nameError);
-
-    const sportError = Validators.required(newTeamData.sport, "Sport Category");
-    if (sportError) return toast.error(sportError);
-
     try {
-      const { error } = await supabase.from('teams').insert(newTeamData);
+      const { error } = await supabase.from('teams').insert({ name: newTeamName, sport: '' } as any);
       if (error) throw error;
-      toast.success("Team created");
+      toast.success("Group created");
       setIsCreatingTeam(false);
-      setNewTeamData({ name: '', sport: '' });
-      loadData();
-    } catch (e) {
-      toast.error("Failed to create team");
+      setNewTeamName("");
+      loadTeams();
+    } catch {
+      toast.error("Failed to create group");
     }
   };
 
   const handleUpdateTeam = async () => {
     if (!editingTeam) return;
-    const nameError = Validators.required(editingTeam.name, "Team Name");
+    const nameError = Validators.required(editingTeam.name, "Group Name");
     if (nameError) return toast.error(nameError);
-
-    const success = await updateTeam(editingTeam.id, { 
-      name: editingTeam.name, 
-      sport: editingTeam.sport 
-    });
+    const success = await updateTeam(editingTeam.id, { name: editingTeam.name });
     if (success) {
-      toast.success("Team updated");
+      toast.success("Group updated");
       setEditingTeam(null);
-      loadData();
+      loadTeams();
     } else {
       toast.error("Update failed");
     }
   };
 
   const handleDeleteTeam = async (id: string) => {
-    if (!confirm("Are you sure? This will fail if players are assigned to this team.")) return;
+    if (!confirm("Are you sure? This will fail if players are assigned to this group.")) return;
     const success = await deleteTeam(id);
     if (success) {
-      toast.success("Team deleted");
-      loadData();
+      toast.success("Group deleted");
+      loadTeams();
     } else {
-      toast.error("Cannot delete team (likely has players assigned)");
+      toast.error("Cannot delete group (likely has players assigned)");
     }
   };
 
-  // --- SPORT ACTIONS ---
+  // --- Player actions ---
 
-  // ADDED: Logic to add a new sport to the local list
-  const handleAddSport = () => {
-    if (!newSportName || newSportName.trim() === "") {
-      toast.error("Sport name cannot be empty");
-      return;
-    }
-
-    if (sports.some(s => s.toLowerCase() === newSportName.toLowerCase())) {
-      toast.error("This sport already exists");
-      return;
-    }
-
-    // Add to local state immediately so it shows up in the dropdowns
-    setSports([...sports, newSportName]);
-    setNewSportName("");
-    setIsAddingSport(false);
-    
-    toast.success("Sport category added! Now create a team with this sport to save it permanently.");
+  const togglePlayer = (playerId: string) => {
+    setSelectedPlayerIds(prev =>
+      prev.includes(playerId) ? prev.filter(id => id !== playerId) : [...prev, playerId]
+    );
   };
 
-  const handleRenameSport = async () => {
-    if (!editingSport) return;
-    if (!editingSport.new || editingSport.new.trim() === "") {
-        toast.error("New sport name cannot be empty");
-        return;
-    }
-    if (editingSport.old === editingSport.new) {
-      toast.error("New sport name must be different");
-      return;
-    }
-    const success = await updateSportName(editingSport.old, editingSport.new);
-    if (success) {
-      toast.success(`Renamed ${editingSport.old} to ${editingSport.new}`);
-      setEditingSport(null);
-      loadData();
-    } else {
-      toast.error("Rename failed");
+  const handleAssignPlayers = async () => {
+    if (selectedPlayerIds.length === 0) return toast.error("Please select at least one player");
+    const teamIdToAssign = assignTeamId === "" || assignTeamId === "null" ? null : assignTeamId;
+    try {
+      setAssigning(true);
+      await Promise.all(selectedPlayerIds.map(id => assignPlayerToTeam(id, teamIdToAssign)));
+      const groupName = teamIdToAssign ? teams.find(t => t.id === teamIdToAssign)?.name : "No Group";
+      toast.success(`Assigned ${selectedPlayerIds.length} player(s) to ${groupName}`);
+      setSelectedPlayerIds([]);
+      await loadPlayers();
+      onPlayersChanged?.();
+    } catch {
+      toast.error("Failed to assign players");
+    } finally {
+      setAssigning(false);
     }
   };
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-2xl h-[85vh] flex flex-col p-0 gap-0 overflow-hidden outline-none">
-        <LoadingOverlay isLoading={loading} fullScreen message="Loading teams & sports..." />
-        
-        <DialogHeader className="p-6 pb-2 border-b shrink-0">
+        <LoadingOverlay isLoading={loading || loadingPlayers} fullScreen message="Loading..." />
+
+        <DialogHeader className="p-6 pb-4 border-b shrink-0">
           <DialogTitle className="text-2xl flex items-center gap-2">
-            <Trophy className="h-6 w-6 text-primary" />
-            Manage Teams & Sports
+            <Users className="h-6 w-6 text-primary" />
+            Manage Groups & Players
           </DialogTitle>
           <DialogDescription>
-            Edit team names, correct sport categories, or remove unused entries.
+            Manage your groups and assign players to them.
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue="teams" className="flex-1 flex flex-col overflow-hidden w-full">
-          <div className="px-6 py-4 shrink-0 border-b">
+        <Tabs defaultValue="groups" className="flex-1 flex flex-col overflow-hidden">
+          <div className="px-6 pt-4 pb-2 shrink-0 border-b">
             <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="teams">Teams</TabsTrigger>
-              <TabsTrigger value="sports">Sports Categories</TabsTrigger>
+              <TabsTrigger value="groups">Groups</TabsTrigger>
+              <TabsTrigger value="players">Players</TabsTrigger>
             </TabsList>
           </div>
 
-          {/* TEAMS TAB */}
-          <TabsContent value="teams" className="flex-1 flex flex-col h-full w-full overflow-hidden m-0 p-0 data-[state=inactive]:hidden">
-            <div className="px-6 py-4 flex justify-end shrink-0 bg-background z-10">
+          {/* GROUPS TAB */}
+          <TabsContent value="groups" className="flex-1 flex flex-col overflow-hidden m-0 p-0 data-[state=inactive]:hidden">
+            <div className="px-6 py-3 flex justify-end shrink-0 border-b bg-background">
               <Button size="sm" onClick={() => setIsCreatingTeam(true)}>
-                <Plus className="h-4 w-4 mr-2" /> Add Team
+                <Plus className="h-4 w-4 mr-2" /> Add Group
               </Button>
             </div>
-            <ScrollArea className="flex-1 h-full w-full">
-              <div className="px-6 pb-6 space-y-3">
+            <ScrollArea className="flex-1">
+              <div className="px-6 py-4 space-y-3">
                 {teams.length === 0 && !loading && (
-                   <div className="text-center py-10 text-muted-foreground">No teams found. Add one above.</div>
+                  <div className="text-center py-10 text-muted-foreground">
+                    No groups found. Add one above.
+                  </div>
                 )}
                 {teams.map((team) => (
                   <Card key={team.id} className="group hover:border-primary/50 transition-colors">
@@ -205,16 +200,18 @@ export const TeamSportManager = ({ open, onClose }: TeamSportManagerProps) => {
                         <div className="p-2 bg-primary/10 rounded-full">
                           <Users className="h-4 w-4 text-primary" />
                         </div>
-                        <div>
-                          <p className="font-semibold">{team.name}</p>
-                          <p className="text-xs text-muted-foreground">{team.sport}</p>
-                        </div>
+                        <p className="font-semibold">{team.name}</p>
                       </div>
                       <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                         <Button size="icon" variant="ghost" onClick={() => setEditingTeam(team)}>
                           <Pencil className="h-4 w-4" />
                         </Button>
-                        <Button size="icon" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => handleDeleteTeam(team.id)}>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => handleDeleteTeam(team.id)}
+                        >
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
@@ -225,132 +222,147 @@ export const TeamSportManager = ({ open, onClose }: TeamSportManagerProps) => {
             </ScrollArea>
           </TabsContent>
 
-          {/* SPORTS TAB */}
-          <TabsContent value="sports" className="flex-1 flex flex-col h-full w-full overflow-hidden m-0 p-0 data-[state=inactive]:hidden">
-            <div className="px-6 pt-4 shrink-0">
-              <div className="bg-muted/30 p-3 rounded-md mb-4 flex gap-2 text-sm text-muted-foreground">
-                <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
-                <p>Renaming a sport here will update it for all associated teams automatically.</p>
-              </div>
-              {/* ADDED: Button to Open Add Sport Modal */}
-              <div className="flex justify-end mb-4">
-                 <Button size="sm" onClick={() => setIsAddingSport(true)} variant="secondary">
-                   <Plus className="h-4 w-4 mr-2" /> Add New Category
-                 </Button>
-              </div>
-            </div>
-            <ScrollArea className="flex-1 h-full w-full">
-              <div className="px-6 pb-6 space-y-3">
-                {sports.map((sport) => (
-                  <Card key={sport} className="group hover:border-secondary transition-colors">
-                    <CardContent className="p-4 flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 bg-secondary/20 rounded-full">
-                          <Trophy className="h-4 w-4 text-secondary-foreground" />
-                        </div>
-                        <p className="font-medium">{sport}</p>
-                      </div>
-                      <Button size="sm" variant="outline" onClick={() => setEditingSport({ old: sport, new: sport })}>
-                        Rename
+          {/* PLAYERS TAB */}
+          <TabsContent value="players" className="flex-1 flex flex-col overflow-hidden m-0 p-0 data-[state=inactive]:hidden">
+            <ScrollArea className="flex-1">
+              <div className="px-6 py-4 space-y-4">
+                <div className="space-y-2">
+                  <Label>Select Players</Label>
+                  <Popover open={comboboxOpen} onOpenChange={setComboboxOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={comboboxOpen}
+                        className="justify-between w-full font-normal h-auto min-h-[40px]"
+                      >
+                        {selectedPlayerIds.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            <Badge variant="secondary" className="mr-1">
+                              {selectedPlayerIds.length} selected
+                            </Badge>
+                            <span className="text-muted-foreground text-xs my-auto">
+                              (Click to add more)
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground">Search and select players...</span>
+                        )}
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                       </Button>
-                    </CardContent>
-                  </Card>
-                ))}
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder="Search player name..." />
+                        <CommandList>
+                          <CommandEmpty>No player found.</CommandEmpty>
+                          <CommandGroup className="max-h-[300px] overflow-y-auto">
+                            {existingPlayers.map((player) => (
+                              <CommandItem
+                                key={player.id}
+                                value={player.full_name}
+                                onSelect={() => togglePlayer(player.id)}
+                              >
+                                <div className={cn(
+                                  "mr-2 flex h-4 w-4 items-center justify-center rounded-sm border border-primary",
+                                  selectedPlayerIds.includes(player.id)
+                                    ? "bg-primary text-primary-foreground"
+                                    : "opacity-50 [&_svg]:invisible"
+                                )}>
+                                  <Check className="h-4 w-4" />
+                                </div>
+                                <div className="flex flex-col">
+                                  <span>{player.full_name}</span>
+                                  <span className="text-xs text-muted-foreground">
+                                    {player.current_team_name
+                                      ? `Current: ${player.current_team_name}`
+                                      : "Unassigned"}
+                                  </span>
+                                </div>
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+
+                {selectedPlayerIds.length > 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    Selected:{" "}
+                    {selectedPlayerIds
+                      .map(id => existingPlayers.find(p => p.id === id)?.full_name)
+                      .join(", ")}
+                  </p>
+                )}
+
+                <div className="space-y-2">
+                  <Label>Assign to Group</Label>
+                  <Select value={assignTeamId || ""} onValueChange={setAssignTeamId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a group" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="null">No Group (Unassign)</SelectItem>
+                      {teams.map((team) => (
+                        <SelectItem key={team.id} value={team.id}>
+                          {team.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <Button
+                    onClick={handleAssignPlayers}
+                    disabled={assigning || selectedPlayerIds.length === 0}
+                  >
+                    {assigning ? "Assigning..." : `Assign ${selectedPlayerIds.length} Player(s)`}
+                  </Button>
+                </div>
               </div>
             </ScrollArea>
           </TabsContent>
         </Tabs>
       </DialogContent>
 
-      {/* --- MODALS --- */}
-
-      {/* ADDED: Add Sport Modal */}
-      <Dialog open={isAddingSport} onOpenChange={setIsAddingSport}>
+      {/* Create Group Modal */}
+      <Dialog open={isCreatingTeam} onOpenChange={setIsCreatingTeam}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Add Sport Category</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Create New Group</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label>Sport Name</Label>
-              <Input 
-                placeholder="e.g. Lacrosse"
-                value={newSportName} 
-                onChange={e => setNewSportName(e.target.value)}
+              <Label>Group Name</Label>
+              <Input
+                placeholder="e.g. Varsity Basketball"
+                value={newTeamName}
+                onChange={e => setNewTeamName(e.target.value)}
               />
             </div>
-            <p className="text-xs text-muted-foreground">
-              This will add the sport to your list so you can create a team for it.
-            </p>
           </div>
           <DialogFooter>
-            <Button onClick={handleAddSport}>Add Category</Button>
+            <Button onClick={handleCreateTeam}>Create Group</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
+      {/* Edit Group Modal */}
       <Dialog open={!!editingTeam} onOpenChange={() => setEditingTeam(null)}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Edit Team</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Edit Group</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label>Team Name</Label>
-              <Input value={editingTeam?.name || ''} onChange={e => setEditingTeam({...editingTeam, name: e.target.value})} />
-            </div>
-            <div className="space-y-2">
-              <Label>Sport Category</Label>
-              <Select value={editingTeam?.sport} onValueChange={(val) => setEditingTeam({...editingTeam, sport: val})}>
-                <SelectTrigger><SelectValue placeholder="Select Sport" /></SelectTrigger>
-                <SelectContent>
-                  {sports.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <Label>Group Name</Label>
+              <Input
+                value={editingTeam?.name || ''}
+                onChange={e => setEditingTeam({ ...editingTeam, name: e.target.value })}
+              />
             </div>
           </div>
           <DialogFooter>
             <Button onClick={handleUpdateTeam}>Save Changes</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={isCreatingTeam} onOpenChange={setIsCreatingTeam}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Create New Team</DialogTitle></DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label>Team Name</Label>
-              <Input placeholder="e.g. JV Basketball" value={newTeamData.name} onChange={e => setNewTeamData({...newTeamData, name: e.target.value})} />
-            </div>
-            <div className="space-y-2">
-              <Label>Sport Category</Label>
-              <Select value={newTeamData.sport} onValueChange={(val) => setNewTeamData({...newTeamData, sport: val})}>
-                <SelectTrigger><SelectValue placeholder="Select Sport" /></SelectTrigger>
-                <SelectContent>
-                  {sports.length > 0 ? (
-                    sports.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)
-                  ) : (
-                    <div className="p-2 text-sm text-muted-foreground text-center">No sports found.</div>
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button onClick={handleCreateTeam}>Create Team</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={!!editingSport} onOpenChange={() => setEditingSport(null)}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Rename Sport Category</DialogTitle></DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label>Sport Name</Label>
-              <Input value={editingSport?.new || ''} onChange={e => setEditingSport(prev => prev ? {...prev, new: e.target.value} : null)} />
-            </div>
-            <p className="text-xs text-muted-foreground">This will change "{editingSport?.old}" to "{editingSport?.new}" for all teams.</p>
-          </div>
-          <DialogFooter>
-            <Button onClick={handleRenameSport}>Update All Teams</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
