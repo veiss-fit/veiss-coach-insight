@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { User, Settings, LogOut, Bell } from "lucide-react";
+import { User, LogOut, Bell } from "lucide-react";
 
 export const ProfileMenu = () => {
   const navigate = useNavigate();
@@ -52,10 +52,6 @@ export const ProfileMenu = () => {
         <DropdownMenuItem className="cursor-pointer" onClick={() => navigate("/profile?section=notifications")}>
           <Bell className="mr-2 h-4 w-4" />
           <span>Notifications</span>
-        </DropdownMenuItem>
-        <DropdownMenuItem className="cursor-pointer" onClick={() => navigate("/profile?section=settings")}>
-          <Settings className="mr-2 h-4 w-4" />
-          <span>Settings</span>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem 

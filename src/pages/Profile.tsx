@@ -18,10 +18,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { User, Mail, Shield, Calendar, Users, Upload, Camera, X } from "lucide-react";
+import { User, Mail, Shield, Upload, Camera, X } from "lucide-react";
 import { toast } from "sonner";
 import { Validators } from "@/lib/validators";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/lib/supabase";
 
 const Profile = () => {
@@ -33,10 +32,8 @@ const Profile = () => {
   // State for editable fields
   const [formData, setFormData] = useState({
     fullName: "",
-    teamId: "",
     jobTitle: ""
   });
-  const [teams, setTeams] = useState<any[]>([]);
 
   // Modal states
   const [photoModalOpen, setPhotoModalOpen] = useState(false);
@@ -70,22 +67,13 @@ const Profile = () => {
     if (profile) {
       setFormData({
         fullName: profile.full_name || "",
-        // If no team is assigned (null), we treat it as "all" in the UI
-        // Prefer the canonical team_id field; fallback to joined teams relation
-        teamId: profile.coach?.team_id || profile.coach?.teams?.id || "all",
-        jobTitle: "Head Coach - Strength & Conditioning" 
+        jobTitle: "Head Coach - Strength & Conditioning"
       });
-      setProfilePhoto(null); 
+      setProfilePhoto(null);
     }
-    fetchTeams();
   }, [profile, searchParams]);
 
-  const fetchTeams = async () => {
-    const { data } = await supabase.from('teams').select('id, name');
-    setTeams(data || []);
-  };
-
- const handleSaveChanges = async () => {
+  const handleSaveChanges = async () => {
     try {
       // 1. Update Profile (Name)
       const { error: profileError } = await supabase
@@ -94,34 +82,6 @@ const Profile = () => {
         .eq('id', user?.id);
 
       if (profileError) throw profileError;
-
-      // 2. Update Coach Details (Team)
-      if (profile?.coach?.id) {
-        // Convert "all" back to null for the database
-        const teamIdToSave = formData.teamId === "all" ? null : formData.teamId;
-        console.log('Profile: saving coach.team_id ->', teamIdToSave, 'coachId=', profile.coach.id)
-
-        const { data: updatedCoach, error: coachError } = await supabase
-          .from('coaches')
-          .update({
-            team_id: teamIdToSave,
-          })
-          .eq('id', profile.coach.id)
-          .select('*');
-
-        console.log('Supabase update returned:', { updatedCoach, coachError });
-
-        if (coachError) {
-          console.error('Failed to update coach record:', coachError);
-          throw coachError;
-        }
-
-        if (!updatedCoach || (Array.isArray(updatedCoach) && updatedCoach.length === 0)) {
-          console.warn('No coach rows were updated. This may be due to RLS policies blocking the update.');
-          toast.error('Could not save team assignment due to backend permissions.');
-          return;
-        }
-      }
 
       toast.success("Profile updated successfully");
       setIsEditing(false);
@@ -283,44 +243,18 @@ const Profile = () => {
               </Button>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="fullName">
-                    <User className="inline mr-2 h-4 w-4" />
-                    Full Name
-                  </Label>
-                  <Input 
-                    id="fullName" 
-                    value={formData.fullName} 
-                    onChange={(e) => setFormData({...formData, fullName: e.target.value})}
-                    disabled={!isEditing}
-                  />
-                </div>
-                <div className="space-y-2">
-                <Label htmlFor="team">Team Assignment</Label>
-                <Select 
-                  disabled={!isEditing} 
-                  value={formData.teamId} 
-                  onValueChange={(val) => setFormData({...formData, teamId: val})}
-                >
-                  <SelectTrigger id="team" className="bg-background">
-                    <SelectValue placeholder="Select a Team" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {/* ADDED: Option for All Teams */}
-                    <SelectItem value="all" className="font-semibold">
-                      All Teams (Head Coach)
-                    </SelectItem>
-                    
-                    {teams.map((team) => (
-                      <SelectItem key={team.id} value={team.id}>
-                        {team.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <div className="space-y-2">
+                <Label htmlFor="fullName">
+                  <User className="inline mr-2 h-4 w-4" />
+                  Full Name
+                </Label>
+                <Input
+                  id="fullName"
+                  value={formData.fullName}
+                  onChange={(e) => setFormData({...formData, fullName: e.target.value})}
+                  disabled={!isEditing}
+                />
               </div>
-            </div>
 
               <div className="space-y-2">
                 <Label htmlFor="email">
@@ -350,24 +284,6 @@ const Profile = () => {
                 />
               </div>
 
-              <Separator />
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>
-                    <Calendar className="inline mr-2 h-4 w-4" />
-                    Member Since
-                  </Label>
-                  <p className="text-sm text-muted-foreground">January 2024</p>
-                </div>
-                <div className="space-y-2">
-                  <Label>
-                    <Users className="inline mr-2 h-4 w-4" />
-                    Athletes Managed
-                  </Label>
-                  <p className="text-sm text-muted-foreground">150+ Athletes</p>
-                </div>
-              </div>
             </CardContent>
           </Card>
 
@@ -378,18 +294,6 @@ const Profile = () => {
               <CardDescription>Manage your account preferences</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label className="text-base">Email Notifications</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Receive email updates about athlete performance
-                  </p>
-                </div>
-                <Button variant="outline" size="sm" onClick={() => setNotificationsModalOpen(true)}>
-                  Configure
-                </Button>
-              </div>
-              <Separator />
               <div className="flex items-center justify-between">
                 <div>
                   <Label className="text-base">Change Password</Label>
