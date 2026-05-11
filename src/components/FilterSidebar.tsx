@@ -36,16 +36,9 @@ export const FilterSidebar = ({
 
   const loadTeams = async () => {
     try {
-      const coachTeamId = profile?.coach?.team_id;
-      if (!coachTeamId) {
-        setTeamsList([]);
-        return;
-      }
-
       const { data, error } = await supabase
         .from('teams')
         .select('id, name')
-        .eq('id', coachTeamId)
         .order('name', { ascending: true });
 
       if (error) throw error;

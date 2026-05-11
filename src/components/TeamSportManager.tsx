@@ -58,13 +58,10 @@ export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportM
   const loadTeams = async () => {
     setLoading(true);
     try {
-      const coachTeamId = profile?.coach?.team_id;
-      const query = coachTeamId
-        ? supabase.from('teams').select('*').eq('id', coachTeamId).order('name')
-        : supabase.from('teams').select('*').limit(0);
-      const { data } = await query;
+      const { data } = await supabase.from('teams').select('*').order('name');
       const fetched = data || [];
       setTeams(fetched);
+      const coachTeamId = profile?.coach?.team_id;
       if (coachTeamId && !assignTeamId) {
         setAssignTeamId(coachTeamId);
       }
