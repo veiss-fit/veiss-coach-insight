@@ -215,8 +215,7 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
           <SheetHeader className="pb-4 border-b">
             <SheetTitle className="text-2xl font-bold">{athlete.name}</SheetTitle>
             <div className="flex gap-2 mt-2">
-              <Badge variant="outline">{athlete.sport}</Badge>
-              <Badge variant="outline">{athlete.level}</Badge>
+              <Badge variant="outline">{(athlete as any).group || 'No Group'}</Badge>
             </div>
           </SheetHeader>
 

@@ -559,13 +559,7 @@ export const WorkoutBuilder = ({ open, onClose }: WorkoutBuilderProps) => {
                                                         <p className='text-sm font-medium'>{athlete.name}</p>
                                                         <div className='flex gap-1 mt-1'>
                                                             <Badge variant='outline' className='text-xs'>
-                                                                {athlete.sport}
-                                                            </Badge>
-                                                            <Badge variant='outline' className='text-xs'>
-                                                                {athlete.level}
-                                                            </Badge>
-                                                            <Badge variant='outline' className='text-xs'>
-                                                                {athlete.group}
+                                                                {athlete.group || 'No Group'}
                                                             </Badge>
                                                         </div>
                                                     </div>

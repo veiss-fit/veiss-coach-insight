@@ -27,8 +27,7 @@ export const AthleteTable = ({ athletes, onAthleteSelect, filtersActive = false 
   const filteredAthletes = athletes.filter(
     (athlete) =>
       athlete.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      athlete.sport.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      athlete.level.toLowerCase().includes(searchTerm.toLowerCase())
+      ((athlete as any).group || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const isPaginationDisabled = filtersActive || searchTerm.length > 0;
@@ -45,7 +44,7 @@ export const AthleteTable = ({ athletes, onAthleteSelect, filtersActive = false 
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
-          placeholder="Search athletes by name, sport, or level..."
+          placeholder="Search athletes by name or group..."
           value={searchTerm}
           onChange={(e) => {
             setSearchTerm(e.target.value);
@@ -60,7 +59,7 @@ export const AthleteTable = ({ athletes, onAthleteSelect, filtersActive = false 
           <TableHeader>
             <TableRow className="bg-muted/50 hover:bg-muted/50">
               <TableHead className="w-1/4 py-2 font-semibold text-center">Athlete</TableHead>
-              <TableHead className="w-1/4 py-2 font-semibold text-center">Sport</TableHead>
+              <TableHead className="w-1/4 py-2 font-semibold text-center">Group</TableHead>
               <TableHead className="w-1/4 py-2 font-semibold text-center">Level</TableHead>
               <TableHead className="w-1/4 py-2 font-semibold text-center">Attendance</TableHead>
             </TableRow>
@@ -81,7 +80,7 @@ export const AthleteTable = ({ athletes, onAthleteSelect, filtersActive = false 
                     >
                       <TableCell className="py-2 text-center font-medium">{athlete.name}</TableCell>
                       <TableCell className="py-2 text-center">
-                        <span className="text-xs bg-muted px-2 py-0.5 rounded-full">{athlete.sport}</span>
+                        <span className="text-xs bg-muted px-2 py-0.5 rounded-full">{(athlete as any).group || '—'}</span>
                       </TableCell>
                       <TableCell className="py-2 text-center">
                         <span className={`inline-flex min-w-16 items-center justify-center rounded-full border px-2.5 py-1 text-sm font-semibold ${

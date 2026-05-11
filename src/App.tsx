@@ -8,7 +8,7 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
-import ForgotPassword from "./pages/ForgotPassword";
+/* import ForgotPassword from "./pages/ForgotPassword"; */
 import Profile from "./pages/Profile";
 import NotFound from "./pages/NotFound";
 import History from "./pages/History";
@@ -25,7 +25,7 @@ const App = () => (
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<Signup />} />
-            <Route path="/forgot-password" element={<ForgotPassword />} />
+            {/* <Route path="/forgot-password" element={<ForgotPassword />} /> */}
             <Route
               path="/history"
               element={
