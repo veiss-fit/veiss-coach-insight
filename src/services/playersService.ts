@@ -84,36 +84,62 @@ export const updateSportName = async (oldName: string, newName: string): Promise
   }
 };
 /**
- * Fetch all players for a specific team(s) that the coach manages
+ * Fetch ALL players across all groups with computed stats.
+ * Use this for the main dashboard — it does not filter by team_id.
+ */
+export const getAllPlayersWithStats = async (): Promise<PlayerWithStats[]> => {
+  try {
+    const { data: players, error } = await supabase
+      .from('players')
+      .select('*, teams(*)')
+      .order('full_name', { ascending: true });
+
+    if (error) throw error;
+    if (!players || players.length === 0) return [];
+
+    const playersWithStats = await Promise.all(
+      players.map(async (player) => {
+        const stats = await calculatePlayerStats(player.id);
+        return {
+          ...player,
+          name: player.full_name,
+          sport: player.teams?.sport || '',
+          group: player.teams?.name || '',
+          team: player.teams,
+          ...stats,
+        } as PlayerWithStats;
+      })
+    );
+
+    return playersWithStats;
+  } catch (error) {
+    console.error('Error in getAllPlayersWithStats:', error);
+    throw error;
+  }
+};
+
+/**
+ * Fetch players for a specific team (kept for backwards compatibility).
  */
 export const getPlayersByTeamIds = async (teamIds: string[]): Promise<PlayerWithStats[]> => {
   try {
-    // Fetch players with their team data
     const { data: players, error } = await supabase
       .from('players')
       .select('*, teams(*)')
       .in('team_id', teamIds)
       .order('full_name', { ascending: true });
 
-    if (error) {
-      console.error('Error fetching players:', error);
-      throw error;
-    }
+    if (error) throw error;
+    if (!players || players.length === 0) return [];
 
-    if (!players || players.length === 0) {
-      return [];
-    }
-
-    // For each player, calculate their stats
     const playersWithStats = await Promise.all(
       players.map(async (player) => {
         const stats = await calculatePlayerStats(player.id);
-        
         return {
           ...player,
-          name: player.full_name, // Map to 'name' for UI compatibility
-          sport: player.teams?.sport || 'Unknown',
-          group: 'General',
+          name: player.full_name,
+          sport: player.teams?.sport || '',
+          group: player.teams?.name || '',
           team: player.teams,
           ...stats,
         } as PlayerWithStats;
@@ -128,45 +154,11 @@ export const getPlayersByTeamIds = async (teamIds: string[]): Promise<PlayerWith
 };
 
 /**
- * Fetch all players (for admins or viewing all)
+ * Fetch players for a single team (kept for backwards compatibility).
  */
 export const getPlayersByTeamId = async (teamId: string): Promise<PlayerWithStats[]> => {
-  if (!teamId) {
-    console.warn('getPlayersByTeamId called with null teamId');
-    return [];
-  }
-
-  try {
-    const { data: players, error } = await supabase
-      .from('players')
-      .select('*, teams(*)')
-      .eq('team_id', teamId) // <--- CRITICAL SECURITY FIX
-      .order('full_name', { ascending: true });
-
-    if (error) throw error;
-
-    if (!players || players.length === 0) return [];
-
-    // Map stats (keep your existing stats logic here)
-    const playersWithStats = await Promise.all(
-      players.map(async (player) => {
-        const stats = await calculatePlayerStats(player.id);
-        return {
-          ...player,
-          name: player.full_name,
-          sport: player.teams?.sport || 'Unknown',
-          group: 'General',
-          team: player.teams,
-          ...stats,
-        } as PlayerWithStats;
-      })
-    );
-
-    return playersWithStats;
-  } catch (error) {
-    console.error('Error in getPlayersByTeamId:', error);
-    throw error;
-  }
+  if (!teamId) return [];
+  return getPlayersByTeamIds([teamId]);
 };
 
 /**

@@ -16,8 +16,9 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Validators } from "@/lib/validators";
 import { useAuth } from "@/contexts/AuthContext";
-import { getPlayersByTeamIds, PlayerWithStats, getSportsList } from "@/services/playersService";
+import { getAllPlayersWithStats, PlayerWithStats } from "@/services/playersService";
 import { sendMessage } from "@/services/messagesService";
+import { supabase } from "@/lib/supabase";
 import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 interface AnnouncementBuilderProps {
@@ -32,14 +33,12 @@ export const AnnouncementBuilder = ({ open, onClose }: AnnouncementBuilderProps)
   const [priority, setPriority] = useState<"normal" | "urgent">("normal");
   const [selectedAthletes, setSelectedAthletes] = useState<string[]>([]);
   const [scheduledDate, setScheduledDate] = useState<Date>();
-  const [filterSport, setFilterSport] = useState("all");
-  const [filterLevel, setFilterLevel] = useState("all");
-  // Removed filterGroup state
+  const [filterGroup, setFilterGroup] = useState("all");
   const [sending, setSending] = useState(false);
 
   // Real data
   const [athletes, setAthletes] = useState<PlayerWithStats[]>([]);
-  const [sportsList, setSportsList] = useState<string[]>([]);
+  const [groupsList, setGroupsList] = useState<Array<{ id: string; name: string }>>([]);
   const [loading, setLoading] = useState(false);
 
   // Load athletes and sports when modal opens
@@ -52,17 +51,12 @@ export const AnnouncementBuilder = ({ open, onClose }: AnnouncementBuilderProps)
   const loadData = async () => {
     try {
       setLoading(true);
-      
-      // Load athletes based on coach's team
-      let players: PlayerWithStats[] = [];
-      if (profile?.coach?.team_id) {
-        players = await getPlayersByTeamIds([profile.coach.team_id]);
-      }
+      const [players, teamsResult] = await Promise.all([
+        getAllPlayersWithStats(),
+        supabase.from('teams').select('id, name').order('name', { ascending: true }),
+      ]);
       setAthletes(players);
-
-      // Load sports list
-      const sports = await getSportsList();
-      setSportsList(sports);
+      setGroupsList(teamsResult.data || []);
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
@@ -87,12 +81,9 @@ export const AnnouncementBuilder = ({ open, onClose }: AnnouncementBuilderProps)
     setSelectedAthletes([]);
   };
 
-  const filteredAthletes = athletes.filter(athlete => {
-    if (filterSport !== "all" && athlete.sport !== filterSport) return false;
-    if (filterLevel !== "all" && athlete.level !== filterLevel) return false;
-    // Removed filterGroup check
-    return true;
-  });
+  const filteredAthletes = athletes.filter(athlete =>
+    filterGroup === "all" || athlete.team_id === filterGroup
+  );
 
   const handleSendAnnouncement = async () => {
     // Validation
@@ -253,32 +244,18 @@ export const AnnouncementBuilder = ({ open, onClose }: AnnouncementBuilderProps)
           {/* Right Column - Athlete Selection */}
           <div className="space-y-4">
             <div>
-              <Label className="mb-2 block">Filter Athletes</Label>
-              {/* Changed to grid-cols-2 */}
-              <div className="grid grid-cols-2 gap-2">
-                <Select value={filterSport} onValueChange={setFilterSport}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Sport" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Sports</SelectItem>
-                    {sportsList.map((sport) => (
-                      <SelectItem key={sport} value={sport}>{sport}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-
-                <Select value={filterLevel} onValueChange={setFilterLevel}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Level" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Levels</SelectItem>
-                    <SelectItem value="Varsity">Varsity</SelectItem>
-                    <SelectItem value="JV">JV</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              <Label className="mb-2 block">Filter Groups</Label>
+              <Select value={filterGroup} onValueChange={setFilterGroup}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All Groups" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Groups</SelectItem>
+                  {groupsList.map((group) => (
+                    <SelectItem key={group.id} value={group.id}>{group.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <div className="flex gap-2 mt-2">
                 <Button
                   size="sm"
