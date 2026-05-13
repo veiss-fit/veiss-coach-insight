@@ -365,7 +365,7 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
   const isActive = sessions.some(s => {
     try { return parseISO(s.date) >= subWeeks(new Date(), 4); } catch { return false; }
   });
-  const subtitle = `${(athlete as any).sport || (athlete as any).level || 'Strength Training'} · Last session ${kpi.lastSessionDate ?? '—'}`;
+  const subtitle = `${(athlete as any).group || 'No Group'} · Last session ${kpi.lastSessionDate ?? '—'}`;
   const tabs: Array<{ id: 'overview' | 'trends' | 'readiness'; label: string }> = [
     { id: 'overview', label: 'Overview' },
     { id: 'trends', label: 'Trends' },
