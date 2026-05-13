@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
@@ -9,6 +8,7 @@ import { Users, History, Trophy } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 import { TeamSportManager } from "@/components/TeamSportManager";
+import { CommunicationHistory } from "@/components/CommunicationHistory";
 
 interface FilterSidebarProps {
   teamFilter?: string;
@@ -21,9 +21,9 @@ export const FilterSidebar = ({
   onTeamChange,
   onPlayersChanged,
 }: FilterSidebarProps) => {
-  const navigate = useNavigate();
   const { profile } = useAuth();
   const [isManagerOpen, setIsManagerOpen] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [teamsList, setTeamsList] = useState<Array<{ id: string; name: string }>>([]);
 
   useEffect(() => {
@@ -57,7 +57,7 @@ export const FilterSidebar = ({
         </CardHeader>
         <CardContent className="space-y-3">
           <Button
-            onClick={() => navigate('/history')}
+            onClick={() => setIsHistoryOpen(true)}
             className="w-full justify-start"
             variant="ghost"
           >
@@ -112,6 +112,11 @@ export const FilterSidebar = ({
           loadTeams();
         }}
         onPlayersChanged={onPlayersChanged}
+      />
+
+      <CommunicationHistory
+        open={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
       />
     </div>
   );
