@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
-import { Users, Pencil, Trash2, Plus, Check, ChevronsUpDown } from "lucide-react";
+import { Users, Pencil, Trash2, Plus, Check, ChevronsUpDown, Copy } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Validators } from "@/lib/validators";
@@ -24,6 +24,16 @@ interface TeamSportManagerProps {
   onClose: () => void;
   onPlayersChanged?: () => void;
 }
+
+// Generate a unique 6-digit numeric invite code not already in use
+const generateInviteCode = (existingCodes: (string | null)[]): string => {
+  const used = new Set(existingCodes.filter(Boolean) as string[]);
+  let code: string;
+  do {
+    code = Math.floor(Math.random() * 1_000_000).toString().padStart(6, '0');
+  } while (used.has(code));
+  return code;
+};
 
 export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportManagerProps) => {
   const { profile } = useAuth();
@@ -59,7 +69,22 @@ export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportM
     setLoading(true);
     try {
       const { data } = await supabase.from('teams').select('*').order('name');
-      const fetched = data || [];
+      let fetched = data || [];
+
+      // Backfill any groups that are missing an invite code
+      const missing = fetched.filter(t => !t.invite_code);
+      if (missing.length > 0) {
+        const existingCodes = fetched.map(t => t.invite_code);
+        await Promise.all(
+          missing.map(async t => {
+            const code = generateInviteCode(existingCodes);
+            existingCodes.push(code); // reserve so sibling generates a different one
+            await supabase.from('teams').update({ invite_code: code }).eq('id', t.id);
+            t.invite_code = code;
+          })
+        );
+      }
+
       setTeams(fetched);
       const coachTeamId = profile?.coach?.team_id;
       if (coachTeamId && !assignTeamId) {
@@ -91,7 +116,10 @@ export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportM
     const nameError = Validators.required(newTeamName, "Group Name");
     if (nameError) return toast.error(nameError);
     try {
-      const { error } = await supabase.from('teams').insert({ name: newTeamName, sport: '' } as any);
+      const invite_code = generateInviteCode(teams.map(t => t.invite_code));
+      const { error } = await supabase
+        .from('teams')
+        .insert({ name: newTeamName, sport: '', invite_code } as any);
       if (error) throw error;
       toast.success("Group created");
       setIsCreatingTeam(false);
@@ -192,25 +220,49 @@ export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportM
                 )}
                 {teams.map((team) => (
                   <Card key={team.id} className="group hover:border-primary/50 transition-colors">
-                    <CardContent className="p-4 flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 bg-primary/10 rounded-full">
-                          <Users className="h-4 w-4 text-primary" />
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-primary/10 rounded-full">
+                            <Users className="h-4 w-4 text-primary" />
+                          </div>
+                          <p className="font-semibold">{team.name}</p>
                         </div>
-                        <p className="font-semibold">{team.name}</p>
+                        <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Button size="icon" variant="ghost" onClick={() => setEditingTeam(team)}>
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => handleDeleteTeam(team.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
-                      <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Button size="icon" variant="ghost" onClick={() => setEditingTeam(team)}>
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => handleDeleteTeam(team.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+
+                      {/* Invite code row */}
+                      <div className="mt-3 ml-11 flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">Invite code</span>
+                        <span className="font-mono text-sm font-bold tracking-[0.2em] text-foreground">
+                          {team.invite_code ?? '------'}
+                        </span>
+                        {team.invite_code && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-6 px-2 text-xs gap-1"
+                            onClick={() => {
+                              navigator.clipboard.writeText(team.invite_code);
+                              toast.success('Invite code copied!');
+                            }}
+                          >
+                            <Copy className="h-3 w-3" />
+                            Copy
+                          </Button>
+                        )}
                       </div>
                     </CardContent>
                   </Card>

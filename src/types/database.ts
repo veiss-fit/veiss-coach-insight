@@ -44,18 +44,21 @@ export interface Database {
           name: string;
           sport: string;
           created_at: string;
+          invite_code: string | null;
         };
         Insert: {
           id?: string;
           name: string;
           sport: string;
           created_at?: string;
+          invite_code?: string | null;
         };
         Update: {
           id?: string;
           name?: string;
           sport?: string;
           created_at?: string;
+          invite_code?: string | null;
         };
       };
       coaches: {
