@@ -1,26 +1,26 @@
 import { useState, useMemo, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { TopNav } from "@/components/TopNav";
 import { StatCard } from "@/components/StatCard";
 import { AthleteTable } from "@/components/AthleteTable";
 import { AthleteDetailPanel } from "@/components/AthleteDetailPanel";
 import { FilterSidebar } from "@/components/FilterSidebar";
-import { WorkoutBuilder } from "@/components/WorkoutBuilder";
 import { AnnouncementBuilder } from "@/components/AnnouncementBuilder";
 import { Button } from "@/components/ui/button";
 import { Athlete } from "@/data/mockData";
 import { Users, UserCheck, Layers, Send, CalendarDays, Megaphone } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { getPlayersByTeamId, PlayerWithStats } from "@/services/playersService";
+import { getAllPlayersWithStats, PlayerWithStats } from "@/services/playersService";
 import { getCoachDashboardStats, DashboardStats } from "@/services/statsService";
 // import { useDashboardSubscription } from "@/hooks/useRealtimeSubscriptions"; // Disabled for free tier
 import { TemplateManager } from '@/components/TemplateManager';
 import { LoadingOverlay } from '@/components/ui/LoadingOverlay';
 
 const Index = () => {
+  const navigate = useNavigate();
   const { profile, loading: authLoading } = useAuth();
   const [selectedAthlete, setSelectedAthlete] = useState<Athlete | null>(null);
-  const [workoutBuilderOpen, setWorkoutBuilderOpen] = useState(false);
   const [announcementBuilderOpen, setAnnouncementBuilderOpen] = useState(false);
   const [teamFilter, setTeamFilter] = useState("all");
   const [refreshKey, setRefreshKey] = useState(0);
@@ -83,18 +83,9 @@ const Index = () => {
 
       // Load players and coach-level stats together so attendance stays in sync across the dashboard and table.
       console.log('Loading players and stats...');
-      const teamId = profile?.coach?.team_id;
-      if (!teamId) {
-        console.warn('Coach has no team_id, skipping player load');
-        setAthletes([]);
-        setLoading(false);
-        clearTimeout(timeoutId);
-        return;
-      }
-
       const [players, dashboardStats] = await Promise.all([
-        getPlayersByTeamId(teamId),
-        getCoachDashboardStats(teamId),
+        getAllPlayersWithStats(),
+        getCoachDashboardStats(null),
       ]);
 
       console.log(`Loaded ${players.length} players`);
@@ -131,9 +122,7 @@ const Index = () => {
         // Explicitly show ONLY unassigned players
         if (athlete.team_id !== null) return false;
       } else if (teamFilter === "all") {
-        // "All Teams" now means "Anyone assigned to a team"
-        // Hides unassigned players from the default view
-        if (athlete.team_id === null) return false; 
+        // show everyone
       } else {
         // Specific team selected (e.g., "Varsity Basketball")
         if (athlete.team_id !== teamFilter) return false;
@@ -142,11 +131,6 @@ const Index = () => {
       return true;
     });
   }, [athletes, teamFilter]);
-
-  const handleWorkoutBuilderClose = () => {
-    setWorkoutBuilderOpen(false);
-    setRefreshKey(prev => prev + 1);
-  };
 
   /* Real-time subscription disabled (requires Supabase Pro plan)
   // Subscribe to real-time updates
@@ -214,11 +198,11 @@ const Index = () => {
               Create Template
             </Button>
             <Button
-              onClick={() => setWorkoutBuilderOpen(true)}
+              onClick={() => navigate('/send-programming')}
               className="bg-primary text-navy-dark hover:bg-primary/90"
             >
               <Send className="h-4 w-4 mr-2" />
-              Send Workout
+              Send Programming
             </Button>
           </div>
 
@@ -281,12 +265,6 @@ const Index = () => {
         athlete={selectedAthlete}
         open={!!selectedAthlete}
         onClose={() => setSelectedAthlete(null)}
-      />
-
-      {/* Workout Builder */}
-      <WorkoutBuilder
-        open={workoutBuilderOpen}
-        onClose={handleWorkoutBuilderClose}
       />
 
       {/* Announcement Builder */}

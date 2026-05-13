@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { TemplatesProvider } from "@/contexts/TemplatesContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
@@ -12,6 +13,7 @@ import Signup from "./pages/Signup";
 import Profile from "./pages/Profile";
 import NotFound from "./pages/NotFound";
 import History from "./pages/History";
+import SendProgramming from "./pages/SendProgramming";
 
 const queryClient = new QueryClient();
 
@@ -19,6 +21,7 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <AuthProvider>
+        <TemplatesProvider>
         <Toaster />
         <Sonner />
         <BrowserRouter>
@@ -31,6 +34,14 @@ const App = () => (
               element={
                 <ProtectedRoute allowedRoles={['coach']}>
                   <History />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/send-programming"
+              element={
+                <ProtectedRoute allowedRoles={['coach']}>
+                  <SendProgramming />
                 </ProtectedRoute>
               }
             />
@@ -54,6 +65,7 @@ const App = () => (
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
+        </TemplatesProvider>
       </AuthProvider>
     </TooltipProvider>
   </QueryClientProvider>
