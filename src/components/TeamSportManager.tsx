@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 import { Validators } from "@/lib/validators";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
-import { updateTeam, deleteTeam, assignPlayerToTeam, getAllPlayersForAssignment } from "@/services/playersService";
+import { updateTeam, deleteTeam, assignPlayerToTeam, getAllPlayersForAssignment, getCoachTeamIds } from "@/services/playersService";
 import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 interface TeamSportManagerProps {
@@ -69,12 +69,17 @@ export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportM
     if (!user?.id) return;
     setLoading(true);
     try {
-      const { data } = await supabase
+      let { data, error } = await supabase
         .from('teams')
         .select('*')
-        .eq('coach_user_id', user.id)
+        .or(`coach_user_id.eq.${user.id},coach_user_id.is.null`)
         .order('name');
-      let fetched = data || [];
+      if (error || !data) {
+        // coach_user_id column not yet in DB — show all teams as fallback
+        const fallback = await supabase.from('teams').select('*').order('name');
+        data = fallback.data;
+      }
+      let fetched = (data || []) as any[];
 
       // Backfill any groups that are missing an invite code
       const missing = fetched.filter(t => !t.invite_code);
@@ -84,7 +89,8 @@ export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportM
           missing.map(async t => {
             const code = generateInviteCode(existingCodes);
             existingCodes.push(code);
-            await supabase.from('teams').update({ invite_code: code } as any).eq('id', t.id);
+            // @ts-ignore — invite_code not yet in generated types
+            await supabase.from('teams').update({ invite_code: code } as never).eq('id', t.id);
             t.invite_code = code;
           })
         );
@@ -101,7 +107,8 @@ export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportM
   const loadPlayers = async () => {
     try {
       setLoadingPlayers(true);
-      const players = await getAllPlayersForAssignment();
+      const teamIds = user?.id ? await getCoachTeamIds(user.id) : undefined;
+      const players = await getAllPlayersForAssignment(teamIds);
       setExistingPlayers(players || []);
     } catch {
       toast.error("Failed to load players");
@@ -118,10 +125,16 @@ export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportM
     if (nameError) return toast.error(nameError);
     try {
       const invite_code = generateInviteCode(teams.map(t => t.invite_code));
-      const { error } = await supabase
+      // Try with coach_user_id first; fall back if column doesn't exist yet
+      let result = await supabase
         .from('teams')
         .insert({ name: newTeamName, sport: '', invite_code, coach_user_id: user?.id ?? null } as any);
-      if (error) throw error;
+      if (result.error) {
+        result = await supabase
+          .from('teams')
+          .insert({ name: newTeamName, sport: '', invite_code } as any);
+      }
+      if (result.error) throw result.error;
       toast.success("Group created");
       setIsCreatingTeam(false);
       setNewTeamName("");

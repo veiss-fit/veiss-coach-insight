@@ -87,11 +87,16 @@ export const updateSportName = async (oldName: string, newName: string): Promise
  * Return the team IDs owned by a given coach (auth user ID).
  */
 export const getCoachTeamIds = async (coachUserId: string): Promise<string[]> => {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('teams')
     .select('id')
-    .eq('coach_user_id', coachUserId);
-  return data?.map(t => t.id) ?? [];
+    .or(`coach_user_id.eq.${coachUserId},coach_user_id.is.null`);
+  if (error || !data) {
+    // Column not yet migrated — fall back to all teams
+    const { data: all } = await supabase.from('teams').select('id');
+    return all?.map(t => t.id) ?? [];
+  }
+  return data.map(t => t.id);
 };
 
 /**
@@ -373,19 +378,25 @@ export const getUnassignedUsers = async (): Promise<Array<{
 };
 
 /**
- * Get all existing players (for assigning to teams)
+ * Get players for group reassignment, scoped to the coach's own groups.
  */
-export const getAllPlayersForAssignment = async (): Promise<Array<{
+export const getAllPlayersForAssignment = async (teamIds?: string[]): Promise<Array<{
   id: string;
   full_name: string;
   team_id: string | null;
   current_team_name?: string;
 }>> => {
   try {
-    const { data: players, error } = await supabase
+    let query = supabase
       .from('players')
       .select('id, full_name, team_id, teams(name)')
       .order('full_name', { ascending: true });
+
+    if (teamIds && teamIds.length > 0) {
+      query = query.in('team_id', teamIds);
+    }
+
+    const { data: players, error } = await query;
 
     if (error) {
       console.error('Error fetching players:', error);
