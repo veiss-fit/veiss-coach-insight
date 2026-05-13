@@ -58,16 +58,15 @@ export const AthleteTable = ({ athletes, onAthleteSelect, filtersActive = false 
         <Table className="w-full table-fixed">
           <TableHeader>
             <TableRow className="bg-muted/50 hover:bg-muted/50">
-              <TableHead className="w-1/4 py-2 font-semibold text-center">Athlete</TableHead>
-              <TableHead className="w-1/4 py-2 font-semibold text-center">Group</TableHead>
-              <TableHead className="w-1/4 py-2 font-semibold text-center">Level</TableHead>
-              <TableHead className="w-1/4 py-2 font-semibold text-center">Attendance</TableHead>
+              <TableHead className="w-1/3 py-2 font-semibold text-center">Athlete</TableHead>
+              <TableHead className="w-1/3 py-2 font-semibold text-center">Group</TableHead>
+              <TableHead className="w-1/3 py-2 font-semibold text-center">Attendance</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {displayedAthletes.length === 0 ? (
                 <TableRow>
-                    <TableCell colSpan={4} className="text-center py-10 text-muted-foreground">
+                    <TableCell colSpan={3} className="text-center py-10 text-muted-foreground">
                         No athletes found.
                     </TableCell>
                 </TableRow>
@@ -81,13 +80,6 @@ export const AthleteTable = ({ athletes, onAthleteSelect, filtersActive = false 
                       <TableCell className="py-2 text-center font-medium">{athlete.name}</TableCell>
                       <TableCell className="py-2 text-center">
                         <span className="text-xs bg-muted px-2 py-0.5 rounded-full">{(athlete as any).group || '—'}</span>
-                      </TableCell>
-                      <TableCell className="py-2 text-center">
-                        <span className={`inline-flex min-w-16 items-center justify-center rounded-full border px-2.5 py-1 text-sm font-semibold ${
-                          athlete.level === 'Varsity'
-                            ? 'border-amber-300 bg-amber-100 text-amber-900'
-                            : 'border-slate-300 bg-slate-100 text-slate-900'
-                        }`}>{athlete.level}</span>
                       </TableCell>
                       <TableCell className="py-2 text-center font-medium">{athlete.attendance}%</TableCell>
                     </TableRow>
