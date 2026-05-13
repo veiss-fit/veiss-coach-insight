@@ -33,13 +33,19 @@ export const FilterSidebar = ({
   const loadTeams = async () => {
     if (!user?.id) return;
     try {
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('teams')
         .select('id, name')
-        .eq('coach_user_id', user.id)
+        .or(`coach_user_id.eq.${user.id},coach_user_id.is.null`)
         .order('name', { ascending: true });
 
-      if (error) throw error;
+      if (error || !data) {
+        const fallback = await supabase
+          .from('teams')
+          .select('id, name')
+          .order('name', { ascending: true });
+        data = fallback.data;
+      }
       setTeamsList(data || []);
     } catch (error) {
       console.error('Error loading teams:', error);

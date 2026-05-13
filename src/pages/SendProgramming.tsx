@@ -284,7 +284,7 @@ const SendProgramming = () => {
         supabase
           .from('teams')
           .select('id, name')
-          .eq('coach_user_id', user.id)
+          .or(`coach_user_id.eq.${user.id},coach_user_id.is.null`)
           .order('name', { ascending: true }),
       ])
       setAthletes(players)
