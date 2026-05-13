@@ -1,8 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog'
@@ -12,91 +11,228 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
-import { 
-  Plus, 
-  Trash2, 
-  Save, 
-  Dumbbell, 
-  FileText, 
-  LayoutList, 
-  Copy, 
-  ChevronRight,
-  Search
+import {
+  Plus,
+  Trash2,
+  Save,
+  FileText,
+  LayoutList,
+  Copy,
+  Search,
+  X,
+  ChevronDown,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
-
-// --- Types ---
-export interface WorkoutExercise {
-  name: string
-  sets: number
-  reps: number
-  weight: number
-  weightUnit: 'lbs' | 'kg'
-  targetVelocityMin: number
-  targetVelocityMax: number
-}
-
-export interface WorkoutTemplate {
-  id: string
-  name: string
-  description: string
-  exercises: WorkoutExercise[]
-  lastModified: Date
-}
+import { useTemplates, WorkoutTemplate, WorkoutExercise } from '@/contexts/TemplatesContext'
 
 interface TemplateManagerProps {
   open: boolean
   onClose: () => void
 }
 
-// --- MOCK DATA (Replace with Supabase fetch later) ---
-const INITIAL_MOCK_TEMPLATES: WorkoutTemplate[] = [
-  {
-    id: '1',
-    name: 'Hypertrophy Phase 1',
-    description: 'Focus on volume and controlled eccentrics.',
-    lastModified: new Date(),
-    exercises: [
-      { name: 'Back Squat', sets: 4, reps: 8, weight: 185, weightUnit: 'lbs', targetVelocityMin: 0.5, targetVelocityMax: 0.75 },
-      { name: 'RDL', sets: 3, reps: 10, weight: 135, weightUnit: 'lbs', targetVelocityMin: 0, targetVelocityMax: 0 }
-    ]
-  },
-  {
-    id: '2',
-    name: 'Power Development',
-    description: 'Low volume, high velocity.',
-    lastModified: new Date(),
-    exercises: [
-      { name: 'Power Clean', sets: 5, reps: 3, weight: 135, weightUnit: 'lbs', targetVelocityMin: 1.2, targetVelocityMax: 1.5 }
-    ]
-  }
+// --- SUB-COMPONENT: Dashed toggle button to add a field ---
+const AddFieldBtn = ({ label, onClick }: { label: string; onClick: () => void }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-md border border-dashed border-muted-foreground/40 text-muted-foreground hover:border-primary hover:text-primary transition-colors"
+  >
+    <Plus className="h-3 w-3" />
+    {label}
+  </button>
+)
+
+// --- VBT VELOCITY ZONES ---
+const VBT_MAX = 1.6
+const VBT_STEP = 0.05
+
+const VELOCITY_ZONES = [
+  { label: 'Absolute Strength',     short: 'Absolute',  min: 0,    max: 0.35, color: '#b91c1c' },
+  { label: 'Accelerative Strength', short: 'Accel.',    min: 0.35, max: 0.5,  color: '#ef4444' },
+  { label: 'Strength/Speed',        short: 'Str/Spd',   min: 0.5,  max: 0.75, color: '#f59e0b' },
+  { label: 'Speed/Strength',        short: 'Spd/Str',   min: 0.75, max: 1.0,  color: '#84cc16' },
+  { label: 'Starting Strength',     short: 'Starting',  min: 1.0,  max: 1.3,  color: '#22c55e' },
+  { label: 'None',                  short: 'None',      min: 1.3,  max: 1.6,  color: '#16a34a' },
 ]
 
+const TRACK_GRADIENT = VELOCITY_ZONES.map(z => {
+  const s = (z.min / VBT_MAX) * 100
+  const e = (z.max / VBT_MAX) * 100
+  return `${z.color} ${s}%, ${z.color} ${e}%`
+}).join(', ')
+
+// Zone boundary tick marks: ms value → approximate %1RM (VBT research standard)
+const ZONE_BOUNDARIES = [
+  { ms: 0,    pct1rm: 100 },
+  { ms: 0.35, pct1rm: 80  },
+  { ms: 0.5,  pct1rm: 70  },
+  { ms: 0.75, pct1rm: 50  },
+  { ms: 1.0,  pct1rm: 30  },
+  { ms: 1.3,  pct1rm: 20  },
+  { ms: 1.6,  pct1rm: 0   },
+]
+
+const getZone = (v: number) =>
+  VELOCITY_ZONES.find(z => v >= z.min && v < z.max) ?? VELOCITY_ZONES[VELOCITY_ZONES.length - 1]
+
+const snap = (v: number) => Math.round(Math.max(0, Math.min(VBT_MAX, v)) / VBT_STEP) * VBT_STEP
+const fmt = (v: number) => v.toFixed(2)
+
+// --- SUB-COMPONENT: Single-handle velocity zone slider ---
+const VelocitySlider = ({
+  value,
+  onChange,
+  onRemove,
+}: {
+  value: number
+  onChange: (v: number) => void
+  onRemove: () => void
+}) => {
+  const trackRef = useRef<HTMLDivElement>(null)
+  const draggingRef = useRef(false)
+  const onChangeRef = useRef(onChange)
+  onChangeRef.current = onChange
+
+  const toPct = (v: number) => (v / VBT_MAX) * 100
+
+  const valFromClientX = (clientX: number) => {
+    if (!trackRef.current) return 0
+    const { left, width } = trackRef.current.getBoundingClientRect()
+    return snap(((clientX - left) / width) * VBT_MAX)
+  }
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!draggingRef.current) return
+      onChangeRef.current(valFromClientX(e.clientX))
+    }
+    const onUp = () => { draggingRef.current = false }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [])
+
+  const zone = getZone(value)
+  const pct = toPct(value)
+
+  return (
+    <div className="w-full space-y-2.5 pt-1 pb-1">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Target Velocity (m/s)</span>
+        <button type="button" onClick={onRemove} className="text-muted-foreground/40 hover:text-destructive transition-colors">
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      {/* Zone color track with axes */}
+      <div className="select-none">
+
+        {/* %1RM axis — above bar */}
+        <p className="text-[9px] font-semibold text-muted-foreground mb-0.5">%1RM</p>
+        <div className="relative h-3 mb-1">
+          {ZONE_BOUNDARIES.map((b, i) => (
+            <span
+              key={b.ms}
+              className="absolute top-0 text-[8px] text-muted-foreground leading-none"
+              style={{
+                left: `${(b.ms / VBT_MAX) * 100}%`,
+                transform: i === 0 ? 'none' : i === ZONE_BOUNDARIES.length - 1 ? 'translateX(-100%)' : 'translateX(-50%)',
+              }}
+            >
+              {b.pct1rm}%
+            </span>
+          ))}
+        </div>
+
+        {/* Colored bar */}
+        <div
+          ref={trackRef}
+          className="relative h-7 rounded-lg cursor-crosshair"
+          style={{ background: `linear-gradient(to right, ${TRACK_GRADIENT})` }}
+          onMouseDown={e => {
+            draggingRef.current = true
+            onChangeRef.current(valFromClientX(e.clientX))
+          }}
+        >
+          {/* Tick lines at zone boundaries */}
+          {ZONE_BOUNDARIES.map(b => (
+            <div
+              key={b.ms}
+              className="absolute top-0 bottom-0 w-px bg-black/20 pointer-events-none"
+              style={{ left: `${(b.ms / VBT_MAX) * 100}%` }}
+            />
+          ))}
+
+          {/* Handle */}
+          <div
+            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-5 h-5 rounded-full bg-white shadow-lg border-2 cursor-grab active:cursor-grabbing z-20 hover:scale-110 transition-transform"
+            style={{ left: `${pct}%`, borderColor: zone.color }}
+            onMouseDown={e => { e.stopPropagation(); draggingRef.current = true }}
+          />
+        </div>
+
+        {/* m/s axis — below bar */}
+        <div className="relative h-3 mt-1">
+          {ZONE_BOUNDARIES.map((b, i) => (
+            <span
+              key={b.ms}
+              className="absolute top-0 text-[8px] text-muted-foreground leading-none"
+              style={{
+                left: `${(b.ms / VBT_MAX) * 100}%`,
+                transform: i === 0 ? 'none' : i === ZONE_BOUNDARIES.length - 1 ? 'translateX(-100%)' : 'translateX(-50%)',
+              }}
+            >
+              {b.ms === 0 ? '0' : b.ms}
+            </span>
+          ))}
+        </div>
+        <p className="text-[9px] font-semibold text-muted-foreground mt-0.5">m/s</p>
+
+      </div>
+
+      {/* Numeric input + active zone badge */}
+      <div className="flex items-center gap-2">
+        <Input
+          type="number"
+          step={VBT_STEP}
+          min={0}
+          max={VBT_MAX}
+          value={fmt(value)}
+          onChange={e => onChange(snap(parseFloat(e.target.value) || 0))}
+          className="w-20 h-8 text-sm text-center"
+        />
+        <span
+          className="text-[10px] font-semibold px-2 py-1 rounded-md text-white"
+          style={{ background: zone.color }}
+        >
+          {zone.label}
+        </span>
+      </div>
+    </div>
+  )
+}
+
 // --- SUB-COMPONENT: The Form Editor ---
-// This contains the logic from your old Builder, but isolated
-const TemplateEditor = ({ 
-  initialData, 
-  onSave, 
-  onCancel 
-}: { 
-  initialData?: WorkoutTemplate | null, 
-  onSave: (data: Omit<WorkoutTemplate, 'id' | 'lastModified'>) => void,
+const TemplateEditor = ({
+  initialData,
+  onSave,
+  onCancel,
+}: {
+  initialData?: WorkoutTemplate | null
+  onSave: (data: Omit<WorkoutTemplate, 'id' | 'lastModified'>) => void
   onCancel: () => void
 }) => {
   const [name, setName] = useState(initialData?.name || '')
   const [description, setDescription] = useState(initialData?.description || '')
   const [exercises, setExercises] = useState<WorkoutExercise[]>(initialData?.exercises || [])
+  const [openLibraryIdx, setOpenLibraryIdx] = useState<number | null>(null)
 
-  // Hardcoded library for Quick Select
   const exerciseLibrary = [
     'Back Squat', 'Front Squat', 'Romanian Deadlift', 'Bench Press',
     'Overhead Press', 'Power Clean', 'Box Jump', 'Trap Bar Deadlift',
@@ -105,7 +241,9 @@ const TemplateEditor = ({
 
   const addExercise = () => {
     setExercises([...exercises, {
-      name: '', sets: 3, reps: 5, weight: 0, weightUnit: 'lbs', targetVelocityMin: 0, targetVelocityMax: 0
+      name: '',
+      showSetsReps: false,
+      showVelocity: false,
     }])
   }
 
@@ -113,20 +251,17 @@ const TemplateEditor = ({
     setExercises(exercises.filter((_, i) => i !== index))
   }
 
-  const updateExercise = (index: number, field: keyof WorkoutExercise, value: any) => {
+  const updateExercise = (index: number, updates: Partial<WorkoutExercise>) => {
     const updated = [...exercises]
-    updated[index] = { ...updated[index], [field]: value }
+    updated[index] = { ...updated[index], ...updates }
     setExercises(updated)
   }
 
   const handleSave = () => {
     if (!name.trim()) return toast.error('Template name is required')
     if (exercises.length === 0) return toast.error('Add at least one exercise')
-    
-    // Check for missing exercise names
     const incomplete = exercises.findIndex(ex => !ex.name.trim())
     if (incomplete !== -1) return toast.error(`Exercise #${incomplete + 1} is missing a name`)
-
     onSave({ name, description, exercises })
   }
 
@@ -134,27 +269,29 @@ const TemplateEditor = ({
     <div className="h-full flex flex-col">
       <ScrollArea className="flex-1 pr-4 -mr-4">
         <div className="space-y-6 pb-6">
+          {/* Template meta */}
           <div className="space-y-4">
             <div className="space-y-2">
               <Label>Template Name</Label>
-              <Input 
-                placeholder="e.g. In-Season Maintenance" 
-                value={name} 
-                onChange={e => setName(e.target.value)} 
+              <Input
+                placeholder="e.g. In-Season Maintenance"
+                value={name}
+                onChange={e => setName(e.target.value)}
               />
             </div>
             <div className="space-y-2">
               <Label>Description</Label>
-              <Textarea 
-                placeholder="Notes about goal, tempo, etc." 
-                value={description} 
-                onChange={e => setDescription(e.target.value)} 
+              <Textarea
+                placeholder="Notes about goal, tempo, etc."
+                value={description}
+                onChange={e => setDescription(e.target.value)}
               />
             </div>
           </div>
 
           <Separator />
 
+          {/* Exercise list */}
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <Label className="text-lg font-semibold">Exercises ({exercises.length})</Label>
@@ -172,65 +309,96 @@ const TemplateEditor = ({
               <div className="space-y-4">
                 {exercises.map((ex, idx) => (
                   <Card key={idx} className="relative">
+                    {/* Exercise name row */}
                     <CardHeader className="pb-3">
                       <div className="flex items-center gap-3">
-                        <div className="bg-primary/10 text-primary w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">
+                        <div className="bg-primary/10 text-primary w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0">
                           {idx + 1}
                         </div>
-                        <div className="flex flex-1 gap-2">
-                          <Input 
-                            value={ex.name} 
-                            onChange={e => updateExercise(idx, 'name', e.target.value)}
-                            placeholder="Exercise Name" 
-                            className="flex-1 font-medium"
+                        <div className="relative flex-1">
+                          <Input
+                            value={ex.name}
+                            onChange={e => updateExercise(idx, { name: e.target.value })}
+                            onFocus={() => setOpenLibraryIdx(idx)}
+                            onBlur={() => setTimeout(() => setOpenLibraryIdx(null), 150)}
+                            placeholder="Exercise Name"
+                            className="w-full font-medium pr-8"
                           />
-                          <Select onValueChange={v => updateExercise(idx, 'name', v)}>
-                            <SelectTrigger className="w-[40px] px-0 justify-center">
-                              <Dumbbell className="h-4 w-4 opacity-50" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {exerciseLibrary.map(e => <SelectItem key={e} value={e}>{e}</SelectItem>)}
-                            </SelectContent>
-                          </Select>
+                          <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                          {openLibraryIdx === idx && (
+                            <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-popover border border-border rounded-md shadow-md overflow-hidden">
+                              {exerciseLibrary
+                                .filter(e => !ex.name || e.toLowerCase().includes(ex.name.toLowerCase()))
+                                .map(e => (
+                                  <button
+                                    key={e}
+                                    type="button"
+                                    onMouseDown={ev => ev.preventDefault()}
+                                    onClick={() => { updateExercise(idx, { name: e }); setOpenLibraryIdx(null) }}
+                                    className="w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors"
+                                  >
+                                    {e}
+                                  </button>
+                                ))}
+                            </div>
+                          )}
                         </div>
-                        <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => removeExercise(idx)}>
+                        <Button
+                          size="icon" variant="ghost"
+                          className="h-8 w-8 text-destructive shrink-0"
+                          onClick={() => removeExercise(idx)}
+                        >
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
                     </CardHeader>
-                    <CardContent>
-                      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                        {/* Sets */}
-                        <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground">Sets</Label>
-                          <Input type="number" value={ex.sets || ''} onChange={e => updateExercise(idx, 'sets', parseInt(e.target.value) || 0)} />
-                        </div>
-                        {/* Reps */}
-                        <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground">Reps</Label>
-                          <Input type="number" value={ex.reps || ''} onChange={e => updateExercise(idx, 'reps', parseInt(e.target.value) || 0)} />
-                        </div>
-                        {/* Weight */}
-                        <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground">Weight</Label>
-                          <div className="flex gap-1">
-                            <Input className="flex-1" type="number" value={ex.weight || ''} onChange={e => updateExercise(idx, 'weight', parseInt(e.target.value) || 0)} />
-                            <Select value={ex.weightUnit} onValueChange={v => updateExercise(idx, 'weightUnit', v)}>
-                              <SelectTrigger className="w-[60px] px-2 text-xs"><SelectValue /></SelectTrigger>
-                              <SelectContent><SelectItem value="lbs">lbs</SelectItem><SelectItem value="kg">kg</SelectItem></SelectContent>
-                            </Select>
+
+                    <CardContent className="pt-0 space-y-3">
+                      {/* Compact fields row: Sets/Reps pill + add-buttons */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {ex.showSetsReps && (
+                          <div className="flex items-center gap-1 bg-muted/50 rounded-md px-2 py-1">
+                            <span className="text-xs text-muted-foreground">Sets</span>
+                            <Input
+                              type="number"
+                              className="w-14 h-7 text-xs px-2"
+                              placeholder="0"
+                              value={ex.sets ?? ''}
+                              onChange={e => updateExercise(idx, { sets: parseInt(e.target.value) || undefined })}
+                            />
+                            <span className="text-xs text-muted-foreground">Reps</span>
+                            <Input
+                              type="number"
+                              className="w-14 h-7 text-xs px-2"
+                              placeholder="0"
+                              value={ex.reps ?? ''}
+                              onChange={e => updateExercise(idx, { reps: parseInt(e.target.value) || undefined })}
+                            />
+                            <button
+                              type="button"
+                              className="ml-1 text-muted-foreground hover:text-destructive transition-colors"
+                              onClick={() => updateExercise(idx, { showSetsReps: false, sets: undefined, reps: undefined })}
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
                           </div>
-                        </div>
-                        {/* Velocity */}
-                        <div className="space-y-1 col-span-2">
-                          <Label className="text-xs text-muted-foreground">Velocity (m/s)</Label>
-                          <div className="flex gap-2 items-center">
-                            <Input type="number" step="0.1" placeholder="Min" value={ex.targetVelocityMin || ''} onChange={e => updateExercise(idx, 'targetVelocityMin', parseFloat(e.target.value) || 0)} />
-                            <span className="text-muted-foreground">-</span>
-                            <Input type="number" step="0.1" placeholder="Max" value={ex.targetVelocityMax || ''} onChange={e => updateExercise(idx, 'targetVelocityMax', parseFloat(e.target.value) || 0)} />
-                          </div>
-                        </div>
+                        )}
+                        {!ex.showSetsReps && (
+                          <AddFieldBtn label="Sets/Reps" onClick={() => updateExercise(idx, { showSetsReps: true })} />
+                        )}
+                        {!ex.showVelocity && (
+                          <AddFieldBtn label="Velocity" onClick={() => updateExercise(idx, { showVelocity: true })} />
+                        )}
                       </div>
+
+                      {/* Velocity zone slider — full width */}
+                      {ex.showVelocity && (
+                        <VelocitySlider
+                          value={ex.targetVelocity ?? 0.75}
+                          onChange={v => updateExercise(idx, { targetVelocity: v })}
+                          onRemove={() => updateExercise(idx, { showVelocity: false, targetVelocity: undefined })}
+                        />
+                      )}
                     </CardContent>
                   </Card>
                 ))}
@@ -253,45 +421,33 @@ const TemplateEditor = ({
 
 // --- MAIN COMPONENT ---
 export const TemplateManager = ({ open, onClose }: TemplateManagerProps) => {
-  const [templates, setTemplates] = useState<WorkoutTemplate[]>(INITIAL_MOCK_TEMPLATES)
+  const { templates, addTemplate, updateTemplate, deleteTemplate, duplicateTemplate } = useTemplates()
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null)
   const [isCreating, setIsCreating] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
 
-  // Filter templates for sidebar
-  const filteredTemplates = templates.filter(t => 
+  const filteredTemplates = templates.filter(t =>
     t.name.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
   const activeTemplate = templates.find(t => t.id === selectedTemplateId)
 
-  // -- Actions --
-
   const handleCreate = (data: Omit<WorkoutTemplate, 'id' | 'lastModified'>) => {
-    const newTemplate: WorkoutTemplate = {
-      ...data,
-      id: Math.random().toString(36).substr(2, 9), // Mock ID
-      lastModified: new Date()
-    }
-    setTemplates([...templates, newTemplate])
+    addTemplate(data)
     setIsCreating(false)
-    setSelectedTemplateId(newTemplate.id)
+    setSelectedTemplateId(null)
     toast.success('Template created successfully')
   }
 
   const handleUpdate = (data: Omit<WorkoutTemplate, 'id' | 'lastModified'>) => {
     if (!selectedTemplateId) return
-    const updatedTemplates = templates.map(t => 
-      t.id === selectedTemplateId 
-        ? { ...t, ...data, lastModified: new Date() }
-        : t
-    )
-    setTemplates(updatedTemplates)
+    updateTemplate(selectedTemplateId, data)
+    setSelectedTemplateId(null)
     toast.success('Template updated successfully')
   }
 
   const handleDelete = (id: string) => {
-    setTemplates(templates.filter(t => t.id !== id))
+    deleteTemplate(id)
     if (selectedTemplateId === id) {
       setSelectedTemplateId(null)
       setIsCreating(false)
@@ -300,13 +456,7 @@ export const TemplateManager = ({ open, onClose }: TemplateManagerProps) => {
   }
 
   const handleDuplicate = (template: WorkoutTemplate) => {
-    const newTemplate = {
-      ...template,
-      id: Math.random().toString(36).substr(2, 9),
-      name: `${template.name} (Copy)`,
-      lastModified: new Date()
-    }
-    setTemplates([...templates, newTemplate])
+    duplicateTemplate(template)
     toast.success('Template duplicated')
   }
 
@@ -328,30 +478,30 @@ export const TemplateManager = ({ open, onClose }: TemplateManagerProps) => {
 
         {/* Split View */}
         <div className="flex flex-1 overflow-hidden">
-          
+
           {/* LEFT SIDEBAR: Template List */}
           <div className="w-1/3 border-r bg-muted/10 flex flex-col">
             <div className="p-4 space-y-4">
               <div className="relative">
                 <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input 
-                  placeholder="Search templates..." 
-                  className="pl-8 bg-background" 
+                <Input
+                  placeholder="Search templates..."
+                  className="pl-8 bg-background"
                   value={searchTerm}
                   onChange={e => setSearchTerm(e.target.value)}
                 />
               </div>
-              <Button 
-                className="w-full justify-start" 
-                onClick={() => { setSelectedTemplateId(null); setIsCreating(true); }}
-                variant={isCreating ? "secondary" : "default"}
+              <Button
+                className="w-full justify-start"
+                onClick={() => { setSelectedTemplateId(null); setIsCreating(true) }}
+                variant={isCreating ? 'secondary' : 'default'}
               >
                 <Plus className="h-4 w-4 mr-2" /> New Template
               </Button>
             </div>
-            
+
             <Separator />
-            
+
             <ScrollArea className="flex-1">
               <div className="p-3 space-y-2">
                 {filteredTemplates.length === 0 ? (
@@ -361,12 +511,12 @@ export const TemplateManager = ({ open, onClose }: TemplateManagerProps) => {
                     <div
                       key={template.id}
                       className={cn(
-                        "group flex items-center justify-between p-3 rounded-md text-sm transition-colors cursor-pointer border border-transparent",
-                        selectedTemplateId === template.id && !isCreating 
-                          ? "bg-background border-border shadow-sm" 
-                          : "hover:bg-background/50 hover:border-border/50"
+                        'group flex items-center justify-between p-3 rounded-md text-sm transition-colors cursor-pointer border border-transparent',
+                        selectedTemplateId === template.id && !isCreating
+                          ? 'bg-background border-border shadow-sm'
+                          : 'hover:bg-background/50 hover:border-border/50'
                       )}
-                      onClick={() => { setIsCreating(false); setSelectedTemplateId(template.id); }}
+                      onClick={() => { setIsCreating(false); setSelectedTemplateId(template.id) }}
                     >
                       <div className="flex flex-col gap-1 overflow-hidden">
                         <span className="font-medium truncate">{template.name}</span>
@@ -374,23 +524,22 @@ export const TemplateManager = ({ open, onClose }: TemplateManagerProps) => {
                           {template.exercises.length} exercises • {template.lastModified.toLocaleDateString()}
                         </span>
                       </div>
-                      
-                      {/* Action Buttons (visible on hover or active) */}
+
                       <div className={cn(
-                        "flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity",
-                        selectedTemplateId === template.id ? "opacity-100" : ""
+                        'flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity',
+                        selectedTemplateId === template.id ? 'opacity-100' : ''
                       )}>
-                        <Button 
-                          size="icon" variant="ghost" className="h-7 w-7" 
+                        <Button
+                          size="icon" variant="ghost" className="h-7 w-7"
                           title="Duplicate"
-                          onClick={(e) => { e.stopPropagation(); handleDuplicate(template); }}
+                          onClick={e => { e.stopPropagation(); handleDuplicate(template) }}
                         >
                           <Copy className="h-3 w-3" />
                         </Button>
-                        <Button 
-                          size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive" 
+                        <Button
+                          size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive"
                           title="Delete"
-                          onClick={(e) => { e.stopPropagation(); handleDelete(template.id); }}
+                          onClick={e => { e.stopPropagation(); handleDelete(template.id) }}
                         >
                           <Trash2 className="h-3 w-3" />
                         </Button>
@@ -405,23 +554,20 @@ export const TemplateManager = ({ open, onClose }: TemplateManagerProps) => {
           {/* RIGHT PANE: Editor or Empty State */}
           <div className="flex-1 p-6 flex flex-col bg-background">
             {isCreating ? (
-              // Mode: Create New
-              <TemplateEditor 
-                key="new" // Forces reset when switching to new
-                initialData={null} 
-                onSave={handleCreate} 
-                onCancel={() => setIsCreating(false)} 
+              <TemplateEditor
+                key="new"
+                initialData={null}
+                onSave={handleCreate}
+                onCancel={() => setIsCreating(false)}
               />
             ) : activeTemplate ? (
-              // Mode: Edit Existing
-              <TemplateEditor 
-                key={activeTemplate.id} // Forces reset when switching templates
-                initialData={activeTemplate} 
-                onSave={handleUpdate} 
-                onCancel={() => setSelectedTemplateId(null)} 
+              <TemplateEditor
+                key={activeTemplate.id}
+                initialData={activeTemplate}
+                onSave={handleUpdate}
+                onCancel={() => setSelectedTemplateId(null)}
               />
             ) : (
-              // Mode: Empty State
               <div className="h-full flex flex-col items-center justify-center text-muted-foreground">
                 <FileText className="h-16 w-16 mb-4 opacity-20" />
                 <h3 className="text-lg font-medium text-foreground">No Template Selected</h3>
