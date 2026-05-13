@@ -33,11 +33,14 @@ export const getCoachDashboardStats = async (
     const activeAthletes = players?.length || 0;
 
     if (!players || players.length === 0) {
+      const { count: teamCount } = await supabase
+        .from('teams')
+        .select('*', { count: 'exact', head: true });
       return {
         totalSessions: 0,
         activeAthletes: 0,
         avgAttendance: 0,
-        totalTeams: teamId ? 1 : 0,
+        totalTeams: teamCount || 0,
         avgTeamLoad: 0,
         topPerformer: 'N/A',
         lowestAttendance: 0,
@@ -115,14 +118,15 @@ export const getCoachDashboardStats = async (
       ? Math.min(...attendancePercentages)
       : 0;
 
-    // Each coach record has a single canonical team_id in the current schema.
-    const teamCount = teamId ? 1 : 0;
+    const { count: teamCount } = await supabase
+      .from('teams')
+      .select('*', { count: 'exact', head: true });
 
     return {
       totalSessions,
       activeAthletes,
       avgAttendance,
-      totalTeams: teamCount,
+      totalTeams: teamCount || 0,
       avgTeamLoad: avgAttendance, // Team load is essentially attendance
       topPerformer,
       lowestAttendance,
