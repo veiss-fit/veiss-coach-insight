@@ -13,7 +13,7 @@ import { User, LogOut, Bell } from "lucide-react";
 
 export const ProfileMenu = () => {
   const navigate = useNavigate();
-  const { profile, logout } = useAuth();
+  const { profile, user, logout } = useAuth();
 
   const handleLogout = async () => {
     await logout();
@@ -30,7 +30,7 @@ export const ProfileMenu = () => {
       <DropdownMenuTrigger asChild>
         <button className="focus:outline-none focus:ring-2 focus:ring-gold rounded-full">
           <Avatar className="cursor-pointer hover:ring-2 hover:ring-gold transition-all">
-            <AvatarImage src="" />
+            <AvatarImage src={user?.user_metadata?.avatar_url ?? ""} />
             <AvatarFallback className="bg-navy-dark text-white font-semibold">
               {getInitials(profile?.full_name || null)}
             </AvatarFallback>
