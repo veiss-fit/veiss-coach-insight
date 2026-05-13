@@ -15,12 +15,12 @@ export interface DashboardStats {
  * Calculate dashboard statistics for a coach's team(s)
  */
 export const getCoachDashboardStats = async (
-  teamId: string | null
+  teamIds: string[] | null
 ): Promise<DashboardStats> => {
   try {
-    // Get all players for this team
-    const playersQuery = teamId 
-      ? supabase.from('players').select('id, full_name, user_id').eq('team_id', teamId)
+    // Get players scoped to the coach's groups
+    const playersQuery = teamIds && teamIds.length > 0
+      ? supabase.from('players').select('id, full_name, user_id').in('team_id', teamIds)
       : supabase.from('players').select('id, full_name, user_id');
 
     const { data: players, error: playersError } = await playersQuery;

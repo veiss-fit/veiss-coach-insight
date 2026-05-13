@@ -45,6 +45,7 @@ export interface Database {
           sport: string;
           created_at: string;
           invite_code: string | null;
+          coach_user_id: string | null;
         };
         Insert: {
           id?: string;
@@ -52,6 +53,7 @@ export interface Database {
           sport: string;
           created_at?: string;
           invite_code?: string | null;
+          coach_user_id?: string | null;
         };
         Update: {
           id?: string;
@@ -59,6 +61,7 @@ export interface Database {
           sport?: string;
           created_at?: string;
           invite_code?: string | null;
+          coach_user_id?: string | null;
         };
       };
       coaches: {

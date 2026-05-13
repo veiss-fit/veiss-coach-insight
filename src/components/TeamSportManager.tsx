@@ -36,7 +36,7 @@ const generateInviteCode = (existingCodes: (string | null)[]): string => {
 };
 
 export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportManagerProps) => {
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
 
   // Groups state
   const [teams, setTeams] = useState<any[]>([]);
@@ -66,9 +66,14 @@ export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportM
   }, [open, profile?.coach?.team_id]);
 
   const loadTeams = async () => {
+    if (!user?.id) return;
     setLoading(true);
     try {
-      const { data } = await supabase.from('teams').select('*').order('name');
+      const { data } = await supabase
+        .from('teams')
+        .select('*')
+        .eq('coach_user_id', user.id)
+        .order('name');
       let fetched = data || [];
 
       // Backfill any groups that are missing an invite code
@@ -78,18 +83,14 @@ export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportM
         await Promise.all(
           missing.map(async t => {
             const code = generateInviteCode(existingCodes);
-            existingCodes.push(code); // reserve so sibling generates a different one
-            await supabase.from('teams').update({ invite_code: code }).eq('id', t.id);
+            existingCodes.push(code);
+            await supabase.from('teams').update({ invite_code: code } as any).eq('id', t.id);
             t.invite_code = code;
           })
         );
       }
 
       setTeams(fetched);
-      const coachTeamId = profile?.coach?.team_id;
-      if (coachTeamId && !assignTeamId) {
-        setAssignTeamId(coachTeamId);
-      }
     } catch {
       toast.error("Failed to load groups");
     } finally {
@@ -119,7 +120,7 @@ export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportM
       const invite_code = generateInviteCode(teams.map(t => t.invite_code));
       const { error } = await supabase
         .from('teams')
-        .insert({ name: newTeamName, sport: '', invite_code } as any);
+        .insert({ name: newTeamName, sport: '', invite_code, coach_user_id: user?.id ?? null } as any);
       if (error) throw error;
       toast.success("Group created");
       setIsCreatingTeam(false);

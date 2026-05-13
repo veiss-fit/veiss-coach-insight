@@ -84,15 +84,38 @@ export const updateSportName = async (oldName: string, newName: string): Promise
   }
 };
 /**
- * Fetch ALL players across all groups with computed stats.
- * Use this for the main dashboard — it does not filter by team_id.
+ * Return the team IDs owned by a given coach (auth user ID).
  */
-export const getAllPlayersWithStats = async (): Promise<PlayerWithStats[]> => {
+export const getCoachTeamIds = async (coachUserId: string): Promise<string[]> => {
+  const { data } = await supabase
+    .from('teams')
+    .select('id')
+    .eq('coach_user_id', coachUserId);
+  return data?.map(t => t.id) ?? [];
+};
+
+/**
+ * Fetch players scoped to a coach's groups, with computed stats.
+ * Pass the auth user ID — internally resolves team IDs first.
+ */
+export const getPlayersWithStatsByCoach = async (coachUserId: string): Promise<PlayerWithStats[]> => {
+  const teamIds = await getCoachTeamIds(coachUserId);
+  return getAllPlayersWithStats(teamIds);
+};
+
+/**
+ * Fetch players filtered by team IDs (or all players when teamIds is undefined).
+ */
+export const getAllPlayersWithStats = async (teamIds?: string[]): Promise<PlayerWithStats[]> => {
+  // If an explicit empty list is passed, the coach has no groups → return nothing
+  if (teamIds !== undefined && teamIds.length === 0) return [];
+
   try {
-    const { data: players, error } = await supabase
-      .from('players')
-      .select('*, teams(*)')
-      .order('full_name', { ascending: true });
+    let query = supabase.from('players').select('*, teams(*)');
+    if (teamIds && teamIds.length > 0) {
+      query = query.in('team_id', teamIds);
+    }
+    const { data: players, error } = await query.order('full_name', { ascending: true });
 
     if (error) throw error;
     if (!players || players.length === 0) return [];

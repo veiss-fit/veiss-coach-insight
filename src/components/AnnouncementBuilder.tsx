@@ -16,7 +16,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Validators } from "@/lib/validators";
 import { useAuth } from "@/contexts/AuthContext";
-import { getAllPlayersWithStats, PlayerWithStats } from "@/services/playersService";
+import { getPlayersWithStatsByCoach, PlayerWithStats } from "@/services/playersService";
 import { sendMessage } from "@/services/messagesService";
 import { supabase } from "@/lib/supabase";
 import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
@@ -27,7 +27,7 @@ interface AnnouncementBuilderProps {
 }
 
 export const AnnouncementBuilder = ({ open, onClose }: AnnouncementBuilderProps) => {
-  const { profile, user } = useAuth();
+  const { user } = useAuth();
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
   const [priority, setPriority] = useState<"normal" | "urgent">("normal");
@@ -41,19 +41,24 @@ export const AnnouncementBuilder = ({ open, onClose }: AnnouncementBuilderProps)
   const [groupsList, setGroupsList] = useState<Array<{ id: string; name: string }>>([]);
   const [loading, setLoading] = useState(false);
 
-  // Load athletes and sports when modal opens
+  // Load athletes and groups when modal opens
   useEffect(() => {
-    if (open) {
+    if (open && user?.id) {
       loadData();
     }
-  }, [open, profile]);
+  }, [open, user?.id]);
 
   const loadData = async () => {
+    if (!user?.id) return;
     try {
       setLoading(true);
       const [players, teamsResult] = await Promise.all([
-        getAllPlayersWithStats(),
-        supabase.from('teams').select('id, name').order('name', { ascending: true }),
+        getPlayersWithStatsByCoach(user.id),
+        supabase
+          .from('teams')
+          .select('id, name')
+          .eq('coach_user_id', user.id)
+          .order('name', { ascending: true }),
       ]);
       setAthletes(players);
       setGroupsList(teamsResult.data || []);

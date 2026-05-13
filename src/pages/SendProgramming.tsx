@@ -33,7 +33,7 @@ import { cn } from '@/lib/utils'
 import { Validators } from '@/lib/validators'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTemplates } from '@/contexts/TemplatesContext'
-import { getAllPlayersWithStats, PlayerWithStats } from '@/services/playersService'
+import { getPlayersWithStatsByCoach, PlayerWithStats } from '@/services/playersService'
 import { sendWorkoutPlan } from '@/services/workoutPlansService'
 import { LoadingOverlay } from '@/components/ui/LoadingOverlay'
 import { TopNav } from '@/components/TopNav'
@@ -254,7 +254,7 @@ const EXERCISE_LIBRARY = [
 
 const SendProgramming = () => {
   const navigate = useNavigate()
-  const { profile } = useAuth()
+  const { user } = useAuth()
   const { templates } = useTemplates()
 
   const [workoutName, setWorkoutName] = useState('')
@@ -272,15 +272,20 @@ const SendProgramming = () => {
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    loadData()
-  }, [profile])
+    if (user?.id) loadData()
+  }, [user?.id])
 
   const loadData = async () => {
+    if (!user?.id) return
     try {
       setLoading(true)
       const [players, teamsResult] = await Promise.all([
-        getAllPlayersWithStats(),
-        supabase.from('teams').select('id, name').order('name', { ascending: true }),
+        getPlayersWithStatsByCoach(user.id),
+        supabase
+          .from('teams')
+          .select('id, name')
+          .eq('coach_user_id', user.id)
+          .order('name', { ascending: true }),
       ])
       setAthletes(players)
       setGroupsList(teamsResult.data || [])
@@ -367,14 +372,14 @@ const SendProgramming = () => {
       const planData = {
         workoutName,
         exercises,
-        notes: `Assigned by ${profile?.full_name ?? 'Coach'}`,
+        notes: `Assigned by Coach`,
       }
 
       let totalCount = 0
       for (const date of selectedDates) {
         const result = await sendWorkoutPlan(
           selectedAthletes,
-          profile?.coach?.id ?? null,
+          null,
           date,
           planData
         )

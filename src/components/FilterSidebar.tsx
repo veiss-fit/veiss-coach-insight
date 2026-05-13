@@ -21,20 +21,22 @@ export const FilterSidebar = ({
   onTeamChange,
   onPlayersChanged,
 }: FilterSidebarProps) => {
-  const { profile } = useAuth();
+  const { user } = useAuth();
   const [isManagerOpen, setIsManagerOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [teamsList, setTeamsList] = useState<Array<{ id: string; name: string }>>([]);
 
   useEffect(() => {
-    loadTeams();
-  }, [profile?.coach?.team_id]);
+    if (user?.id) loadTeams();
+  }, [user?.id]);
 
   const loadTeams = async () => {
+    if (!user?.id) return;
     try {
       const { data, error } = await supabase
         .from('teams')
         .select('id, name')
+        .eq('coach_user_id', user.id)
         .order('name', { ascending: true });
 
       if (error) throw error;

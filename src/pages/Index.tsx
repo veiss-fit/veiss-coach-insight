@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Athlete } from "@/data/mockData";
 import { Users, UserCheck, Layers, Send, CalendarDays, Megaphone } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { getAllPlayersWithStats, PlayerWithStats } from "@/services/playersService";
+import { getPlayersWithStatsByCoach, getCoachTeamIds, PlayerWithStats } from "@/services/playersService";
 import { getCoachDashboardStats, DashboardStats } from "@/services/statsService";
 // import { useDashboardSubscription } from "@/hooks/useRealtimeSubscriptions"; // Disabled for free tier
 import { TemplateManager } from '@/components/TemplateManager';
@@ -19,7 +19,7 @@ import { LoadingOverlay } from '@/components/ui/LoadingOverlay';
 
 const Index = () => {
   const navigate = useNavigate();
-  const { profile, loading: authLoading } = useAuth();
+  const { profile, user, loading: authLoading } = useAuth();
   const [selectedAthlete, setSelectedAthlete] = useState<Athlete | null>(null);
   const [announcementBuilderOpen, setAnnouncementBuilderOpen] = useState(false);
   const [teamFilter, setTeamFilter] = useState("all");
@@ -83,9 +83,11 @@ const Index = () => {
 
       // Load players and coach-level stats together so attendance stays in sync across the dashboard and table.
       console.log('Loading players and stats...');
+      const coachUserId = user?.id ?? '';
+      const teamIds = coachUserId ? await getCoachTeamIds(coachUserId) : [];
       const [players, dashboardStats] = await Promise.all([
-        getAllPlayersWithStats(),
-        getCoachDashboardStats(null),
+        getPlayersWithStatsByCoach(coachUserId),
+        getCoachDashboardStats(teamIds),
       ]);
 
       console.log(`Loaded ${players.length} players`);
