@@ -8,7 +8,6 @@ import { AthleteDetailPanel } from "@/components/AthleteDetailPanel";
 import { FilterSidebar } from "@/components/FilterSidebar";
 import { AnnouncementBuilder } from "@/components/AnnouncementBuilder";
 import { Button } from "@/components/ui/button";
-import { Athlete } from "@/data/mockData";
 import { Users, UserCheck, Layers, Send, CalendarDays, Megaphone } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { getPlayersWithStatsByCoach, getCoachTeamIds, PlayerWithStats } from "@/services/playersService";
@@ -20,7 +19,7 @@ import { LoadingOverlay } from '@/components/ui/LoadingOverlay';
 const Index = () => {
   const navigate = useNavigate();
   const { profile, user, loading: authLoading } = useAuth();
-  const [selectedAthlete, setSelectedAthlete] = useState<Athlete | null>(null);
+  const [selectedAthlete, setSelectedAthlete] = useState<PlayerWithStats | null>(null);
   const [announcementBuilderOpen, setAnnouncementBuilderOpen] = useState(false);
   const [teamFilter, setTeamFilter] = useState("all");
   const [refreshKey, setRefreshKey] = useState(0);
@@ -97,10 +96,10 @@ const Index = () => {
       setStats(dashboardStats);
       
       clearTimeout(timeoutId);
-    } catch (error: any) {
+    } catch (error) {
       clearTimeout(timeoutId);
       console.error('Error loading data:', error);
-      toast.error(`Failed to load dashboard data: ${error.message || 'Unknown error'}`);
+      toast.error(`Failed to load dashboard data: ${error instanceof Error ? error.message : 'Unknown error'}`);
       // Set empty data so UI doesn't get stuck
       setAthletes([]);
       setStats({

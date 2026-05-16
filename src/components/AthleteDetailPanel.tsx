@@ -1,223 +1,699 @@
-import { useState, useEffect, useMemo } from "react";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Athlete } from "@/data/mockData";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import {
-  ChevronRight, CheckCircle2, AlertCircle, Clock, Dumbbell, Activity,
-  TrendingUp, TrendingDown, Minus
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+} from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
+import { PlayerWithStats } from "@/services/playersService";
+import {
+  ChevronLeft, TrendingUp, TrendingDown, Minus, Dumbbell,
+  CheckCircle2, AlertCircle, Clock, Activity, Maximize2,
+  ChevronRight as ArrowRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { getPlayerWorkoutPlans } from "@/services/workoutPlansService";
-import { getPlayerSessions, SessionData } from "@/services/sessionsService";
-import { SessionDetailPanel } from "./SessionDetailPanel";
+import { getPlayerSessions, SessionData, ExerciseData, RepData } from "@/services/sessionsService";
 import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { findMatchingSessionForPlan, getAttendanceSummary, WorkoutSessionLike } from "@/lib/workoutAttendance";
+import { format, isPast, isToday, parseISO, subWeeks, subDays } from "date-fns";
+import { Database } from "@/types/database";
 import {
-  format, isPast, isToday, parseISO, isSameDay,
-  subWeeks, startOfWeek, addDays
-} from "date-fns";
+  LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip,
+  ReferenceLine, ResponsiveContainer, CartesianGrid,
+} from "recharts";
+import { useNavigate } from "react-router-dom";
+import {
+  Tooltip as UITooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from "@/components/ui/tooltip";
+import {
+  computeAnomalyIndicators,
+  computeSparkline,
+  computeRecentSessions,
+  sessionAvgVelocity,
+  sessionWithinSetDropoff,
+  sessionVelocityDropoff,
+  sessionAvgTempo,
+  sessionVolume,
+  DeviationIndicator,
+  SparklineData,
+  RecentSessionRow,
+  IndicatorTooltip,
+} from "@/lib/athleteSummaryUtils";
 
 interface AthleteDetailPanelProps {
-  athlete: Athlete | null;
+  athlete: PlayerWithStats | null;
   open: boolean;
   onClose: () => void;
 }
 
-// ── Velocity trend SVG (8-week) ────────────────────────────────────────────
-function VelocityTrendChart({ sessions }: { sessions: SessionData[] }) {
-  const now = new Date();
-  const W = 620, H = 70;
-  const PL = 2, PR = 2, PT = 6, PB = 6;
-  const cW = W - PL - PR;
-  const cH = H - PT - PB;
+type ModalView = "summary" | "session-detail";
+type TimeWindow = "1W" | "4W" | "8W";
+type RagFlag = "ok" | "warn" | "alert" | "neutral";
+type ReadinessStatus = "ready" | "monitor" | "flag";
 
-  const weeklyData = useMemo(() => (
-    Array.from({ length: 8 }, (_, i) => {
-      const wStart = startOfWeek(subWeeks(now, 7 - i), { weekStartsOn: 1 });
-      const wEnd = addDays(wStart, 6);
-      const vels = sessions
-        .filter(s => { const d = parseISO(s.date); return d >= wStart && d <= wEnd; })
-        .flatMap(s => s.exercises.map(e => e.avgVelocity).filter(v => v > 0));
-      return vels.length > 0 ? vels.reduce((a, b) => a + b, 0) / vels.length : null;
-    })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  ), [sessions]);
-
-  const valid = weeklyData.filter((v): v is number => v !== null);
-
-  if (valid.length < 2) {
-    return (
-      <div className="w-full h-[70px] flex items-center justify-center">
-        <span className="text-xs text-muted-foreground">Not enough data to display trend</span>
-      </div>
-    );
-  }
-
-  const minV = Math.min(...valid) - 0.05;
-  const maxV = Math.max(...valid) + 0.05;
-  const vRange = maxV - minV || 0.1;
-  const medV = valid.reduce((a, b) => a + b, 0) / valid.length;
-
-  const toX = (i: number) => PL + (i / 7) * cW;
-  const toY = (v: number) => PT + cH - ((v - minV) / vRange) * cH;
-
-  const bandY1 = toY(medV + 0.08);
-  const bandY2 = toY(medV - 0.08);
-  const bandTop = Math.min(bandY1, bandY2);
-  const bandH = Math.abs(bandY2 - bandY1);
-
-  // Collect polyline segments (skip nulls)
-  const segments: string[][] = [];
-  let cur: string[] = [];
-  weeklyData.forEach((v, i) => {
-    if (v !== null) {
-      cur.push(`${toX(i)},${toY(v)}`);
-    } else {
-      if (cur.length) { segments.push(cur); cur = []; }
-    }
-  });
-  if (cur.length) segments.push(cur);
-
-  const lastIdx = weeklyData.reduce((l, v, i) => (v !== null ? i : l), -1);
-  const lastX = lastIdx >= 0 ? toX(lastIdx) : null;
-  const lastY = lastIdx >= 0 ? toY(weeklyData[lastIdx] as number) : null;
-
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: H }}>
-      {/* target zone band */}
-      <rect x={PL} y={bandTop} width={cW} height={bandH}
-        fill="hsl(var(--primary))" fillOpacity={0.15} />
-      {/* dashed bounds */}
-      <line x1={PL} y1={bandTop} x2={PL + cW} y2={bandTop}
-        stroke="hsl(var(--primary))" strokeWidth={0.8} strokeDasharray="4,3" opacity={0.5} />
-      <line x1={PL} y1={bandTop + bandH} x2={PL + cW} y2={bandTop + bandH}
-        stroke="hsl(var(--primary))" strokeWidth={0.8} strokeDasharray="4,3" opacity={0.5} />
-      {/* trend lines */}
-      {segments.map((pts, idx) => (
-        <polyline key={idx} points={pts.join(' ')} fill="none"
-          stroke="hsl(var(--primary))" strokeWidth={2.5}
-          strokeLinejoin="round" strokeLinecap="round" />
-      ))}
-      {/* endpoint dot */}
-      {lastX !== null && lastY !== null && (
-        <>
-          <circle cx={lastX} cy={lastY} r={5} fill="hsl(var(--primary))" />
-          <circle cx={lastX} cy={lastY} r={9} fill="hsl(var(--primary))" fillOpacity={0.2} />
-        </>
-      )}
-      {/* x-axis */}
-      <line x1={PL} y1={PT + cH} x2={PL + cW} y2={PT + cH}
-        stroke="hsl(var(--border))" strokeWidth={0.5} />
-    </svg>
-  );
+interface ReadinessData {
+  status: ReadinessStatus;
+  reason: string;
+  signals: { label: string; value: string; flag: RagFlag }[];
 }
 
-// ── Session load heatmap (4 weeks × 7 days) ────────────────────────────────
-function SessionHeatmap({ sessions }: { sessions: SessionData[] }) {
-  const now = new Date();
-  const dayLabels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+// ── PRESERVED (unmounted — reuse in Exercise Detail View next sprint) ────────
 
-  const weeks = Array.from({ length: 4 }, (_, wi) => {
-    const wStart = startOfWeek(subWeeks(now, 3 - wi), { weekStartsOn: 1 });
-    return Array.from({ length: 7 }, (_, di) => {
-      const day = addDays(wStart, di);
-      const count = sessions.filter(s => isSameDay(parseISO(s.date), day)).length;
-      return { date: day, count, isFuture: day > now };
-    });
-  });
+function ReadinessBanner({ readiness }: { readiness: ReadinessData }) {
+  const cfg = {
+    ready:   { bg: "bg-green-50", border: "border-green-200", titleCls: "text-green-800", subCls: "text-green-700", badge: "bg-green-600 text-white", label: "Ready to Train" },
+    monitor: { bg: "bg-amber-50", border: "border-amber-200", titleCls: "text-amber-900", subCls: "text-amber-700",  badge: "bg-amber-500 text-white",  label: "Monitor"        },
+    flag:    { bg: "bg-red-50",   border: "border-red-200",   titleCls: "text-red-900",   subCls: "text-red-700",   badge: "bg-red-600 text-white",    label: "Flag"           },
+  }[readiness.status];
 
-  const cellCls = (count: number, isFuture: boolean) => {
-    if (isFuture) return 'bg-muted/20';
-    if (count === 0) return 'bg-muted/50';
-    if (count === 1) return 'bg-primary/35';
-    if (count === 2) return 'bg-primary/65';
-    return 'bg-primary';
+  const dotCls: Record<RagFlag, string> = {
+    ok:      "bg-green-500",
+    warn:    "bg-amber-500",
+    alert:   "bg-red-500",
+    neutral: "bg-muted-foreground/30",
   };
 
   return (
-    <div>
-      <div className="grid grid-cols-7 gap-1 mb-1.5">
-        {dayLabels.map((d, i) => (
-          <div key={i} className="text-center text-[9px] font-semibold text-muted-foreground">{d}</div>
-        ))}
+    <div className={cn("rounded-lg border px-4 py-3 flex items-start gap-4 flex-wrap", cfg.bg, cfg.border)}>
+      <div className="flex items-center gap-2.5 min-w-0">
+        <span className={cn("inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold shrink-0", cfg.badge)}>
+          {cfg.label}
+        </span>
+        <p className={cn("text-sm", cfg.titleCls)}>{readiness.reason}</p>
       </div>
-      {weeks.map((week, wi) => (
-        <div key={wi} className="grid grid-cols-7 gap-1 mb-1">
-          {week.map(({ date, count, isFuture }, di) => (
-            <div
-              key={di}
-              className={cn("aspect-square rounded-[3px]", cellCls(count, isFuture))}
-              title={`${format(date, 'MMM d')}: ${count} session${count !== 1 ? 's' : ''}`}
-            />
-          ))}
-        </div>
-      ))}
-      <div className="flex items-center gap-1.5 mt-2 justify-end">
-        <span className="text-[9px] text-muted-foreground">Less</span>
-        {[0, 1, 2, 3].map(v => (
-          <div key={v} className={cn("w-2.5 h-2.5 rounded-[3px]", cellCls(v, false))} />
+      <div className="flex items-center gap-4 ml-auto shrink-0 flex-wrap">
+        {readiness.signals.map((sig, i) => (
+          <div key={i} className="flex items-center gap-1.5">
+            <div className={cn("w-2 h-2 rounded-full shrink-0", dotCls[sig.flag])} />
+            <span className={cn("text-xs", cfg.subCls)}>
+              {sig.label}:{" "}
+              <span className="font-semibold">{sig.value}</span>
+            </span>
+          </div>
         ))}
-        <span className="text-[9px] text-muted-foreground">More</span>
       </div>
     </div>
   );
 }
 
-// ── KPI card ───────────────────────────────────────────────────────────────
-interface KpiCardProps {
+interface StatCardProps {
   label: string;
   value: string;
   unit?: string;
   delta?: number | null;
   deltaLabel?: string;
+  ragStatus?: RagFlag;
 }
 
-function KpiCard({ label, value, unit, delta, deltaLabel }: KpiCardProps) {
-  const DeltaIcon = delta === null || delta === undefined ? Minus
-    : delta > 0 ? TrendingUp : delta < 0 ? TrendingDown : Minus;
-  const deltaColor = delta === null || delta === undefined ? 'text-muted-foreground'
-    : delta > 0 ? 'text-green-500' : delta < 0 ? 'text-destructive' : 'text-muted-foreground';
+function ModalStatCard({ label, value, unit, delta, deltaLabel, ragStatus = "neutral" }: StatCardProps) {
+  const DeltaIcon = delta == null ? Minus : delta > 0 ? TrendingUp : delta < 0 ? TrendingDown : Minus;
+  const deltaColor =
+    delta == null ? "text-muted-foreground"
+    : delta > 0   ? "text-green-600"
+    : delta < 0   ? "text-red-500"
+    : "text-muted-foreground";
+
+  const dotCls: Record<RagFlag, string> = {
+    ok:      "bg-green-500",
+    warn:    "bg-amber-500",
+    alert:   "bg-red-500",
+    neutral: "bg-muted-foreground/25",
+  };
 
   return (
-    <div className="rounded-xl border bg-card px-4 py-3 space-y-1">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">{label}</p>
-      <p className="text-xl font-bold text-foreground leading-none">
+    <div className="rounded-xl border bg-white px-4 py-3 space-y-1.5">
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">{label}</p>
+        <div className={cn("w-2 h-2 rounded-full", dotCls[ragStatus])} />
+      </div>
+      <p className="text-2xl font-bold text-foreground leading-none">
         {value}
         {unit && <span className="text-sm font-normal text-muted-foreground ml-1">{unit}</span>}
       </p>
-      {(delta !== undefined) && (
+      {delta !== undefined && (
         <div className={cn("flex items-center gap-0.5 text-[10px]", deltaColor)}>
-          <DeltaIcon className="h-3 w-3" />
-          <span>{deltaLabel ?? (delta !== null ? `${delta > 0 ? '+' : ''}${delta}` : '—')}</span>
+          <DeltaIcon className="h-3 w-3 shrink-0" />
+          <span>{deltaLabel ?? (delta !== null ? `${delta > 0 ? "+" : ""}${delta}` : "—")}</span>
         </div>
       )}
     </div>
   );
 }
 
-// ── Main component ─────────────────────────────────────────────────────────
-export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPanelProps) => {
-  const [plans, setPlans] = useState<any[]>([]);
-  const [sessions, setSessions] = useState<SessionData[]>([]);
-  const [timeline, setTimeline] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'trends' | 'readiness'>('overview');
-  const [showHistory, setShowHistory] = useState(false);
+function TimeWindowToggle({ active, onChange }: { active: TimeWindow; onChange: (w: TimeWindow) => void }) {
+  const options: TimeWindow[] = ["1W", "4W", "8W"];
+  return (
+    <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-lg w-fit">
+      {options.map((opt) => (
+        <button
+          key={opt}
+          onClick={() => onChange(opt)}
+          className={cn(
+            "px-3 py-1 rounded-md text-xs font-semibold transition-colors",
+            active === opt ? "bg-white text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          {opt}
+        </button>
+      ))}
+      <button
+        disabled
+        title="Custom date range — coming soon"
+        className="px-3 py-1 rounded-md text-xs font-semibold text-muted-foreground opacity-40 cursor-not-allowed"
+      >
+        Custom
+      </button>
+    </div>
+  );
+}
 
-  const [selectedPlan, setSelectedPlan] = useState<any | null>(null);
+// ── Summary page components ──────────────────────────────────────────────────
+
+function InfoTooltip({ tooltip }: { tooltip: IndicatorTooltip }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <UITooltip open={open} onOpenChange={setOpen}>
+      <TooltipTrigger asChild>
+        <button
+          className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-[9px] font-bold bg-muted text-muted-foreground hover:bg-muted/70 transition-colors shrink-0 ml-1"
+          onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
+        >
+          i
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-[260px] p-3 space-y-2 text-left">
+        <div>
+          <p className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">What</p>
+          <p className="text-xs leading-snug">{tooltip.what}</p>
+        </div>
+        <div>
+          <p className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">How</p>
+          <p className="text-xs leading-snug">{tooltip.how}</p>
+        </div>
+        <div>
+          <p className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">Highlights</p>
+          <p className="text-xs leading-snug">{tooltip.highlights}</p>
+        </div>
+        <div>
+          <p className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">Min data</p>
+          <p className="text-xs leading-snug">{tooltip.minimum}</p>
+        </div>
+      </TooltipContent>
+    </UITooltip>
+  );
+}
+
+const ARTIFACT_NAMES = new Set(["Workout", "Exercise", "Movement", "Training", "Session"]);
+
+function isValidExName(n: string | null | undefined): n is string {
+  if (!n) return false;
+  if ((n.match(/[a-zA-Z]/g) ?? []).length < 2) return false;
+  return !ARTIFACT_NAMES.has(n);
+}
+
+function LastSessionCard({ session }: { session: SessionData }) {
+  const avgVel = sessionAvgVelocity(session);
+  const fatigueDropoff = sessionVelocityDropoff(session);
+  const exerciseNames = session.exercises.map((e) => e.name).filter(isValidExName);
+  const totalSets = session.exercises.filter((e) => isValidExName(e.name)).reduce((s, e) => s + e.sets, 0);
+  const totalReps = session.exercises.filter((e) => isValidExName(e.name)).reduce((s, e) => s + e.repData.length, 0);
+  const crossExercise = exerciseNames.length > 1;
+
+  return (
+    <div className="rounded-xl border bg-white px-5 py-4">
+      <div className="flex items-center justify-between mb-2.5">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Last Session</p>
+        <p className="text-xs text-muted-foreground">{format(parseISO(session.date), "MMM d, yyyy")}</p>
+      </div>
+      <p className="text-sm font-medium text-foreground leading-snug mb-3">
+        {exerciseNames.length > 0 ? exerciseNames.join(" · ") : "No exercises recorded"}
+      </p>
+      <div className="flex items-center gap-5 flex-wrap">
+        <span className="text-xs text-muted-foreground">{totalSets}s · {totalReps}r</span>
+        <div className="flex items-center gap-1">
+          <span className="text-sm font-semibold">
+            {avgVel !== null ? `${avgVel.toFixed(2)} m/s` : "—"}
+          </span>
+          {crossExercise && avgVel !== null && (
+            <span
+              className="text-[10px] text-amber-600"
+              title="Cross-exercise average — reliable only if exercise selection is consistent across sessions"
+            >⚠</span>
+          )}
+          <span className="text-xs text-muted-foreground">avg vel</span>
+        </div>
+        {fatigueDropoff !== null && (
+          <div className="flex items-center gap-1">
+            <span className={cn(
+              "text-sm font-semibold",
+              fatigueDropoff < 10 ? "text-green-600" : fatigueDropoff < 20 ? "text-amber-600" : "text-red-500",
+            )}>
+              ↓{fatigueDropoff.toFixed(1)}%
+            </span>
+            <span className="text-xs text-muted-foreground">session fatigue</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DeviationSparklines({
+  indicators,
+  sparklines,
+}: {
+  indicators: DeviationIndicator[];
+  sparklines: Record<string, SparklineData>;
+}) {
+  return (
+    <div>
+      <p className="text-sm font-semibold mb-3">Deviation Trends (last 8 sessions)</p>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        {indicators.map((ind) => {
+          const sparkline = sparklines[ind.metric];
+          return (
+            <div key={ind.metric} className="rounded-xl border bg-white p-3">
+              <div className="flex items-start justify-between mb-2">
+                <div className="flex items-center min-w-0">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground truncate">
+                    {ind.label}
+                  </p>
+                  {ind.tooltip && <InfoTooltip tooltip={ind.tooltip} />}
+                </div>
+                {ind.ragStatus !== "insufficient" && (
+                  <div className={cn(
+                    "w-2 h-2 rounded-full shrink-0 mt-0.5 ml-1.5",
+                    ind.ragStatus === "red"    ? "bg-red-500"
+                    : ind.ragStatus === "amber" ? "bg-amber-500"
+                    : "bg-muted-foreground/25",
+                  )} />
+                )}
+              </div>
+              {!sparkline || sparkline.insufficient ? (
+                <div className="h-14 flex items-center justify-center">
+                  <p className="text-[10px] text-muted-foreground italic">Not enough data</p>
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height={56}>
+                  <LineChart data={sparkline.points} margin={{ top: 4, right: 2, left: 2, bottom: 0 }}>
+                    <YAxis hide domain={["auto", "auto"]} />
+                    {sparkline.mean !== null && (
+                      <ReferenceLine
+                        y={sparkline.mean}
+                        stroke="hsl(var(--muted-foreground))"
+                        strokeDasharray="4 2"
+                        strokeWidth={1}
+                        opacity={0.55}
+                      />
+                    )}
+                    <Tooltip
+                      contentStyle={{ fontSize: 10, borderRadius: 4, border: "1px solid hsl(var(--border))", padding: "2px 6px" }}
+                      formatter={(v: number) => [`${ind.formatFn(v)}`, ind.label]}
+                      labelFormatter={(l: string) => l}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="value"
+                      stroke="hsl(var(--primary))"
+                      strokeWidth={1.5}
+                      dot={false}
+                      activeDot={{ r: 3 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function RecentSessionsList({
+  rows,
+  onSessionClick,
+  onNavigate,
+  athleteId,
+}: {
+  rows: RecentSessionRow[];
+  onSessionClick: (sessionId: string) => void;
+  onNavigate: (path: string) => void;
+  athleteId: string;
+}) {
+  return (
+    <div>
+      <p className="text-sm font-semibold mb-3">Recent Sessions</p>
+      {rows.length === 0 ? (
+        <div className="rounded-xl border border-dashed px-4 py-6 text-center">
+          <p className="text-sm text-muted-foreground">No sessions recorded yet</p>
+        </div>
+      ) : (
+        <div className="rounded-xl border overflow-hidden divide-y">
+          {rows.map((row) => (
+            <div
+              key={row.id}
+              className="group flex items-center gap-3 px-4 py-2.5 hover:bg-muted/40 cursor-pointer transition-colors"
+              onClick={() => onSessionClick(row.id)}
+            >
+              <span className="text-xs text-muted-foreground w-12 shrink-0">
+                {format(parseISO(row.date), "MMM d")}
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-muted-foreground truncate">
+                  {row.exerciseNames.map((name, i) => (
+                    <span key={name}>
+                      {i > 0 && <span className="mx-0.5 opacity-40">,</span>}
+                      <button
+                        className="hover:underline hover:text-foreground transition-colors"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onNavigate(`/athlete/${athleteId}/exercise/${encodeURIComponent(name)}`);
+                        }}
+                      >
+                        {name}
+                      </button>
+                    </span>
+                  ))}
+                </p>
+              </div>
+              <span className="text-xs text-muted-foreground shrink-0 hidden sm:block">
+                {row.totalSets}s · {row.totalReps}r
+              </span>
+              <span className={cn(
+                "text-xs font-medium shrink-0 w-12 text-right",
+                row.velocityDropoffPct === null ? "text-muted-foreground"
+                : row.velocityDropoffPct < 10   ? "text-green-600"
+                : row.velocityDropoffPct < 20   ? "text-amber-600"
+                : "text-red-500",
+              )}>
+                {row.velocityDropoffPct !== null ? `↓${row.velocityDropoffPct.toFixed(1)}%` : "—"}
+              </span>
+              <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0 group-hover:text-muted-foreground transition-colors" />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Inline session detail ────────────────────────────────────────────────────
+
+function groupRepsBySet(repData: RepData[]): Map<number, RepData[]> {
+  const m = new Map<number, RepData[]>();
+  for (const r of repData) {
+    const arr = m.get(r.setNumber) ?? [];
+    arr.push(r);
+    m.set(r.setNumber, arr);
+  }
+  return m;
+}
+
+function buildYAxisTicks(maxValue: number, decimals: number): number[] {
+  if (maxValue <= 0) return [0];
+  const step = maxValue / 4;
+  return [0, step, step * 2, step * 3].map((t) => Number(t.toFixed(decimals)));
+}
+
+// One stateful section per exercise — tracks which set tab is active.
+// Parent passes key={exercise.id} so state resets between sessions.
+function ExerciseSection({ exercise }: { exercise: ExerciseData }) {
+  const bySet      = groupRepsBySet(exercise.repData);
+  const allSetNums = Array.from(bySet.keys()).sort((a, b) => a - b);
+  const [selectedSet, setSelectedSet] = useState<number>(allSetNums[0] ?? 1);
+
+  // Session-average velocity for this exercise — reference line on the chart.
+  const allValidVels = exercise.repData.filter((r) => r.velocity > 0).map((r) => r.velocity);
+  const avgVelAllSets = allValidVels.length > 0
+    ? allValidVels.reduce((a, b) => a + b, 0) / allValidVels.length
+    : null;
+  const refLineVal = avgVelAllSets !== null ? Number(avgVelAllSets.toFixed(2)) : null;
+
+  // Chart data filtered to the selected set, sorted by rep number.
+  const setReps = [...(bySet.get(selectedSet) ?? [])].sort((a, b) => a.repNumber - b.repNumber);
+  const chartData = setReps.map((r) => ({
+    label: `R${r.repNumber}`,
+    velocity: r.velocity > 0 ? Number(r.velocity.toFixed(2)) : null,
+    rom:      r.rom > 0     ? Math.round(r.rom)             : null,
+  }));
+
+  const velocityValues = chartData.map((d) => d.velocity).filter((v): v is number => v !== null);
+  const romValues      = chartData.map((d) => d.rom).filter((v): v is number => v !== null);
+  const velocityMax    = velocityValues.length > 0 ? Math.max(...velocityValues) + 0.05 : 1;
+  const romMax         = romValues.length > 0      ? Math.max(...romValues) + 50         : 0;
+  // Only show ROM chart when the selected set actually has ROM readings.
+  const hasRomData     = romValues.length > 0;
+
+  return (
+    <div className="rounded-xl border bg-white overflow-hidden">
+      {/* Exercise header */}
+      <div className="flex items-center gap-2 px-4 py-3 bg-muted/30 border-b">
+        <Dumbbell className="h-3.5 w-3.5 text-primary shrink-0" />
+        <p className="text-sm font-semibold flex-1 min-w-0 truncate">{exercise.name}</p>
+        <span className="text-xs text-muted-foreground shrink-0">
+          {allSetNums.length} sets · {exercise.repData.length} reps
+        </span>
+      </div>
+
+      <div className="px-4 pt-4 pb-5 space-y-5">
+
+        {/* Set tab pills */}
+        <div className="flex gap-1.5 flex-wrap">
+          {allSetNums.map((setNum) => (
+            <button
+              key={setNum}
+              onClick={() => setSelectedSet(setNum)}
+              className={cn(
+                "px-3 py-1 rounded-full text-xs font-semibold transition-colors",
+                selectedSet === setNum
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "bg-muted text-muted-foreground hover:text-foreground",
+              )}
+            >
+              Set {setNum}
+            </button>
+          ))}
+        </div>
+
+        {/* Velocity chart — selected set, rep-by-rep */}
+        <div className="space-y-1">
+          <span className="text-xs text-muted-foreground flex items-center gap-1">
+            <Activity className="h-3 w-3" /> Rep Velocity (m/s)
+          </span>
+          <ResponsiveContainer width="100%" height={150}>
+            <LineChart data={chartData} margin={{ top: 6, right: 6, left: 0, bottom: 2 }}>
+              <XAxis
+                dataKey="label"
+                fontSize={9}
+                tickLine={false}
+                axisLine={false}
+              />
+              <YAxis
+                fontSize={9}
+                width={30}
+                domain={[0, velocityMax]}
+                ticks={buildYAxisTicks(velocityMax, 2)}
+                tickLine={false}
+                axisLine={false}
+              />
+              <Tooltip
+                contentStyle={{ backgroundColor: "hsl(var(--card))", borderRadius: "8px", fontSize: 11, border: "1px solid hsl(var(--border))" }}
+                formatter={(v: number) => [`${Number(v).toFixed(2)} m/s`, "Velocity"]}
+              />
+              {refLineVal !== null && (
+                <ReferenceLine
+                  y={refLineVal}
+                  stroke="hsl(var(--muted-foreground))"
+                  strokeDasharray="4 3"
+                  strokeWidth={1}
+                  opacity={0.55}
+                  label={{ value: `avg ${refLineVal.toFixed(2)}`, position: "insideTopRight", fontSize: 9, fill: "hsl(var(--muted-foreground))" }}
+                />
+              )}
+              <Line
+                type="monotone"
+                dataKey="velocity"
+                stroke="hsl(142, 76%, 45%)"
+                strokeWidth={2}
+                dot={{ r: 3, fill: "hsl(142, 76%, 45%)" }}
+                activeDot={{ r: 4.5 }}
+                connectNulls={false}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* ROM chart — selected set, only shown when this set has ROM readings */}
+        {hasRomData && (
+          <div className="space-y-1 pt-4 border-t border-border/50">
+            <span className="text-xs text-muted-foreground flex items-center gap-1">
+              <Maximize2 className="h-3 w-3" /> Range of Contraction (mm)
+            </span>
+            <ResponsiveContainer width="100%" height={120}>
+              <LineChart data={chartData} margin={{ top: 6, right: 6, left: 0, bottom: 2 }}>
+                <XAxis
+                  dataKey="label"
+                  fontSize={9}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <YAxis
+                  fontSize={9}
+                  width={30}
+                  domain={[0, romMax]}
+                  ticks={buildYAxisTicks(romMax, 0)}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <Tooltip
+                  contentStyle={{ backgroundColor: "hsl(var(--card))", borderRadius: "8px", fontSize: 11, border: "1px solid hsl(var(--border))" }}
+                  formatter={(v: number) => [`${Math.round(Number(v))} mm`, "Depth"]}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="rom"
+                  stroke="hsl(42, 95%, 50%)"
+                  strokeWidth={2}
+                  dot={{ r: 2.5, fill: "hsl(42, 95%, 50%)" }}
+                  activeDot={{ r: 4 }}
+                  connectNulls={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        {/* Peak velocity + Avg ROC stat row */}
+        <div className="flex items-center gap-6 pt-3 border-t border-border">
+          <div>
+            <p className="text-[10px] uppercase text-muted-foreground flex items-center gap-1 mb-0.5">
+              <Activity className="h-3 w-3" /> Peak Velocity
+            </p>
+            <p className="text-base font-bold">
+              {exercise.peakVelocity}{" "}
+              <span className="text-xs font-normal text-muted-foreground">m/s</span>
+            </p>
+          </div>
+          {exercise.avgROM > 0 && (
+            <div>
+              <p className="text-[10px] uppercase text-muted-foreground flex items-center gap-1 mb-0.5">
+                <Maximize2 className="h-3 w-3" /> Avg ROC
+              </p>
+              <p className="text-base font-bold">
+                {exercise.avgROM}{" "}
+                <span className="text-xs font-normal text-muted-foreground">mm</span>
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Per-set summary table — all sets always visible.
+            Selected row is highlighted and clickable to switch the chart. */}
+        <div className="rounded-lg border overflow-hidden">
+          <div className="grid grid-cols-5 px-3 py-1.5 bg-muted/40 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <span>Set</span>
+            <span>Reps</span>
+            <span>Avg Vel</span>
+            <span>Weight</span>
+            <span>Tempo</span>
+          </div>
+          {allSetNums.map((setNum) => {
+            const reps        = bySet.get(setNum)!;
+            const validVels   = reps.filter((r) => r.velocity > 0);
+            const avgVel      = validVels.length > 0
+              ? validVels.reduce((a, r) => a + r.velocity, 0) / validVels.length
+              : null;
+            const validTempos = reps.filter((r) => r.tempo > 0);
+            const avgTempo    = validTempos.length > 0
+              ? validTempos.reduce((a, r) => a + r.tempo, 0) / validTempos.length
+              : null;
+            const weight      = exercise.weight > 0 ? `${exercise.weight} ${exercise.weightUnit}` : "—";
+            const isSelected  = setNum === selectedSet;
+            return (
+              <div
+                key={setNum}
+                className={cn(
+                  "grid grid-cols-5 px-3 py-2 text-xs border-t items-center cursor-pointer transition-colors",
+                  isSelected ? "bg-primary/10" : "hover:bg-muted/30",
+                )}
+                onClick={() => setSelectedSet(setNum)}
+              >
+                <span className={cn("font-semibold", isSelected ? "text-primary" : "")}>
+                  Set {setNum}
+                </span>
+                <span className={isSelected ? "" : "text-muted-foreground"}>{reps.length}</span>
+                <span className={cn(
+                  "font-medium",
+                  avgVel === null  ? "text-muted-foreground"
+                  : avgVel >= 0.85 ? "text-green-600"
+                  : avgVel >= 0.5  ? "text-foreground"
+                  : "text-amber-600",
+                )}>
+                  {avgVel !== null ? `${avgVel.toFixed(2)} m/s` : "—"}
+                </span>
+                <span className={isSelected ? "" : "text-muted-foreground"}>{weight}</span>
+                <span className={isSelected ? "" : "text-muted-foreground"}>
+                  {avgTempo !== null ? `${avgTempo.toFixed(2)}s` : "—"}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
+// key={session.id} is set by the parent to remount between sessions.
+function InlineSessionDetail({ session }: { session: SessionData }) {
+  if (session.exercises.length === 0) {
+    return (
+      <div className="rounded-xl border border-dashed px-4 py-8 text-center">
+        <p className="text-sm text-muted-foreground">No exercise data for this session</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {session.exercises.map((exercise) => (
+        <ExerciseSection key={exercise.id} exercise={exercise} />
+      ))}
+    </div>
+  );
+}
+
+
+// ── Main component ───────────────────────────────────────────────────────────
+export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPanelProps) => {
+  type WorkoutPlan = Database["public"]["Tables"]["workout_plans"]["Row"];
+  type TimelineItem = (WorkoutPlan & { _timelineType: "plan"; _timelineDate: string })
+    | (SessionData & { _timelineType: "session"; _timelineDate: string });
+
+  const navigate = useNavigate();
+
+  const [sessions, setSessions]               = useState<SessionData[]>([]);
+  const [plans, setPlans]                     = useState<WorkoutPlan[]>([]);
+  const [timeline, setTimeline]               = useState<TimelineItem[]>([]);
+  const [loading, setLoading]                 = useState(false);
+  const [timeWindow, setTimeWindow]           = useState<TimeWindow>("4W");
+  const [showHistory, setShowHistory]         = useState(false);
+  const [selectedPlan, setSelectedPlan]       = useState<WorkoutPlan | null>(null);
   const [selectedSession, setSelectedSession] = useState<SessionData | null>(null);
+  const [modalView, setModalView]             = useState<ModalView>("summary");
 
   useEffect(() => {
     if (athlete && open) {
-      setActiveTab('overview');
-      setShowHistory(false);
+      setTimeWindow("4W");
+      setModalView("summary");
+      setSelectedSession(null);
       loadData();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [athlete?.id, open]);
 
   const loadData = async () => {
@@ -226,401 +702,369 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
       setLoading(true);
       const [plansData, sessionsData] = await Promise.all([
         getPlayerWorkoutPlans(athlete.id),
-        getPlayerSessions(athlete.id, (athlete as any).user_id),
+        getPlayerSessions(athlete.id, athlete.user_id),
       ]);
       setPlans(plansData);
       setSessions(sessionsData);
 
-      const attendanceSummary = getAttendanceSummary(
-        plansData.map((p: any) => ({ date: p.date, title: p.title, is_completed: p.is_completed })),
-        sessionsData.map((s: SessionData) => ({ id: s.id, date: s.date, name: s.notes, createdAt: s.createdAt }))
+      const attSummary = getAttendanceSummary(
+        plansData.map((p) => ({ date: p.date ?? "", title: p.title ?? "", is_completed: p.is_completed ?? false })),
+        sessionsData.map((s) => ({ id: s.id, date: s.date, name: s.notes, createdAt: s.createdAt })),
       );
-
-      const planItems = plansData.map((p: any) => ({ ...p, _timelineType: 'plan', _timelineDate: p.date }));
+      const planItems = plansData.map((p) => ({ ...p, _timelineType: "plan" as const, _timelineDate: p.date ?? "" }));
       const sessionItems = sessionsData
-        .filter(s => !attendanceSummary.matchedSessionIds.has(s.id))
-        .map((s: any) => ({ ...s, _timelineType: 'session', _timelineDate: s.date }));
+        .filter((s) => !attSummary.matchedSessionIds.has(s.id))
+        .map((s) => ({ ...s, _timelineType: "session" as const, _timelineDate: s.date }));
       setTimeline(
         [...planItems, ...sessionItems].sort(
-          (a, b) => parseISO(b._timelineDate).getTime() - parseISO(a._timelineDate).getTime()
-        )
+          (a, b) => parseISO(b._timelineDate).getTime() - parseISO(a._timelineDate).getTime(),
+        ) as TimelineItem[],
       );
     } catch {
-      toast.error('Failed to load athlete history');
+      toast.error("Failed to load athlete data");
     } finally {
       setLoading(false);
     }
   };
 
-  // ── KPI computations ────────────────────────────────────────────────────
-  const kpi = useMemo(() => {
+  // ── Preserved: derived data for Exercise Detail View ─────────────────────
+  const derived = useMemo(() => {
     const now = new Date();
+    const windowDays = timeWindow === "1W" ? 7 : timeWindow === "4W" ? 28 : 56;
+    const windowStart   = subDays(now, windowDays);
+    const baselineStart = subDays(now, windowDays * 2);
 
-    // Avg rep velocity (all-time)
-    const allVels = sessions.flatMap(s => s.exercises.map(e => e.avgVelocity).filter(v => v > 0));
-    const avgRepVelocity = allVels.length > 0
-      ? parseFloat((allVels.reduce((a, b) => a + b, 0) / allVels.length).toFixed(2))
-      : null;
-
-    // Velocity delta: last 4 weeks vs prior 4 weeks
-    const fourWksAgo = subWeeks(now, 4);
-    const eightWksAgo = subWeeks(now, 8);
-    const recentVels = sessions.filter(s => parseISO(s.date) >= fourWksAgo)
-      .flatMap(s => s.exercises.map(e => e.avgVelocity).filter(v => v > 0));
-    const priorVels = sessions.filter(s => { const d = parseISO(s.date); return d >= eightWksAgo && d < fourWksAgo; })
-      .flatMap(s => s.exercises.map(e => e.avgVelocity).filter(v => v > 0));
-    const recentAvg = recentVels.length > 0 ? recentVels.reduce((a, b) => a + b) / recentVels.length : null;
-    const priorAvg = priorVels.length > 0 ? priorVels.reduce((a, b) => a + b) / priorVels.length : null;
-    const velocityDelta = recentAvg !== null && priorAvg !== null
-      ? parseFloat((recentAvg - priorAvg).toFixed(2)) : null;
-
-    // Sessions this week vs last week
-    const thisWeekStart = startOfWeek(now, { weekStartsOn: 1 });
-    const lastWeekStart = startOfWeek(subWeeks(now, 1), { weekStartsOn: 1 });
-    const thisWeekCount = sessions.filter(s => parseISO(s.date) >= thisWeekStart).length;
-    const lastWeekCount = sessions.filter(s => {
+    const filtered        = sessions.filter((s) => parseISO(s.date) >= windowStart);
+    const baselineSessions = sessions.filter((s) => {
       const d = parseISO(s.date);
-      return d >= lastWeekStart && d < thisWeekStart;
-    }).length;
-    const sessionsDelta = thisWeekCount - lastWeekCount;
+      return d >= baselineStart && d < windowStart;
+    });
 
-    // Velocity drop-off from most recent session
+    const avgOfVels = (ss: SessionData[]) => {
+      const v = ss.flatMap((s) => s.exercises.map((e) => e.avgVelocity).filter((x) => x > 0));
+      return v.length > 0 ? v.reduce((a, b) => a + b, 0) / v.length : null;
+    };
+
+    const recentAvg = avgOfVels(filtered);
+    const baseline  = avgOfVels(baselineSessions);
+
     let velocityDropOff: number | null = null;
     if (sessions.length > 0) {
-      const recent = sessions[0];
-      const repVels = recent.exercises.flatMap(e => e.repData.map(r => r.velocity)).filter(v => v > 0);
+      const repVels = sessions[0].exercises
+        .flatMap((e) => e.repData.map((r) => r.velocity))
+        .filter((v) => v > 0);
       if (repVels.length >= 2) {
         const first = repVels[0], last = repVels[repVels.length - 1];
         velocityDropOff = first > 0 ? parseFloat((((first - last) / first) * 100).toFixed(1)) : null;
       }
     }
 
-    // Load vs target
-    const totalPlans = plans.length;
-    const completedPlans = plans.filter((p: any) => p.is_completed).length;
-    const loadVsTarget = totalPlans > 0 ? Math.round((completedPlans / totalPlans) * 100) : null;
+    const weekStart = subDays(now, 7);
+    const weekVels  = sessions
+      .filter((s) => parseISO(s.date) >= weekStart)
+      .flatMap((s) => s.exercises.flatMap((e) => e.repData.map((r) => r.velocity)))
+      .filter((v) => v > 0);
+    const peakVelocityThisWeek = weekVels.length > 0 ? parseFloat(Math.max(...weekVels).toFixed(2)) : null;
 
-    // Last session date
-    const lastSession = sessions[0];
-    const lastSessionDate = lastSession ? format(parseISO(lastSession.date), 'MMM d') : null;
+    const avgVelocityDelta =
+      recentAvg !== null && baseline !== null ? parseFloat((recentAvg - baseline).toFixed(2)) : null;
+    const sessionsDelta  = filtered.length - baselineSessions.length;
+    const lastSessionDate = sessions[0] ? format(parseISO(sessions[0].date), "MMM d") : null;
+
+    const signals: ReadinessData["signals"] = [];
+    let readinessStatus: ReadinessStatus = "ready";
+    let readinessReason = "No session data available";
+    const hasData = recentAvg !== null;
+
+    if (hasData) {
+      if (baseline !== null) {
+        const pct = ((recentAvg! - baseline) / baseline) * 100;
+        signals.push({
+          label: "Velocity vs baseline",
+          value: `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`,
+          flag: pct >= -3 ? "ok" : pct >= -8 ? "warn" : "alert",
+        });
+        if (pct >= -3)      { readinessStatus = "ready";   readinessReason = `Velocity within 3% of ${windowDays / 7}-week baseline`; }
+        else if (pct >= -8) { readinessStatus = "monitor"; readinessReason = `Velocity ${Math.abs(pct).toFixed(1)}% below ${windowDays / 7}-week baseline`; }
+        else                { readinessStatus = "flag";    readinessReason = `Velocity ${Math.abs(pct).toFixed(1)}% below ${windowDays / 7}-week baseline`; }
+      } else {
+        readinessReason = "Insufficient prior data to calculate baseline";
+        signals.push({ label: "Velocity vs baseline", value: "No prior data", flag: "neutral" });
+      }
+
+      const recentTempos   = filtered.flatMap((s) => s.exercises.map((e) => e.avgTempo).filter((t) => t > 0));
+      const baselineTempos = baselineSessions.flatMap((s) => s.exercises.map((e) => e.avgTempo).filter((t) => t > 0));
+      if (recentTempos.length > 0 && baselineTempos.length > 0) {
+        const rT = recentTempos.reduce((a, b) => a + b, 0) / recentTempos.length;
+        const bT = baselineTempos.reduce((a, b) => a + b, 0) / baselineTempos.length;
+        const tPct = ((rT - bT) / bT) * 100;
+        signals.push({ label: "Concentric tempo", value: `${tPct >= 0 ? "+" : ""}${tPct.toFixed(1)}%`, flag: tPct <= 10 ? "ok" : tPct <= 20 ? "warn" : "alert" });
+        if (tPct > 20 && readinessStatus === "ready") { readinessStatus = "monitor"; readinessReason = `Concentric tempo elevated ${tPct.toFixed(1)}% above baseline`; }
+        else if (tPct > 30 && readinessStatus !== "flag") { readinessStatus = "flag"; readinessReason = `Concentric tempo severely elevated (${tPct.toFixed(1)}% above baseline)`; }
+      }
+    }
+
+    const readiness: ReadinessData | null = hasData ? { status: readinessStatus, reason: readinessReason, signals } : null;
+
+    const velocityChartData = [...filtered].reverse().map((s) => {
+      const v = s.exercises.map((e) => e.avgVelocity).filter((x) => x > 0);
+      const avg = v.length > 0 ? parseFloat((v.reduce((a, b) => a + b, 0) / v.length).toFixed(2)) : null;
+      return { date: format(parseISO(s.date), "MMM d"), velocity: avg };
+    }).filter((d): d is { date: string; velocity: number } => d.velocity !== null);
+
+    const tempoChartData = [...filtered].reverse().map((s) => {
+      const t = s.exercises.map((e) => e.avgTempo).filter((x) => x > 0);
+      const avg = t.length > 0 ? parseFloat((t.reduce((a, b) => a + b, 0) / t.length).toFixed(2)) : null;
+      return { date: format(parseISO(s.date), "MMM d"), concentric: avg };
+    }).filter((d): d is { date: string; concentric: number } => d.concentric !== null);
 
     return {
-      avgRepVelocity, velocityDelta,
-      sessionsCompleted: sessions.length, sessionsDelta, thisWeekCount,
-      velocityDropOff, loadVsTarget, lastSessionDate,
+      filteredSessions: filtered,
+      baseline: baseline ? parseFloat(baseline.toFixed(2)) : null,
+      readiness,
+      kpi: { avgVelocity: recentAvg ? parseFloat(recentAvg.toFixed(2)) : null, avgVelocityDelta, velocityDropOff, peakVelocityThisWeek, sessionsCompleted: filtered.length, sessionsDelta, lastSessionDate },
+      velocityChartData,
+      tempoChartData,
     };
-  }, [sessions, plans]);
+  }, [sessions, timeWindow]);
 
-  // ── Attendance helpers ──────────────────────────────────────────────────
-  if (!athlete) return null;
+  // ── Anomaly + sparkline data ──────────────────────────────────────────────
 
-  const attendanceSessions: WorkoutSessionLike[] = sessions.map(s => ({
+  const anomalyIndicators = useMemo(() => computeAnomalyIndicators(sessions), [sessions]);
+
+  const sparklineMap = useMemo<Record<string, SparklineData>>(() => ({
+    velocity:         computeSparkline(sessions, sessionAvgVelocity),
+    withinSetDropoff: computeSparkline(sessions, sessionWithinSetDropoff),
+    sessionFatigue:   computeSparkline(sessions, sessionVelocityDropoff),
+    tempo:            computeSparkline(sessions, sessionAvgTempo),
+    volume:           computeSparkline(sessions, sessionVolume),
+  }), [sessions]);
+
+  const recentSessionRows = useMemo(() => computeRecentSessions(sessions), [sessions]);
+
+  // ── Session metadata ──────────────────────────────────────────────────────
+  const sessionMetadata = useMemo(() => {
+    if (sessions.length === 0) return null;
+    const activeWeeks = new Set(
+      sessions.map((s) => {
+        const d      = parseISO(s.date);
+        const monday = new Date(d);
+        monday.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+        return monday.toISOString().slice(0, 10);
+      })
+    ).size;
+    const firstDate = sessions[sessions.length - 1].date;
+    return { count: sessions.length, activeWeeks, firstDate };
+  }, [sessions]);
+
+  // ── Handlers ─────────────────────────────────────────────────────────────
+
+  const handleExerciseNavigate = useCallback((path: string) => {
+    onClose();
+    navigate(path);
+  }, [onClose, navigate]);
+
+  const handleSessionClick = useCallback((sessionId: string) => {
+    const s = sessions.find((ss) => ss.id === sessionId);
+    if (s) { setSelectedSession(s); setModalView("session-detail"); }
+  }, [sessions]);
+
+  const handleBackToSummary = useCallback(() => {
+    setModalView("summary");
+    setSelectedSession(null);
+  }, []);
+
+  const isActive = sessions.some((s) => {
+    try { return parseISO(s.date) >= subWeeks(new Date(), 4); } catch { return false; }
+  });
+
+  const attendanceSessions: WorkoutSessionLike[] = sessions.map((s) => ({
     id: s.id, date: s.date, name: s.notes, createdAt: s.createdAt,
   }));
   const attendanceSummary = getAttendanceSummary(
-    plans.map((p: any) => ({ date: p.date, title: p.title, is_completed: p.is_completed })),
-    attendanceSessions
+    plans.map((p) => ({ date: p.date ?? "", title: p.title ?? "", is_completed: p.is_completed ?? false })),
+    attendanceSessions,
   );
 
-  const normalize = (v?: string) => (v || '').trim().toLowerCase();
+  if (!athlete) return null;
 
-  const applyPlanTargets = (session: SessionData, plan: any): SessionData => ({
+  const { kpi } = derived;
+
+  // ── Preserved: timeline helpers ───────────────────────────────────────────
+  const normalize = (v?: string) => (v ?? "").trim().toLowerCase();
+
+  const applyPlanTargets = (session: SessionData, plan: WorkoutPlan): SessionData => ({
     ...session,
-    exercises: session.exercises.map(ex => {
-      const match = (Array.isArray(plan?.exercises) ? plan.exercises : [])
-        .find((pe: any) => normalize(pe?.name) === normalize(ex.name));
+    exercises: session.exercises.map((ex) => {
+      const exList = Array.isArray(plan.exercises) ? plan.exercises : [];
+      const match  = (exList as Array<{ name?: string; targetVelocityMin?: number; targetVelocityMax?: number }>)
+        .find((pe) => normalize(pe?.name) === normalize(ex.name));
       return match
         ? { ...ex, targetVelocityMin: Number(match.targetVelocityMin) || 0, targetVelocityMax: Number(match.targetVelocityMax) || 0 }
         : ex;
     }),
   });
 
-  const getPlanStatus = (plan: any) => {
-    const matched = findMatchingSessionForPlan({ date: plan.date, title: plan.title }, attendanceSessions);
-    if (plan.is_completed || matched) return 'completed';
-    const planDate = parseISO(plan.date);
-    if (isPast(planDate) && !isToday(planDate)) return 'missed';
-    return 'pending';
+  const getPlanStatus = (plan: WorkoutPlan) => {
+    const matched = findMatchingSessionForPlan({ date: plan.date ?? "", title: plan.title ?? "" }, attendanceSessions);
+    if (plan.is_completed || matched) return "completed";
+    const planDate = parseISO(plan.date ?? "");
+    if (isPast(planDate) && !isToday(planDate)) return "missed";
+    return "pending";
   };
 
-  const getMatchingSession = (plan: any) => {
-    const matched = findMatchingSessionForPlan({ date: plan.date, title: plan.title }, attendanceSessions);
-    return matched ? sessions.find(s => s.id === matched.id) || null : null;
+  const getMatchingSession = (plan: WorkoutPlan) => {
+    const matched = findMatchingSessionForPlan({ date: plan.date ?? "", title: plan.title ?? "" }, attendanceSessions);
+    return matched ? sessions.find((s) => s.id === matched.id) ?? null : null;
   };
 
-  const handleTimelineItemClick = (item: any) => {
-    if (item._timelineType === 'plan') {
+  const handleTimelineItemClick = (item: TimelineItem) => {
+    if (item._timelineType === "plan") {
       const status = getPlanStatus(item);
-      if (status === 'completed') {
+      if (status === "completed") {
         const match = getMatchingSession(item);
-        match ? setSelectedSession(applyPlanTargets(match, item)) : setSelectedPlan(item);
-      } else {
-        setSelectedPlan(item);
-      }
-    } else {
-      setSelectedSession(item);
-    }
+        if (match) { setSelectedSession(applyPlanTargets(match, item)); } else { setSelectedPlan(item); }
+      } else { setSelectedPlan(item); }
+    } else { setSelectedSession(item); }
   };
-
-  const isActive = sessions.some(s => {
-    try { return parseISO(s.date) >= subWeeks(new Date(), 4); } catch { return false; }
-  });
-  const subtitle = `${(athlete as any).group || 'No Group'} · Last session ${kpi.lastSessionDate ?? '—'}`;
-  const tabs: Array<{ id: 'overview' | 'trends' | 'readiness'; label: string }> = [
-    { id: 'overview', label: 'Overview' },
-    { id: 'trends', label: 'Trends' },
-    { id: 'readiness', label: 'Readiness' },
-  ];
 
   return (
     <>
-      <Sheet open={open} onOpenChange={onClose}>
-        <SheetContent className="w-full sm:max-w-2xl overflow-hidden flex flex-col bg-background p-0">
-          <LoadingOverlay isLoading={loading} fullScreen message="Loading history..." />
+      {/*
+       * overflow-y-auto + max-h-[90vh] on DialogContent makes the dialog itself
+       * the scroll container. Height is content-driven up to 90vh — no fixed h
+       * needed, so there is no empty space when content is short.
+       * The header uses position: sticky (z-[1]) to stay pinned while the body
+       * scrolls beneath it. The close button (absolute, later in DOM) naturally
+       * paints on top without needing an explicit z-index fight.
+       */}
+      <Dialog open={open} onOpenChange={onClose}>
+        <DialogContent className="max-w-[860px] max-h-[90vh] p-0 gap-0 overflow-y-auto">
+          <div className="relative flex flex-col">
+            <LoadingOverlay isLoading={loading} message="Loading athlete data…" />
 
-          <ScrollArea className="flex-1">
-            <div className="p-6 space-y-6">
-
-              {/* ── Header bar ── */}
-              <div className="flex items-start justify-between gap-4">
+            {modalView === "summary" ? (
+              <div className="sticky top-0 z-[1] bg-background flex items-start gap-4 px-6 pt-5 pb-4 border-b pr-14">
                 <div className="min-w-0">
-                  <h2 className="text-[18px] font-medium text-foreground leading-tight truncate">
-                    {athlete.name}
-                  </h2>
-                  <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <Badge
-                    className={cn(
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h2 className="text-xl font-semibold text-foreground leading-tight">{athlete.name}</h2>
+                    {athlete.group && (
+                      <Badge variant="secondary" className="text-xs font-medium">{athlete.group}</Badge>
+                    )}
+                    <Badge className={cn(
                       "rounded-full px-2.5 py-0.5 text-xs font-medium border-0",
-                      isActive ? "bg-green-100 text-green-700" : "bg-muted text-muted-foreground"
-                    )}
-                  >
-                    {isActive ? 'Active' : 'Inactive'}
-                  </Badge>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-xs text-muted-foreground hover:text-foreground gap-1 px-2"
-                    onClick={() => setShowHistory(v => !v)}
-                  >
-                    Full history
-                    <ChevronRight className="h-3 w-3" />
-                  </Button>
-                </div>
-              </div>
-
-              {/* ── Pill tab nav ── */}
-              <div className="flex gap-1 bg-muted/50 p-1 rounded-lg w-fit">
-                {tabs.map(tab => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                    className={cn(
-                      "px-4 py-1.5 rounded-md text-sm font-medium transition-colors",
-                      activeTab === tab.id
-                        ? "bg-background text-foreground shadow-sm"
-                        : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-
-              {/* ── Overview tab ── */}
-              {activeTab === 'overview' && (
-                <div className="space-y-5">
-                  {/* Section label */}
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-                    This week at a glance
-                  </p>
-
-                  {/* KPI strip */}
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                    <KpiCard
-                      label="Avg rep velocity"
-                      value={kpi.avgRepVelocity !== null ? String(kpi.avgRepVelocity) : '—'}
-                      unit={kpi.avgRepVelocity !== null ? 'm/s' : undefined}
-                      delta={kpi.velocityDelta}
-                      deltaLabel={kpi.velocityDelta !== null
-                        ? `${kpi.velocityDelta > 0 ? '+' : ''}${kpi.velocityDelta} vs prev 4 wks`
-                        : 'No comparison data'}
-                    />
-                    <KpiCard
-                      label="Sessions completed"
-                      value={String(kpi.thisWeekCount)}
-                      unit="this wk"
-                      delta={kpi.sessionsDelta}
-                      deltaLabel={`${kpi.sessionsDelta >= 0 ? '+' : ''}${kpi.sessionsDelta} vs last wk`}
-                    />
-                    <KpiCard
-                      label="Velocity drop-off"
-                      value={kpi.velocityDropOff !== null ? `${kpi.velocityDropOff}%` : '—'}
-                      delta={kpi.velocityDropOff !== null ? -kpi.velocityDropOff : null}
-                      deltaLabel={kpi.velocityDropOff !== null ? 'last session' : 'No session data'}
-                    />
-                    <KpiCard
-                      label="Load vs target"
-                      value={kpi.loadVsTarget !== null ? `${kpi.loadVsTarget}%` : '—'}
-                      delta={kpi.loadVsTarget !== null ? kpi.loadVsTarget - 100 : null}
-                      deltaLabel={kpi.loadVsTarget !== null
-                        ? `${plans.filter((p: any) => p.is_completed).length}/${plans.length} plans`
-                        : 'No plans assigned'}
-                    />
+                      isActive ? "bg-green-100 text-green-700" : "bg-muted text-muted-foreground",
+                    )}>
+                      {isActive ? "Active" : "Inactive"}
+                    </Badge>
                   </div>
-
-                  {/* Two-column cards */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {/* Velocity trend */}
-                    <Card>
-                      <CardHeader className="pb-2 pt-4 px-4">
-                        <CardTitle className="text-sm font-semibold">8-Week Velocity Trend</CardTitle>
-                      </CardHeader>
-                      <CardContent className="px-4 pb-4">
-                        <VelocityTrendChart sessions={sessions} />
-                        <div className="flex justify-between mt-2 px-0.5">
-                          {Array.from({ length: 8 }, (_, i) => (
-                            <span key={i} className="text-[9px] text-muted-foreground">
-                              W{i + 1}
-                            </span>
-                          ))}
-                        </div>
-                      </CardContent>
-                    </Card>
-
-                    {/* Session load heatmap */}
-                    <Card>
-                      <CardHeader className="pb-2 pt-4 px-4">
-                        <CardTitle className="text-sm font-semibold">Session Load (4 weeks)</CardTitle>
-                      </CardHeader>
-                      <CardContent className="px-4 pb-4">
-                        <SessionHeatmap sessions={sessions} />
-                      </CardContent>
-                    </Card>
-                  </div>
-                </div>
-              )}
-
-              {/* ── Trends tab (placeholder) ── */}
-              {activeTab === 'trends' && (
-                <div className="flex items-center justify-center h-40 text-sm text-muted-foreground border-2 border-dashed rounded-xl">
-                  Trends coming soon
-                </div>
-              )}
-
-              {/* ── Readiness tab (placeholder) ── */}
-              {activeTab === 'readiness' && (
-                <div className="flex items-center justify-center h-40 text-sm text-muted-foreground border-2 border-dashed rounded-xl">
-                  Readiness coming soon
-                </div>
-              )}
-
-              {/* ── Full history (toggled) ── */}
-              {showHistory && (
-                <div className="space-y-3 pt-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-                    Workout timeline
-                  </p>
-
-                  {loading ? (
-                    <div className="text-center py-8 text-muted-foreground text-sm">Loading…</div>
-                  ) : timeline.length === 0 ? (
-                    <div className="text-center py-8 border-2 border-dashed rounded-lg">
-                      <p className="text-muted-foreground text-sm">No workouts found.</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {timeline.map(item => {
-                        const isPlan = item._timelineType === 'plan';
-                        const isSession = item._timelineType === 'session';
-                        const dateObj = parseISO(item._timelineDate);
-                        const status = isPlan ? getPlanStatus(item) : null;
-                        return (
-                          <div
-                            key={item._timelineType + '-' + item.id}
-                            className="group flex items-center justify-between p-3.5 border rounded-lg hover:bg-muted/50 cursor-pointer transition-colors"
-                            onClick={() => handleTimelineItemClick(item)}
-                          >
-                            <div className="flex items-start gap-3">
-                              <div className="mt-0.5">
-                                {isPlan && status === 'completed' && <CheckCircle2 className="h-4 w-4 text-green-500" />}
-                                {isPlan && status === 'missed' && <AlertCircle className="h-4 w-4 text-destructive" />}
-                                {isPlan && status === 'pending' && <Clock className="h-4 w-4 text-blue-500" />}
-                                {isSession && <Activity className="h-4 w-4 text-primary" />}
-                              </div>
-                              <div>
-                                <div className="flex items-center gap-2">
-                                  <h4 className="font-medium text-sm">
-                                    {isPlan ? item.title : (item.notes || 'Self-Logged Session')}
-                                  </h4>
-                                  <Badge variant={isPlan ? 'secondary' : 'default'} className="text-[10px] px-1 h-4">
-                                    {isPlan ? 'Plan' : 'Self-Logged'}
-                                  </Badge>
-                                </div>
-                                <p className="text-xs text-muted-foreground">{format(dateObj, 'EEE, MMM d')}</p>
-                              </div>
-                            </div>
-                            <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
-                          </div>
-                        );
-                      })}
-                    </div>
+                  {kpi.lastSessionDate && (
+                    <p className="text-xs text-muted-foreground mt-1">Last session: {kpi.lastSessionDate}</p>
                   )}
                 </div>
-              )}
-            </div>
-          </ScrollArea>
-        </SheetContent>
-      </Sheet>
+              </div>
+            ) : (
+              <div className="sticky top-0 z-[1] bg-background flex items-center gap-3 px-6 pt-5 pb-4 border-b pr-14">
+                <button
+                  onClick={handleBackToSummary}
+                  className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Back
+                </button>
+                <div className="w-px h-4 bg-border shrink-0" />
+                <div className="min-w-0">
+                  <h2 className="text-base font-semibold text-foreground leading-tight truncate">
+                    {selectedSession ? format(parseISO(selectedSession.date), "MMMM d, yyyy") : "Session Detail"}
+                  </h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">{athlete.name}</p>
+                </div>
+              </div>
+            )}
 
-      {/* Plan detail dialog (Pending / Missed) */}
+            {/* Body — isolation: isolate keeps positioned body descendants
+                (charts, badges) below the sticky header's stacking context */}
+            <div className="isolate px-6 py-5 space-y-6">
+
+                {modalView === "summary" ? (
+                  <>
+                    {sessions.length > 0 && <LastSessionCard session={sessions[0]} />}
+
+                    {sessionMetadata && (
+                      <p className="text-xs text-muted-foreground -mt-2">
+                        {sessionMetadata.count} session{sessionMetadata.count !== 1 ? "s" : ""}{" "}
+                        · {sessionMetadata.activeWeeks} active week{sessionMetadata.activeWeeks !== 1 ? "s" : ""}{" "}
+                        · First recorded {format(parseISO(sessionMetadata.firstDate), "MMM d, yyyy")}
+                      </p>
+                    )}
+
+                    <DeviationSparklines indicators={anomalyIndicators} sparklines={sparklineMap} />
+
+                    <RecentSessionsList
+                      rows={recentSessionRows}
+                      athleteId={athlete.id}
+                      onSessionClick={handleSessionClick}
+                      onNavigate={handleExerciseNavigate}
+                    />
+                  </>
+                ) : (
+                  selectedSession && (
+                    <InlineSessionDetail key={selectedSession.id} session={selectedSession} />
+                  )
+                )}
+
+                {/*
+                 * ── PRESERVED FOR EXERCISE DETAIL VIEW (next sprint) ─────────────────
+                 * Re-enable when building /athlete/:id/exercise/:exerciseId.
+                 * All backing data is still computed in `derived` above:
+                 *   ReadinessBanner    — derived.readiness
+                 *   ModalStatCard ×4   — derived.kpi
+                 *   TimeWindowToggle   — timeWindow / setTimeWindow
+                 *   Velocity LineChart — derived.velocityChartData + derived.baseline
+                 *   Tempo BarChart     — derived.tempoChartData
+                 *   Timeline           — timeline / handleTimelineItemClick
+                 * ── END PRESERVED ────────────────────────────────────────────────────
+                 */}
+
+              </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Plan detail dialog — preserved */}
       <Dialog open={!!selectedPlan} onOpenChange={() => setSelectedPlan(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{selectedPlan?.title}</DialogTitle>
             <DialogDescription>
-              {selectedPlan && format(parseISO(selectedPlan.date), 'PPPP')}
+              {selectedPlan && format(parseISO(selectedPlan.date), "PPPP")}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 mt-4">
-            <Badge variant={selectedPlan?.is_completed ? 'default' : 'secondary'}>
-              {selectedPlan?.is_completed ? 'Completed' : 'Not Completed'}
+          <div className="space-y-4 mt-2">
+            <Badge variant={selectedPlan?.is_completed ? "default" : "secondary"}>
+              {selectedPlan?.is_completed ? "Completed" : "Not Completed"}
             </Badge>
             {selectedPlan?.description && (
-              <div className="bg-muted/30 p-3 rounded-md text-sm">
-                <span className="font-semibold block mb-1">Notes:</span>
-                {selectedPlan.description}
-              </div>
+              <p className="bg-muted/30 p-3 rounded-md text-sm">{selectedPlan.description}</p>
             )}
             <div className="space-y-2">
               <h4 className="font-semibold flex items-center gap-2 text-sm">
                 <Dumbbell className="h-4 w-4" /> Assigned Exercises
               </h4>
-              <ScrollArea className="h-[280px] border rounded-md p-4">
-                <div className="space-y-3">
-                  {selectedPlan?.exercises?.map((ex: any, i: number) => (
-                    <div key={i} className="flex justify-between items-center border-b pb-2 last:border-0">
-                      <span className="font-medium text-sm">{ex.name}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {ex.sets} × {ex.reps} @ {ex.weight}{ex.weightUnit}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </ScrollArea>
+              <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                {(selectedPlan?.exercises as Array<{ name: string; sets: number; reps: number; weight: number; weightUnit: string }>)?.map((ex, i) => (
+                  <div key={i} className="flex justify-between items-center border-b pb-2 last:border-0">
+                    <span className="font-medium text-sm">{ex.name}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {ex.sets} × {ex.reps} @ {ex.weight}{ex.weightUnit}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </DialogContent>
       </Dialog>
-
-      {/* Rich session view (Completed) */}
-      <SessionDetailPanel
-        session={selectedSession}
-        open={!!selectedSession}
-        onClose={() => setSelectedSession(null)}
-        isSelfLoggedSession={selectedSession ? !attendanceSummary.matchedSessionIds.has(selectedSession.id) : false}
-      />
     </>
   );
 };

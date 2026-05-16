@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git checkout *)",
+      "Bash(powershell *)",
+      "Bash(Find \"C:\\\\Users\\\\Siddique\\\\Desktop\\\\veiss-coach-insight\\\\src\" -name \"index.tsx\" -o -name \"dashboard.tsx\" -o -name \"Dashboard.tsx\")",
+      "Bash(npx tsc *)",
+      "Bash(npx eslint *)",
+      "Bash(git log *)",
+      "Bash(npm run *)",
+      "Bash(curl *)",
+      "Bash(python3 -c ' *)",
+      "Bash(curl -s \"https://xjyugqxdfrbluprtgftj.supabase.co/rest/v1/reps?select=exercise_name&order=exercise_name.asc\" -H \"apikey: sb_publishable_smdgoXHi_zin3b50mOTu1w_q8L5DI6d\" -H \"Authorization: Bearer sb_publishable_smdgoXHi_zin3b50mOTu1w_q8L5DI6d\")",
+      "Bash(node -e ' *)",
+      "PowerShell(curl *)",
+      "Bash(node *)",
+      "Bash(supabase --version)",
+      "Bash(psql --version)",
+      "PowerShell(Get-Command *)",
+      "Bash(findstr *)"
+    ]
+  }
+}

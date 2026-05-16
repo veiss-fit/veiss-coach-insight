@@ -106,10 +106,16 @@ export const getSessionExercises = async (sessionId: string): Promise<ExerciseDa
 
     if (!reps || reps.length === 0) return [];
 
-    // 2. Group reps by exercise
+    // 2. Group reps by exercise — skip artifact names (null, < 2 letters, or known generic labels)
+    const ARTIFACT_EXERCISE_NAMES = new Set([
+      "Workout", "Exercise", "Movement", "Training", "Session",
+    ]);
     const exerciseMap = new Map<string, Rep[]>();
     reps.forEach((rep) => {
       const key = rep.exercise_name;
+      if (!key) return;
+      if ((key.match(/[a-zA-Z]/g) ?? []).length < 2) return;
+      if (ARTIFACT_EXERCISE_NAMES.has(key)) return;
       if (!exerciseMap.has(key)) exerciseMap.set(key, []);
       exerciseMap.get(key)!.push(rep);
     });

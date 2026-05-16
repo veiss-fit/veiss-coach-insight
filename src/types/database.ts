@@ -201,6 +201,9 @@ export interface Database {
           weight: number | null;
           average_rep_speed: number | null;
           created_at: string;
+          // Phase 22 columns — exist in Supabase but were absent from generated types
+          rom_mm: number | null;
+          concentric_duration_s: number | null;
         };
         Insert: {
           id?: string;
@@ -213,6 +216,8 @@ export interface Database {
           weight?: number | null;
           average_rep_speed?: number | null;
           created_at?: string;
+          rom_mm?: number | null;
+          concentric_duration_s?: number | null;
         };
         Update: {
           id?: string;
@@ -225,6 +230,8 @@ export interface Database {
           weight?: number | null;
           average_rep_speed?: number | null;
           created_at?: string;
+          rom_mm?: number | null;
+          concentric_duration_s?: number | null;
         };
       };
       workout_plans: {
