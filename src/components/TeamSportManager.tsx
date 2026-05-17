@@ -25,16 +25,6 @@ interface TeamSportManagerProps {
   onPlayersChanged?: () => void;
 }
 
-// Generate a unique 6-digit numeric invite code not already in use
-const generateInviteCode = (existingCodes: (string | null)[]): string => {
-  const used = new Set(existingCodes.filter(Boolean) as string[]);
-  let code: string;
-  do {
-    code = Math.floor(Math.random() * 1_000_000).toString().padStart(6, '0');
-  } while (used.has(code));
-  return code;
-};
-
 export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportManagerProps) => {
   const { profile, user } = useAuth();
 
@@ -57,6 +47,7 @@ export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportM
   const [comboboxOpen, setComboboxOpen] = useState(false);
   const [loadingPlayers, setLoadingPlayers] = useState(false);
   const [assigning, setAssigning] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -69,34 +60,23 @@ export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportM
     if (!user?.id) return;
     setLoading(true);
     try {
-      let { data, error } = await supabase
-        .from('teams')
-        .select('*')
-        .or(`coach_user_id.eq.${user.id},coach_user_id.is.null`)
-        .order('name');
-      if (error || !data) {
-        // coach_user_id column not yet in DB — show all teams as fallback
-        const fallback = await supabase.from('teams').select('*').order('name');
-        data = fallback.data;
-      }
-      let fetched = (data || []) as any[];
+      // Resolve the coach's DB ID, then fetch only their groups
+      const { data: coachRow } = await (supabase as any)
+        .from('coaches')
+        .select('id')
+        .eq('user_id', user.id)
+        .single() as { data: { id: string } | null };
 
-      // Backfill any groups that are missing an invite code
-      const missing = fetched.filter(t => !t.invite_code);
-      if (missing.length > 0) {
-        const existingCodes = fetched.map(t => t.invite_code);
-        await Promise.all(
-          missing.map(async t => {
-            const code = generateInviteCode(existingCodes);
-            existingCodes.push(code);
-            // @ts-ignore — invite_code not yet in generated types
-            await supabase.from('teams').update({ invite_code: code } as never).eq('id', t.id);
-            t.invite_code = code;
-          })
-        );
+      let query = supabase.from('groups').select('*').order('name');
+      if (coachRow?.id) {
+        query = (supabase as any)
+          .from('groups')
+          .select('*')
+          .eq('coach_id', coachRow.id)
+          .order('name');
       }
-
-      setTeams(fetched);
+      const { data } = await query;
+      setTeams((data || []) as any[]);
     } catch {
       toast.error("Failed to load groups");
     } finally {
@@ -124,17 +104,17 @@ export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportM
     const nameError = Validators.required(newTeamName, "Group Name");
     if (nameError) return toast.error(nameError);
     try {
-      const invite_code = generateInviteCode(teams.map(t => t.invite_code));
-      // Try with coach_user_id first; fall back if column doesn't exist yet
-      let result = await supabase
-        .from('teams')
-        .insert({ name: newTeamName, sport: '', invite_code, coach_user_id: user?.id ?? null } as any);
-      if (result.error) {
-        result = await supabase
-          .from('teams')
-          .insert({ name: newTeamName, sport: '', invite_code } as any);
-      }
-      if (result.error) throw result.error;
+      const { data: coachRow } = await (supabase as any)
+        .from('coaches')
+        .select('id')
+        .eq('user_id', user?.id)
+        .single() as { data: { id: string } | null };
+
+      const { error } = await supabase
+        .from('groups')
+        .insert({ name: newTeamName, sport: '', coach_id: coachRow?.id ?? null } as any);
+
+      if (error) throw error;
       toast.success("Group created");
       setIsCreatingTeam(false);
       setNewTeamName("");
@@ -258,23 +238,27 @@ export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportM
                       </div>
 
                       {/* Invite code row */}
-                      <div className="mt-3 ml-11 flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground">Invite code</span>
-                        <span className="font-mono text-sm font-bold tracking-[0.2em] text-foreground">
-                          {team.invite_code ?? '------'}
+                      <div className="mt-3 ml-11 flex items-start gap-2">
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-xs font-medium text-foreground">Invite Code</span>
+                          <span className="text-xs text-muted-foreground">Share with athletes to join this group</span>
+                        </div>
+                        <span className="font-mono text-sm font-bold tracking-[0.2em] text-foreground mt-0.5">
+                          {team.invite_code != null ? String(team.invite_code) : '—'}
                         </span>
-                        {team.invite_code && (
+                        {team.invite_code != null && (
                           <Button
                             size="sm"
                             variant="outline"
-                            className="h-6 px-2 text-xs gap-1"
+                            className="h-6 px-2 text-xs gap-1 mt-0.5"
                             onClick={() => {
-                              navigator.clipboard.writeText(team.invite_code);
-                              toast.success('Invite code copied!');
+                              navigator.clipboard.writeText(String(team.invite_code));
+                              setCopiedId(team.id);
+                              setTimeout(() => setCopiedId(null), 2000);
                             }}
                           >
                             <Copy className="h-3 w-3" />
-                            Copy
+                            {copiedId === team.id ? 'Copied!' : 'Copy Code'}
                           </Button>
                         )}
                       </div>

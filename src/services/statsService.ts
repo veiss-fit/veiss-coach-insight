@@ -15,15 +15,26 @@ export interface DashboardStats {
  * Calculate dashboard statistics for a coach's team(s)
  */
 export const getCoachDashboardStats = async (
-  teamIds: string[] | null
+  teamIds: string[]
 ): Promise<DashboardStats> => {
-  try {
-    // Get players scoped to the coach's groups
-    const playersQuery = teamIds && teamIds.length > 0
-      ? supabase.from('players').select('id, full_name, user_id').in('team_id', teamIds)
-      : supabase.from('players').select('id, full_name, user_id');
+  // Coach with no groups sees zeros — never leak other coaches' data
+  if (!teamIds || teamIds.length === 0) {
+    return {
+      totalSessions: 0,
+      activeAthletes: 0,
+      avgAttendance: 0,
+      totalTeams: 0,
+      avgTeamLoad: 0,
+      topPerformer: 'N/A',
+      lowestAttendance: 0,
+    };
+  }
 
-    const { data: players, error: playersError } = await playersQuery;
+  try {
+    const { data: players, error: playersError } = await supabase
+      .from('players')
+      .select('id, full_name, user_id')
+      .in('team_id', teamIds);
 
     if (playersError) {
       console.error('Error fetching players:', playersError);
@@ -33,14 +44,11 @@ export const getCoachDashboardStats = async (
     const activeAthletes = players?.length || 0;
 
     if (!players || players.length === 0) {
-      const { count: teamCount } = await supabase
-        .from('teams')
-        .select('*', { count: 'exact', head: true });
       return {
         totalSessions: 0,
         activeAthletes: 0,
         avgAttendance: 0,
-        totalTeams: teamCount || 0,
+        totalTeams: teamIds.length,
         avgTeamLoad: 0,
         topPerformer: 'N/A',
         lowestAttendance: 0,
@@ -118,15 +126,11 @@ export const getCoachDashboardStats = async (
       ? Math.min(...attendancePercentages)
       : 0;
 
-    const { count: teamCount } = await supabase
-      .from('teams')
-      .select('*', { count: 'exact', head: true });
-
     return {
       totalSessions,
       activeAthletes,
       avgAttendance,
-      totalTeams: teamCount || 0,
+      totalTeams: teamIds.length,
       avgTeamLoad: avgAttendance, // Team load is essentially attendance
       topPerformer,
       lowestAttendance,
@@ -153,13 +157,12 @@ export const getSessionCount = async (
   startDate: Date,
   endDate: Date
 ): Promise<number> => {
+  if (!teamId) return 0;
   try {
-    // Get players for the team
-    const playersQuery = teamId 
-      ? supabase.from('players').select('user_id').eq('team_id', teamId)
-      : supabase.from('players').select('user_id');
-
-    const { data: players } = await playersQuery;
+    const { data: players } = await supabase
+      .from('players')
+      .select('user_id')
+      .eq('team_id', teamId);
 
     if (!players || players.length === 0) {
       return 0;
@@ -192,17 +195,16 @@ export const getSessionCount = async (
 export const getWeeklyActivity = async (
   teamId: string | null
 ): Promise<{ date: string; sessions: number }[]> => {
+  if (!teamId) return [];
   try {
     const today = new Date();
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-    // Get players for the team
-    const playersQuery = teamId 
-      ? supabase.from('players').select('user_id').eq('team_id', teamId)
-      : supabase.from('players').select('user_id');
-
-    const { data: players } = await playersQuery;
+    const { data: players } = await supabase
+      .from('players')
+      .select('user_id')
+      .eq('team_id', teamId);
 
     if (!players || players.length === 0) {
       return [];
@@ -248,13 +250,12 @@ export const getTeamPerformanceSummary = async (
   totalExercises: number;
   improvementRate: number;
 }> => {
+  if (!teamId) return { avgVelocity: 0, totalReps: 0, totalExercises: 0, improvementRate: 0 };
   try {
-    // Get players for the team
-    const playersQuery = teamId 
-      ? supabase.from('players').select('user_id').eq('team_id', teamId)
-      : supabase.from('players').select('user_id');
-
-    const { data: players } = await playersQuery;
+    const { data: players } = await supabase
+      .from('players')
+      .select('user_id')
+      .eq('team_id', teamId);
 
     if (!players || players.length === 0) {
       return { avgVelocity: 0, totalReps: 0, totalExercises: 0, improvementRate: 0 };

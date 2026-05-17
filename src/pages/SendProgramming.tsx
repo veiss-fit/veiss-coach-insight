@@ -279,16 +279,22 @@ const SendProgramming = () => {
     if (!user?.id) return
     try {
       setLoading(true)
-      const [players, teamsResult] = await Promise.all([
+      const { data: coachRow } = await (supabase as any)
+        .from('coaches')
+        .select('id')
+        .eq('user_id', user.id)
+        .single() as { data: { id: string } | null }
+
+      const groupQuery = coachRow?.id
+        ? (supabase as any).from('groups').select('id, name').eq('coach_id', coachRow.id).order('name', { ascending: true })
+        : supabase.from('groups').select('id, name').order('name', { ascending: true })
+
+      const [players, groupsResult] = await Promise.all([
         getPlayersWithStatsByCoach(user.id),
-        supabase
-          .from('teams')
-          .select('id, name')
-          .or(`coach_user_id.eq.${user.id},coach_user_id.is.null`)
-          .order('name', { ascending: true }),
+        groupQuery,
       ])
       setAthletes(players)
-      setGroupsList(teamsResult.data || [])
+      setGroupsList(groupsResult.data || [])
     } catch (err) {
       console.error('Error loading data:', err)
     } finally {

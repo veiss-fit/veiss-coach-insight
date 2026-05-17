@@ -84,7 +84,7 @@ export const getUserProfile = async (userId: string) => {
 
 				try {
 					const coachResult = (await Promise.race([
-						supabase.from('coaches').select('*, teams(*)').eq('id', profile.coach_id).single(),
+						supabase.from('coaches').select('*, groups!coaches_team_id_fkey(*)').eq('id', profile.coach_id).single(),
 						coachTimeoutPromise,
 					])) as any
 
@@ -121,87 +121,6 @@ export const getUserProfile = async (userId: string) => {
 		throw error
 	}
 }
-
-// // Helper function to get user profile with role (for coaches)
-// export const getUserProfile = async (userId: string) => {
-// 	try {
-// 		console.log('🔵 getUserProfile: START - Fetching profile for userId:', userId)
-
-// 		// Test the connection first
-// 		console.log('🔵 getUserProfile: Executing profiles query...')
-// 		const profileQuery = supabase.from('profiles').select('*').eq('id', userId).single()
-
-// 		console.log('🔵 getUserProfile: Query created, awaiting result...')
-// 		const { data: profile, error: profileError } = await profileQuery
-// 		console.log('🟢 getUserProfile: Query completed!', {
-// 			hasData: !!profile,
-// 			hasError: !!profileError,
-// 		})
-
-// 		if (profileError) {
-// 			console.error('🔴 getUserProfile: Error getting user profile:', profileError)
-// 			throw profileError
-// 		}
-
-// 		if (!profile) {
-// 			console.warn('⚠️ getUserProfile: No profile found for userId:', userId)
-// 			return null
-// 		}
-
-// 		console.log('✅ getUserProfile: Profile found:', {
-// 			id: (profile as any).id,
-// 			role: (profile as any).role,
-// 			coach_id: (profile as any).coach_id,
-// 		})
-
-// 		// If role is coach, get coach data
-// 		if (profile.role === 'coach') {
-// 			if (profile.coach_id) {
-// 				console.log('🔵 getUserProfile: Fetching coach data for coach_id:', profile.coach_id)
-
-// 				try {
-// 					const { data: coach, error: coachError } = await supabase
-// 						.from('coaches')
-// 						.select('*, teams(*)')
-// 						.eq('id', profile.coach_id)
-// 						.single()
-
-// 					console.log('🟢 getUserProfile: Coach query completed', {
-// 						hasCoach: !!coach,
-// 						hasError: !!coachError,
-// 					})
-
-// 					if (coachError) {
-// 						console.error('🔴 getUserProfile: Error getting coach data:', coachError)
-// 						// Don't throw - return profile without coach data
-// 					} else if (coach) {
-// 						console.log('✅ getUserProfile: Coach data loaded:', {
-// 							id: coach.id,
-// 							team_id: coach.team_id,
-// 						})
-// 						profile.coach = coach
-// 					} else {
-// 						console.warn(
-// 							'⚠️ getUserProfile: No coach record found for coach_id:',
-// 							profile.coach_id
-// 						)
-// 					}
-// 				} catch (coachError) {
-// 					console.error('🔴 getUserProfile: Exception fetching coach data:', coachError)
-// 					// Continue without coach data - don't fail the whole profile load
-// 				}
-// 			} else {
-// 				console.warn('⚠️ getUserProfile: Profile has coach role but no coach_id set')
-// 			}
-// 		}
-
-// 		console.log('✅ getUserProfile: COMPLETE - Returning profile')
-// 		return profile
-// 	} catch (error) {
-// 		console.error('🔴 getUserProfile: EXCEPTION:', error)
-// 		throw error
-// 	}
-// }
 
 // Helper function to sign out
 export const signOut = async () => {

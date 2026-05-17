@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { Database } from '@/types/database';
+import { getCoachTeamIds } from '@/services/playersService';
 
 type Message = Database['public']['Tables']['messages']['Row'];
 type MessageInsert = Database['public']['Tables']['messages']['Insert'];
@@ -276,21 +277,35 @@ export const getCoachMessageStats = async (
 };
 
 /**
- * Get aggregated message history for the History page.
- * Groups individual message rows into single "Announcement Events".
+ * Get aggregated message history for the History page, strictly scoped to the coach's own groups.
+ * Only returns messages where:
+ *  - sender_id = this coach's user ID
+ *  - receiver_id = one of this coach's athletes' user IDs
  */
-export const getCoachMessageHistory = async (userId: string) => {
+export const getCoachMessageHistory = async (coachUserId: string) => {
   try {
+    const teamIds = await getCoachTeamIds(coachUserId);
+    if (teamIds.length === 0) return [];
+
+    const { data: scopedPlayers } = await (supabase as any)
+      .from('players')
+      .select('user_id')
+      .in('team_id', teamIds) as { data: Array<{ user_id: string | null }> | null };
+
+    const playerUserIds = (scopedPlayers?.map(p => p.user_id).filter(Boolean) ?? []) as string[];
+    if (playerUserIds.length === 0) return [];
+
     const { data, error } = await supabase
       .from('messages')
       .select('*')
-      .eq('sender_id', userId)
+      .eq('sender_id', coachUserId)
+      .in('receiver_id', playerUserIds)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
 
     const groupedMessages: any[] = [];
-    
+
     data?.forEach((msg) => {
       const msgTime = new Date(msg.created_at).getTime();
       

@@ -38,30 +38,33 @@ export interface Database {
           coach_id?: string | null;
         };
       };
-      teams: {
+      groups: {
         Row: {
           id: string;
           name: string;
           sport: string;
           created_at: string;
-          invite_code: string | null;
+          invite_code: number | null;
           coach_user_id: string | null;
+          coach_id: string | null;
         };
         Insert: {
           id?: string;
           name: string;
           sport: string;
           created_at?: string;
-          invite_code?: string | null;
+          invite_code?: number | null;
           coach_user_id?: string | null;
+          coach_id?: string | null;
         };
         Update: {
           id?: string;
           name?: string;
           sport?: string;
           created_at?: string;
-          invite_code?: string | null;
+          invite_code?: number | null;
           coach_user_id?: string | null;
+          coach_id?: string | null;
         };
       };
       coaches: {
@@ -204,6 +207,7 @@ export interface Database {
           // Phase 22 columns — exist in Supabase but were absent from generated types
           rom_mm: number | null;
           concentric_duration_s: number | null;
+          eccentric_duration_s: number | null;
         };
         Insert: {
           id?: string;
@@ -218,6 +222,7 @@ export interface Database {
           created_at?: string;
           rom_mm?: number | null;
           concentric_duration_s?: number | null;
+          eccentric_duration_s?: number | null;
         };
         Update: {
           id?: string;
@@ -232,6 +237,7 @@ export interface Database {
           created_at?: string;
           rom_mm?: number | null;
           concentric_duration_s?: number | null;
+          eccentric_duration_s?: number | null;
         };
       };
       workout_plans: {
@@ -245,6 +251,7 @@ export interface Database {
           exercises: Json; // JSONB array of exercises
           notes: string | null;
           is_completed: boolean;
+          is_template: boolean; // true = saved template, false = sent to player
           completed_at: string | null;
           created_at: string;
           updated_at: string;
@@ -259,6 +266,7 @@ export interface Database {
           exercises: Json; // JSONB array
           notes?: string | null;
           is_completed?: boolean;
+          is_template?: boolean;
           completed_at?: string | null;
           created_at?: string;
           updated_at?: string;
@@ -273,6 +281,7 @@ export interface Database {
           exercises?: Json;
           notes?: string | null;
           is_completed?: boolean;
+          is_template?: boolean;
           completed_at?: string | null;
           created_at?: string;
           updated_at?: string;

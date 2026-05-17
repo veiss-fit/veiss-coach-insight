@@ -33,22 +33,20 @@ export const FilterSidebar = ({
   const loadTeams = async () => {
     if (!user?.id) return;
     try {
-      let { data, error } = await supabase
-        .from('teams')
-        .select('id, name')
-        .or(`coach_user_id.eq.${user.id},coach_user_id.is.null`)
-        .order('name', { ascending: true });
+      const { data: coachRow } = await (supabase as any)
+        .from('coaches')
+        .select('id')
+        .eq('user_id', user.id)
+        .single() as { data: { id: string } | null };
 
-      if (error || !data) {
-        const fallback = await supabase
-          .from('teams')
-          .select('id, name')
-          .order('name', { ascending: true });
-        data = fallback.data;
-      }
+      const query = coachRow?.id
+        ? (supabase as any).from('groups').select('id, name').eq('coach_id', coachRow.id).order('name', { ascending: true })
+        : supabase.from('groups').select('id, name').order('name', { ascending: true });
+
+      const { data } = await query;
       setTeamsList(data || []);
     } catch (error) {
-      console.error('Error loading teams:', error);
+      console.error('Error loading groups:', error);
       setTeamsList([]);
     }
   };

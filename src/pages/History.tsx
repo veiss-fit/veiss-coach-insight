@@ -14,24 +14,25 @@ import { getCoachMessageHistory } from "@/services/messagesService";
 import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 export default function History() {
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
   const navigate = useNavigate(); // 3. Initialize hook
   const [loading, setLoading] = useState(true);
   const [workouts, setWorkouts] = useState<any[]>([]);
   const [announcements, setAnnouncements] = useState<any[]>([]);
 
   useEffect(() => {
-    if (profile) {
+    if (user?.id) {
       loadHistory();
     }
-  }, [profile]);
+  }, [user?.id]);
 
   const loadHistory = async () => {
+    if (!user?.id) return;
     setLoading(true);
     try {
       const [workoutsData, messagesData] = await Promise.all([
-        getCoachWorkoutHistory(profile?.coach?.id || profile?.id),
-        getCoachMessageHistory(profile?.id)
+        getCoachWorkoutHistory(user.id),
+        getCoachMessageHistory(user.id),
       ]);
       
       setWorkouts(workoutsData);
@@ -86,7 +87,7 @@ export default function History() {
                   {loading ? (
                     <div className="text-center py-10 text-muted-foreground">Loading history...</div>
                   ) : workouts.length === 0 ? (
-                    <div className="text-center py-10 text-muted-foreground">No workouts sent yet.</div>
+                    <div className="text-center py-10 text-muted-foreground">No communication history yet. Create a group and add athletes to get started.</div>
                   ) : (
                     <div className="space-y-4">
                       {workouts.map((batch) => (
@@ -140,7 +141,7 @@ export default function History() {
                   {loading ? (
                     <div className="text-center py-10 text-muted-foreground">Loading history...</div>
                   ) : announcements.length === 0 ? (
-                    <div className="text-center py-10 text-muted-foreground">No announcements sent yet.</div>
+                    <div className="text-center py-10 text-muted-foreground">No communication history yet. Create a group and add athletes to get started.</div>
                   ) : (
                     <div className="space-y-4">
                       {announcements.map((msg) => (

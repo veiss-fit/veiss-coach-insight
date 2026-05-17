@@ -49,7 +49,7 @@ interface WorkoutExercise {
 }
 
 export const WorkoutBuilder = ({ open, onClose }: WorkoutBuilderProps) => {
-    const { profile } = useAuth()
+    const { profile, user } = useAuth()
     const { templates } = useTemplates()
 
     const [workoutName, setWorkoutName] = useState('')
@@ -73,12 +73,22 @@ export const WorkoutBuilder = ({ open, onClose }: WorkoutBuilderProps) => {
     const loadData = async () => {
         try {
             setLoading(true)
-            const [players, teamsResult] = await Promise.all([
-                getAllPlayersWithStats(),
-                supabase.from('teams').select('id, name').order('name', { ascending: true }),
+            const { data: coachRow } = await (supabase as any)
+                .from('coaches')
+                .select('id')
+                .eq('user_id', user?.id)
+                .single() as { data: { id: string } | null }
+
+            const groupQuery = coachRow?.id
+                ? (supabase as any).from('groups').select('id, name').eq('coach_id', coachRow.id).order('name', { ascending: true })
+                : supabase.from('groups').select('id, name').order('name', { ascending: true })
+
+            const [players, groupsResult] = await Promise.all([
+                user?.id ? getPlayersWithStatsByCoach(user.id) : getAllPlayersWithStats(),
+                groupQuery,
             ])
             setAthletes(players)
-            setGroupsList(teamsResult.data || [])
+            setGroupsList(groupsResult.data || [])
         } catch (error) {
             console.error('Error loading data:', error)
         } finally {

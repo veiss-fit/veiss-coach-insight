@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { Database } from '@/types/database';
+import { getCoachTeamIds } from '@/services/playersService';
 
 type WorkoutPlan = Database['public']['Tables']['workout_plans']['Row'];
 type WorkoutPlanInsert = Database['public']['Tables']['workout_plans']['Insert'];
@@ -55,12 +56,13 @@ export const sendWorkoutPlan = async (
     const workoutPlans = playerIds.map((playerId) => ({
       player_id: playerId,
       coach_id: coachId || null,
-      date: dateStr, 
-      title: planData.workoutName, 
-      description: planData.notes || null, 
-      exercises: exercisesArray, 
-      notes: planData.notes || null, 
+      date: dateStr,
+      title: planData.workoutName,
+      description: planData.notes || null,
+      exercises: exercisesArray,
+      notes: planData.notes || null,
       is_completed: false,
+      is_template: false,
     }));
 
     console.log('Inserting workout plans:', workoutPlans);
@@ -119,6 +121,7 @@ export const getCoachWorkoutPlans = async (
       .from('workout_plans')
       .select('*, players(full_name)')
       .eq('coach_id', coachId)
+      .eq('is_template', false)
       .order('date', { ascending: false });
 
     if (error) {
@@ -249,20 +252,31 @@ export const getWorkoutPlanById = async (planId: string): Promise<WorkoutPlan | 
 };
 
 /**
- * Get aggregated workout history for the History page
- * Groups individual sends into batches based on time and title
+ * Get aggregated workout history for the History page, strictly scoped to the coach's own groups.
+ * Accepts the coach's auth user ID and resolves player membership internally.
  */
-export const getCoachWorkoutHistory = async (coachId: string) => {
+export const getCoachWorkoutHistory = async (coachUserId: string) => {
   try {
+    const teamIds = await getCoachTeamIds(coachUserId);
+    if (teamIds.length === 0) return [];
+
+    const { data: scopedPlayers } = await (supabase as any)
+      .from('players')
+      .select('id')
+      .in('team_id', teamIds) as { data: Array<{ id: string }> | null };
+
+    const playerIds = scopedPlayers?.map(p => p.id) ?? [];
+    if (playerIds.length === 0) return [];
+
     const { data, error } = await supabase
       .from('workout_plans')
       .select('*, players(full_name)')
-      .eq('coach_id', coachId)
+      .in('player_id', playerIds)
+      .eq('is_template', false)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
 
-    // FIX: Explicitly cast data to prevent 'never' errors
     const rawPlans = (data as any[]) || [];
 
     const groupedHistory: any[] = [];

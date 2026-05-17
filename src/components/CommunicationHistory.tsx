@@ -23,23 +23,24 @@ interface CommunicationHistoryProps {
 }
 
 export const CommunicationHistory = ({ open, onClose }: CommunicationHistoryProps) => {
-  const { profile } = useAuth();
+  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [workouts, setWorkouts] = useState<any[]>([]);
   const [announcements, setAnnouncements] = useState<any[]>([]);
 
   useEffect(() => {
-    if (open && profile) {
+    if (open && user?.id) {
       loadHistory();
     }
-  }, [open, profile]);
+  }, [open, user?.id]);
 
   const loadHistory = async () => {
+    if (!user?.id) return;
     setLoading(true);
     try {
       const [workoutsData, messagesData] = await Promise.all([
-        getCoachWorkoutHistory(profile?.coach?.id || profile?.id),
-        getCoachMessageHistory(profile?.id),
+        getCoachWorkoutHistory(user.id),
+        getCoachMessageHistory(user.id),
       ]);
       setWorkouts(workoutsData);
       setAnnouncements(messagesData);
@@ -88,7 +89,7 @@ export const CommunicationHistory = ({ open, onClose }: CommunicationHistoryProp
                     {loading ? (
                       <p className="text-center py-10 text-muted-foreground text-sm">Loading history...</p>
                     ) : workouts.length === 0 ? (
-                      <p className="text-center py-10 text-muted-foreground text-sm">No workouts sent yet.</p>
+                      <p className="text-center py-10 text-muted-foreground text-sm">No communication history yet. Create a group and add athletes to get started.</p>
                     ) : (
                       <div className="space-y-3">
                         {workouts.map((batch) => (
@@ -142,7 +143,7 @@ export const CommunicationHistory = ({ open, onClose }: CommunicationHistoryProp
                     {loading ? (
                       <p className="text-center py-10 text-muted-foreground text-sm">Loading history...</p>
                     ) : announcements.length === 0 ? (
-                      <p className="text-center py-10 text-muted-foreground text-sm">No announcements sent yet.</p>
+                      <p className="text-center py-10 text-muted-foreground text-sm">No communication history yet. Create a group and add athletes to get started.</p>
                     ) : (
                       <div className="space-y-3">
                         {announcements.map((msg) => (

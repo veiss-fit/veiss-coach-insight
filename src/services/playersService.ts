@@ -3,7 +3,7 @@ import { getAttendanceSummary, WorkoutPlanLike, WorkoutSessionLike } from '@/lib
 import { Database } from '@/types/database';
 
 type Player = Database['public']['Tables']['players']['Row'];
-type Team = Database['public']['Tables']['teams']['Row'];
+type Team = Database['public']['Tables']['groups']['Row'];
 type Session = Database['public']['Tables']['sessions']['Row'];
 type Rep = Database['public']['Tables']['reps']['Row'];
 type WorkoutPlan = Database['public']['Tables']['workout_plans']['Row'];
@@ -33,10 +33,10 @@ export const updateTeam = async (
   updates: { name?: string; sport?: string }
 ): Promise<boolean> => {
   try {
-    const { error } = await supabase
-      .from('teams')
+    const { error } = await (supabase as any)
+      .from('groups')
       .update(updates)
-      .eq('id', teamId);
+      .eq('id', teamId) as { error: any };
 
     if (error) throw error;
     return true;
@@ -53,7 +53,7 @@ export const updateTeam = async (
 export const deleteTeam = async (teamId: string): Promise<boolean> => {
   try {
     const { error } = await supabase
-      .from('teams')
+      .from('groups')
       .delete()
       .eq('id', teamId);
 
@@ -71,10 +71,10 @@ export const deleteTeam = async (teamId: string): Promise<boolean> => {
  */
 export const updateSportName = async (oldName: string, newName: string): Promise<boolean> => {
   try {
-    const { error } = await supabase
-      .from('teams')
+    const { error } = await (supabase as any)
+      .from('groups')
       .update({ sport: newName })
-      .eq('sport', oldName);
+      .eq('sport', oldName) as { error: any };
 
     if (error) throw error;
     return true;
@@ -84,19 +84,32 @@ export const updateSportName = async (oldName: string, newName: string): Promise
   }
 };
 /**
- * Return the team IDs owned by a given coach (auth user ID).
+ * Resolve the coaches.id (DB primary key) for a given auth user ID.
+ * Returns null if no coach record exists yet.
+ */
+export const getCoachId = async (coachUserId: string): Promise<string | null> => {
+  const { data } = await (supabase as any)
+    .from('coaches')
+    .select('id')
+    .eq('user_id', coachUserId)
+    .single() as { data: { id: string } | null };
+  return data?.id ?? null;
+};
+
+/**
+ * Return the group IDs owned by a given coach (auth user ID).
+ * Returns empty array if coach has no record or no groups — never leaks other coaches' players.
  */
 export const getCoachTeamIds = async (coachUserId: string): Promise<string[]> => {
-  const { data, error } = await supabase
-    .from('teams')
+  const coachId = await getCoachId(coachUserId);
+  if (!coachId) return []; // No coach record = no groups = no players
+
+  const { data: groups } = await (supabase as any)
+    .from('groups')
     .select('id')
-    .or(`coach_user_id.eq.${coachUserId},coach_user_id.is.null`);
-  if (error || !data) {
-    // Column not yet migrated — fall back to all teams
-    const { data: all } = await supabase.from('teams').select('id');
-    return all?.map(t => t.id) ?? [];
-  }
-  return data.map(t => t.id);
+    .eq('coach_id', coachId);
+
+  return groups?.map((g: { id: string }) => g.id) ?? [];
 };
 
 /**
@@ -116,7 +129,7 @@ export const getAllPlayersWithStats = async (teamIds?: string[]): Promise<Player
   if (teamIds !== undefined && teamIds.length === 0) return [];
 
   try {
-    let query = supabase.from('players').select('*, teams(*)');
+    let query = (supabase as any).from('players').select('*, groups!players_team_id_fkey(*)');
     if (teamIds && teamIds.length > 0) {
       query = query.in('team_id', teamIds);
     }
@@ -126,14 +139,14 @@ export const getAllPlayersWithStats = async (teamIds?: string[]): Promise<Player
     if (!players || players.length === 0) return [];
 
     const playersWithStats = await Promise.all(
-      players.map(async (player) => {
+      players.map(async (player: any) => {
         const stats = await calculatePlayerStats(player.id);
         return {
           ...player,
           name: player.full_name,
-          sport: player.teams?.sport || '',
-          group: player.teams?.name || '',
-          team: player.teams,
+          sport: player.groups?.sport || '',
+          group: player.groups?.name || '',
+          team: player.groups,
           ...stats,
         } as PlayerWithStats;
       })
@@ -151,9 +164,9 @@ export const getAllPlayersWithStats = async (teamIds?: string[]): Promise<Player
  */
 export const getPlayersByTeamIds = async (teamIds: string[]): Promise<PlayerWithStats[]> => {
   try {
-    const { data: players, error } = await supabase
+    const { data: players, error } = await (supabase as any)
       .from('players')
-      .select('*, teams(*)')
+      .select('*, groups!players_team_id_fkey(*)')
       .in('team_id', teamIds)
       .order('full_name', { ascending: true });
 
@@ -161,14 +174,14 @@ export const getPlayersByTeamIds = async (teamIds: string[]): Promise<PlayerWith
     if (!players || players.length === 0) return [];
 
     const playersWithStats = await Promise.all(
-      players.map(async (player) => {
+      players.map(async (player: any) => {
         const stats = await calculatePlayerStats(player.id);
         return {
           ...player,
           name: player.full_name,
-          sport: player.teams?.sport || '',
-          group: player.teams?.name || '',
-          team: player.teams,
+          sport: player.groups?.sport || '',
+          group: player.groups?.name || '',
+          team: player.groups,
           ...stats,
         } as PlayerWithStats;
       })
@@ -193,11 +206,11 @@ export const getPlayersByTeamId = async (teamId: string): Promise<PlayerWithStat
  * Calculate player statistics from their workout data
  */export const calculatePlayerStats = async (playerId: string) => {
   try {
-    const { data: player, error: playerError } = await supabase
+    const { data: player, error: playerError } = await (supabase as any)
       .from('players')
       .select('user_id')
       .eq('id', playerId)
-      .single();
+      .single() as { data: { user_id: string | null } | null; error: any };
 
     if (playerError || !player) {
       return { avgVelocity: 0, attendance: 0, loadRec: 'New', engagement: 'Moderate' as const, avgROM: 0, avgTempo: 0 };
@@ -237,11 +250,11 @@ export const getPlayersByTeamId = async (teamId: string): Promise<PlayerWithStat
       const sessionIds = sessions.map(s => s.id);
       
       // Pull ALL Phase 22 metrics
-      const { data: reps } = await supabase
+      const { data: reps } = await (supabase as any)
         .from('reps')
         .select('average_rep_speed, rom_mm, concentric_duration_s, eccentric_duration_s')
         .in('session_id', sessionIds)
-        .not('average_rep_speed', 'is', null);
+        .not('average_rep_speed', 'is', null) as { data: Array<{ average_rep_speed: number | null; rom_mm: number | null; concentric_duration_s: number | null }> | null };
 
       if (reps && reps.length > 0) {
         const totalV = reps.reduce((sum, r) => sum + (Number(r.average_rep_speed) || 0), 0);
@@ -326,10 +339,10 @@ export const assignPlayerToTeam = async (
   teamId: string | null
 ): Promise<boolean> => {
   try {
-    const { error } = await supabase
+    const { error } = await (supabase as any)
       .from('players')
       .update({ team_id: teamId })
-      .eq('id', playerId);
+      .eq('id', playerId) as { error: any };
 
     if (error) {
       console.error('Error assigning player to team:', error);
@@ -353,10 +366,10 @@ export const getUnassignedUsers = async (): Promise<Array<{
 }>> => {
   try {
     // Get all profiles
-    const { data: profiles, error: profilesError } = await supabase
+    const { data: profiles, error: profilesError } = await (supabase as any)
       .from('profiles')
       .select('id, full_name, player_id')
-      .eq('role', 'player');
+      .eq('role', 'player') as { data: Array<{ id: string; full_name: string | null; player_id: string | null }> | null; error: any };
 
     if (profilesError) {
       console.error('Error fetching profiles:', profilesError);
@@ -386,15 +399,15 @@ export const getAllPlayersForAssignment = async (teamIds?: string[]): Promise<Ar
   team_id: string | null;
   current_team_name?: string;
 }>> => {
-  try {
-    let query = supabase
-      .from('players')
-      .select('id, full_name, team_id, teams(name)')
-      .order('full_name', { ascending: true });
+  // Never return players outside this coach's groups
+  if (!teamIds || teamIds.length === 0) return [];
 
-    if (teamIds && teamIds.length > 0) {
-      query = query.in('team_id', teamIds);
-    }
+  try {
+    const query = (supabase as any)
+      .from('players')
+      .select('id, full_name, team_id, groups!players_team_id_fkey(name)')
+      .in('team_id', teamIds)
+      .order('full_name', { ascending: true });
 
     const { data: players, error } = await query;
 
@@ -403,11 +416,11 @@ export const getAllPlayersForAssignment = async (teamIds?: string[]): Promise<Ar
       throw error;
     }
 
-    return players?.map(p => ({
-      id: p.id,
-      full_name: p.full_name,
-      team_id: p.team_id,
-      current_team_name: p.teams?.name || null,
+    return (players as any[])?.map(p => ({
+      id: p.id as string,
+      full_name: p.full_name as string,
+      team_id: p.team_id as string | null,
+      current_team_name: (p.groups?.name as string) || null,
     })) || [];
   } catch (error) {
     console.error('Error in getAllPlayersForAssignment:', error);
@@ -420,13 +433,13 @@ export const getAllPlayersForAssignment = async (teamIds?: string[]): Promise<Ar
  */
 export const getPlayerById = async (playerId: string): Promise<PlayerWithStats | null> => {
   try {
-    const { data: player, error } = await supabase
+    const { data: player, error } = await (supabase as any)
       .from('players')
-      .select('*, teams(*)')
+      .select('*, groups!players_team_id_fkey(*)')
       .eq('id', playerId)
       .single();
 
-    if (error) {
+    if (error || !player) {
       console.error('Error fetching player:', error);
       return null;
     }
@@ -436,9 +449,9 @@ export const getPlayerById = async (playerId: string): Promise<PlayerWithStats |
     return {
       ...player,
       name: player.full_name,
-      sport: player.teams?.sport || 'Unknown',
-      group: 'General',
-      team: player.teams,
+      sport: player.groups?.sport || 'Unknown',
+      group: player.groups?.name || 'General',
+      team: player.groups,
       ...stats,
     } as PlayerWithStats;
   } catch (error) {
@@ -452,10 +465,10 @@ export const getPlayerById = async (playerId: string): Promise<PlayerWithStats |
  */
 export const getSportsList = async (): Promise<string[]> => {
   try {
-    const { data: teams, error } = await supabase
-      .from('teams')
+    const { data: teams, error } = await (supabase as any)
+      .from('groups')
       .select('sport')
-      .order('sport', { ascending: true });
+      .order('sport', { ascending: true }) as { data: Array<{ sport: string }> | null; error: any };
 
     if (error) {
       console.error('Error fetching sports:', error);
