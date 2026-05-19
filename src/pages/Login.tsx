@@ -38,7 +38,7 @@ const Login = () => {
     try {
       const result = await login(email, password);
       if (result.success) {
-        toast.success("Welcome back, Coach!");
+        toast.success("Welcome back!");
         navigate("/");
       } else {
         toast.error(result.error || "Invalid credentials. Please try again.");

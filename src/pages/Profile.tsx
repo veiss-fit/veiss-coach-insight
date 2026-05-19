@@ -87,15 +87,33 @@ const Profile = () => {
 
   // ── Profile save ──────────────────────────────────────────────────────────
   const handleSaveChanges = async () => {
+    const name = formData.fullName.trim();
+    if (!name) { toast.error("Name cannot be empty"); return; }
+
     try {
-      const { error } = await supabase
+      // Update profiles table (drives AuthContext + ProfileMenu)
+      const { error: profileError } = await supabase
         .from('profiles')
-        .update({ full_name: formData.fullName } as any)
+        .update({ full_name: name } as any)
         .eq('id', user?.id);
-      if (error) throw error;
-      toast.success("Profile updated successfully");
-      setIsEditing(false);
-    } catch {
+      if (profileError) {
+        console.error('profiles update failed:', profileError);
+        throw profileError;
+      }
+
+      // Keep coaches.full_name in sync — non-fatal if RLS blocks it
+      const { error: coachError } = await (supabase as any)
+        .from('coaches')
+        .update({ full_name: name })
+        .eq('user_id', user?.id);
+      if (coachError) {
+        console.warn('coaches update failed (non-fatal):', coachError);
+      }
+
+      toast.success("Profile updated — reloading…");
+      setTimeout(() => { window.location.href = '/'; }, 800);
+    } catch (err) {
+      console.error('handleSaveChanges error:', err);
       toast.error("Failed to update profile");
     }
   };

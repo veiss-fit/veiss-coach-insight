@@ -60,18 +60,23 @@ export const getCoachDashboardStats = async (
       new Set(players.flatMap((p) => [p.id, p.user_id].filter(Boolean) as string[]))
     );
 
-    const [{ data: allWorkoutPlans }, { data: allSessions }] = await Promise.all([
-      supabase
-        .from('workout_plans')
-        .select('player_id, date, title, is_completed')
-        .in('player_id', playerIds),
-      sessionOwnerIds.length > 0
-        ? supabase
-            .from('sessions')
-            .select('id, user_id, created_at, name')
-            .in('user_id', sessionOwnerIds)
-        : Promise.resolve({ data: [] as Array<{ id: string; user_id: string; created_at: string; name: string }> }),
-    ]);
+    const { data: allWorkoutPlans } = await supabase
+      .from('workout_plans')
+      .select('player_id, date, title, is_completed')
+      .in('player_id', playerIds);
+
+    // Build an OR filter that catches sessions recorded via user_id OR player_id
+    const orParts = [
+      sessionOwnerIds.length > 0 ? `user_id.in.(${sessionOwnerIds.join(',')})` : null,
+      playerIds.length > 0 ? `player_id.in.(${playerIds.join(',')})` : null,
+    ].filter(Boolean).join(',');
+
+    const { data: allSessions } = orParts
+      ? await (supabase as any)
+          .from('sessions')
+          .select('id, user_id, player_id, created_at, name')
+          .or(orParts) as { data: any[] | null }
+      : { data: [] as any[] };
 
     const plansByPlayerId = new Map<string, Array<{ date: string; title: string; is_completed: boolean }>>();
     (allWorkoutPlans || []).forEach((plan) => {
@@ -90,12 +95,12 @@ export const getCoachDashboardStats = async (
     players.forEach((player) => {
       const ownerIds = new Set([player.id, player.user_id].filter(Boolean) as string[]);
       const playerSessions = (allSessions || [])
-        .filter((session) => ownerIds.has(session.user_id))
-        .map((session) => ({
-          id: session.id,
-          date: session.created_at.slice(0, 10),
-          name: session.name,
-          createdAt: session.created_at,
+        .filter((s: any) => ownerIds.has(s.user_id) || s.player_id === player.id)
+        .map((s: any) => ({
+          id: s.id,
+          date: s.created_at.slice(0, 10),
+          name: s.name,
+          createdAt: s.created_at,
         })) as WorkoutSessionLike[];
       const playerPlans = (plansByPlayerId.get(player.id) || []).map((plan) => ({
         date: plan.date,

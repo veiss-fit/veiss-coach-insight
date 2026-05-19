@@ -134,12 +134,12 @@ const VelocitySlider = ({
       <div className="select-none">
 
         {/* %1RM axis — above bar */}
-        <p className="text-[9px] font-semibold text-muted-foreground mb-0.5">%1RM</p>
+        <p className="text-[11px] font-semibold text-muted-foreground mb-0.5">%1RM</p>
         <div className="relative h-3 mb-1">
           {ZONE_BOUNDARIES.map((b, i) => (
             <span
               key={b.ms}
-              className="absolute top-0 text-[8px] text-muted-foreground leading-none"
+              className="absolute top-0 text-[11px] text-muted-foreground leading-none"
               style={{
                 left: `${(b.ms / VBT_MAX) * 100}%`,
                 transform: i === 0 ? 'none' : i === ZONE_BOUNDARIES.length - 1 ? 'translateX(-100%)' : 'translateX(-50%)',
@@ -182,7 +182,7 @@ const VelocitySlider = ({
           {ZONE_BOUNDARIES.map((b, i) => (
             <span
               key={b.ms}
-              className="absolute top-0 text-[8px] text-muted-foreground leading-none"
+              className="absolute top-0 text-[11px] text-muted-foreground leading-none"
               style={{
                 left: `${(b.ms / VBT_MAX) * 100}%`,
                 transform: i === 0 ? 'none' : i === ZONE_BOUNDARIES.length - 1 ? 'translateX(-100%)' : 'translateX(-50%)',
@@ -192,7 +192,7 @@ const VelocitySlider = ({
             </span>
           ))}
         </div>
-        <p className="text-[9px] font-semibold text-muted-foreground mt-0.5">m/s</p>
+        <p className="text-[11px] font-semibold text-muted-foreground mt-0.5">m/s</p>
 
       </div>
 

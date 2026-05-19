@@ -1,6 +1,5 @@
 import { supabase } from '@/lib/supabase';
 import { Database } from '@/types/database';
-import { getCoachTeamIds } from '@/services/playersService';
 
 type Message = Database['public']['Tables']['messages']['Row'];
 type MessageInsert = Database['public']['Tables']['messages']['Insert'];
@@ -277,60 +276,37 @@ export const getCoachMessageStats = async (
 };
 
 /**
- * Get aggregated message history for the History page, strictly scoped to the coach's own groups.
- * Only returns messages where:
- *  - sender_id = this coach's user ID
- *  - receiver_id = one of this coach's athletes' user IDs
+ * Get aggregated message history for the History page, scoped to messages sent by this coach.
+ * Filters by sender_id = coach's auth user ID — messages are always sent as the coach's user.
  */
-export const getCoachMessageHistory = async (coachUserId: string) => {
+export const getCoachMessageHistory = async (userId: string) => {
   try {
-    const teamIds = await getCoachTeamIds(coachUserId);
-    if (teamIds.length === 0) return [];
-
-    const { data: scopedPlayers } = await (supabase as any)
-      .from('players')
-      .select('user_id')
-      .in('team_id', teamIds) as { data: Array<{ user_id: string | null }> | null };
-
-    const playerUserIds = (scopedPlayers?.map(p => p.user_id).filter(Boolean) ?? []) as string[];
-    if (playerUserIds.length === 0) return [];
-
-    const { data, error } = await supabase
+    const { data: messages } = await supabase
       .from('messages')
       .select('*')
-      .eq('sender_id', coachUserId)
-      .in('receiver_id', playerUserIds)
+      .eq('sender_id', userId)
       .order('created_at', { ascending: false });
 
-    if (error) throw error;
+    if (!messages) return [];
 
-    const groupedMessages: any[] = [];
-
-    data?.forEach((msg) => {
-      const msgTime = new Date(msg.created_at).getTime();
-      
-      // Try to find a batch with same Title (subject) sent within 60 seconds
-      const existingBatch = groupedMessages.find(b => 
-        b.title === msg.subject &&
-        Math.abs(new Date(b.sentAt).getTime() - msgTime) < 60000
-      );
-
-      if (existingBatch) {
-        existingBatch.recipientCount++;
-      } else {
-        groupedMessages.push({
+    // Group by subject + calendar date so bulk announcements appear as one row
+    const batchMap = new Map<string, any>();
+    messages.forEach((msg) => {
+      const key = `${msg.subject}-${msg.created_at?.slice(0, 10)}`;
+      if (!batchMap.has(key)) {
+        batchMap.set(key, {
           id: msg.id,
-          title: msg.subject, // Map subject -> title
-          content: msg.message, // Map message -> content
-          // Since priority isn't in DB, assume normal or derive from content if you added a tag
-          priority: 'normal', 
+          title: msg.subject,
+          content: msg.message,
           sentAt: msg.created_at,
-          recipientCount: 1
+          priority: 'normal',
+          recipientCount: 0,
         });
       }
+      batchMap.get(key).recipientCount++;
     });
 
-    return groupedMessages;
+    return Array.from(batchMap.values());
   } catch (error) {
     console.error('Error fetching message history:', error);
     return [];

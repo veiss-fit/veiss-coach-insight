@@ -1,6 +1,5 @@
 import { supabase } from '@/lib/supabase';
 import { Database } from '@/types/database';
-import { getCoachTeamIds } from '@/services/playersService';
 
 type WorkoutPlan = Database['public']['Tables']['workout_plans']['Row'];
 type WorkoutPlanInsert = Database['public']['Tables']['workout_plans']['Insert'];
@@ -252,62 +251,51 @@ export const getWorkoutPlanById = async (planId: string): Promise<WorkoutPlan | 
 };
 
 /**
- * Get aggregated workout history for the History page, strictly scoped to the coach's own groups.
- * Accepts the coach's auth user ID and resolves player membership internally.
+ * Get aggregated workout history for the History page, scoped to the authenticated coach.
+ * Resolves coaches.id from auth user ID, then fetches sent plans (is_template = false)
+ * for that coach only, grouped into batches by title + send date.
  */
-export const getCoachWorkoutHistory = async (coachUserId: string) => {
+export const getCoachWorkoutHistory = async (userId: string) => {
   try {
-    const teamIds = await getCoachTeamIds(coachUserId);
-    if (teamIds.length === 0) return [];
-
-    const { data: scopedPlayers } = await (supabase as any)
-      .from('players')
+    const { data: coach } = await (supabase as any)
+      .from('coaches')
       .select('id')
-      .in('team_id', teamIds) as { data: Array<{ id: string }> | null };
+      .eq('user_id', userId)
+      .single() as { data: { id: string } | null };
 
-    const playerIds = scopedPlayers?.map(p => p.id) ?? [];
-    if (playerIds.length === 0) return [];
+    if (!coach) return [];
 
-    const { data, error } = await supabase
+    const { data: plans } = await supabase
       .from('workout_plans')
       .select('*, players(full_name)')
-      .in('player_id', playerIds)
-      .eq('is_template', false)
+      .eq('coach_id', coach.id as any)
+      .eq('is_template', false as any)
       .order('created_at', { ascending: false });
 
-    if (error) throw error;
+    if (!plans) return [];
 
-    const rawPlans = (data as any[]) || [];
-
-    const groupedHistory: any[] = [];
-    
-    rawPlans.forEach((plan) => {
-      const planTime = new Date(plan.created_at).getTime();
-      
-      const existingBatch = groupedHistory.find(b => 
-        b.workoutName === plan.title && 
-        Math.abs(new Date(b.sentAt).getTime() - planTime) < 60000 
-      );
-
-      const playerName = plan.players?.full_name || 'Unknown Athlete';
-
-      if (existingBatch) {
-        existingBatch.recipients.push(playerName);
-        existingBatch.totalCount++;
-      } else {
-        groupedHistory.push({
+    // Group by workout name + calendar date sent (batches sent same day are one row)
+    const batchMap = new Map<string, any>();
+    (plans as any[]).forEach((plan) => {
+      const key = `${plan.title}-${plan.created_at?.slice(0, 10)}`;
+      if (!batchMap.has(key)) {
+        batchMap.set(key, {
           id: plan.id,
           workoutName: plan.title,
-          scheduledDate: plan.date,
           sentAt: plan.created_at,
-          recipients: [playerName],
-          totalCount: 1,
-          exercises: plan.exercises
+          scheduledDate: plan.date,
+          recipients: [],
+          totalCount: 0,
+          exercises: plan.exercises,
         });
       }
+      const batch = batchMap.get(key);
+      const playerName = (plan as any).players?.full_name;
+      if (playerName) batch.recipients.push(playerName);
+      batch.totalCount++;
     });
 
-    return groupedHistory;
+    return Array.from(batchMap.values());
   } catch (error) {
     console.error('Error fetching workout history:', error);
     return [];
