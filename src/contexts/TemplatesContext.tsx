@@ -7,8 +7,6 @@ export interface WorkoutExercise {
   sets?: number
   reps?: number
   targetVelocity?: number
-  showSetsReps: boolean
-  showVelocity: boolean
 }
 
 export interface WorkoutTemplate {
@@ -38,6 +36,8 @@ const rowToTemplate = (row: any): WorkoutTemplate => ({
   lastModified: new Date(row.updated_at),
 })
 
+const db = supabase as any
+
 export const TemplatesProvider = ({ children }: { children: ReactNode }) => {
   const { user } = useAuth()
   const [templates, setTemplates] = useState<WorkoutTemplate[]>([])
@@ -53,25 +53,23 @@ export const TemplatesProvider = ({ children }: { children: ReactNode }) => {
 
       setLoading(true)
       try {
-        // Step 1: resolve coaches.id from auth user id
-        const { data: coach, error: coachErr } = await supabase
+        const { data: coach, error: coachErr } = await db
           .from('coaches')
           .select('id')
-          .eq('user_id', user.id as any)
-          .single()
+          .eq('user_id', user.id)
+          .single() as { data: { id: string } | null; error: any }
 
         if (coachErr || !coach) {
           setTemplates([])
           return
         }
 
-        // Step 2: fetch this coach's templates only
-        const { data, error } = await supabase
+        const { data, error } = await db
           .from('workout_plans')
           .select('*')
-          .eq('coach_id', coach.id as any)
-          .eq('is_template', true as any)
-          .order('created_at', { ascending: false })
+          .eq('coach_id', coach.id)
+          .eq('is_template', true)
+          .order('created_at', { ascending: false }) as { data: any[] | null; error: any }
 
         if (!error) {
           setTemplates((data ?? []).map(rowToTemplate))
@@ -91,28 +89,28 @@ export const TemplatesProvider = ({ children }: { children: ReactNode }) => {
   ): Promise<WorkoutTemplate | null> => {
     if (!user?.id) return null
 
-    const { data: coach } = await supabase
+    const { data: coach } = await db
       .from('coaches')
       .select('id')
-      .eq('user_id', user.id as any)
-      .single()
+      .eq('user_id', user.id)
+      .single() as { data: { id: string } | null }
 
     if (!coach) return null
 
-    const { data: row, error } = await supabase
+    const { data: row, error } = await db
       .from('workout_plans')
       .insert({
         title: data.name,
         description: data.description || null,
         exercises: data.exercises,
         coach_id: coach.id,
-        player_id: null as any,
-        is_template: true as any,
+        player_id: null,
+        is_template: true,
         is_completed: false,
         date: new Date().toISOString().split('T')[0],
       })
       .select()
-      .single()
+      .single() as { data: any; error: any }
 
     if (error) {
       console.error('Error creating template:', error)
@@ -128,7 +126,7 @@ export const TemplatesProvider = ({ children }: { children: ReactNode }) => {
     id: string,
     data: Omit<WorkoutTemplate, 'id' | 'lastModified'>
   ): Promise<void> => {
-    const { error } = await supabase
+    const { error } = await db
       .from('workout_plans')
       .update({
         title: data.name,
@@ -137,7 +135,7 @@ export const TemplatesProvider = ({ children }: { children: ReactNode }) => {
         updated_at: new Date().toISOString(),
       })
       .eq('id', id)
-      .eq('is_template', true as any)
+      .eq('is_template', true) as { error: any }
 
     if (error) {
       console.error('Error updating template:', error)
@@ -154,11 +152,11 @@ export const TemplatesProvider = ({ children }: { children: ReactNode }) => {
   }
 
   const deleteTemplate = async (id: string): Promise<void> => {
-    const { error } = await supabase
+    const { error } = await db
       .from('workout_plans')
       .delete()
       .eq('id', id)
-      .eq('is_template', true as any)
+      .eq('is_template', true) as { error: any }
 
     if (error) {
       console.error('Error deleting template:', error)
@@ -171,28 +169,28 @@ export const TemplatesProvider = ({ children }: { children: ReactNode }) => {
   const duplicateTemplate = async (template: WorkoutTemplate): Promise<void> => {
     if (!user?.id) return
 
-    const { data: coach } = await supabase
+    const { data: coach } = await db
       .from('coaches')
       .select('id')
-      .eq('user_id', user.id as any)
-      .single()
+      .eq('user_id', user.id)
+      .single() as { data: { id: string } | null }
 
     if (!coach) return
 
-    const { data: row, error } = await supabase
+    const { data: row, error } = await db
       .from('workout_plans')
       .insert({
         title: `${template.name} (Copy)`,
         description: template.description || null,
         exercises: template.exercises,
         coach_id: coach.id,
-        player_id: null as any,
-        is_template: true as any,
+        player_id: null,
+        is_template: true,
         is_completed: false,
         date: new Date().toISOString().split('T')[0],
       })
       .select()
-      .single()
+      .single() as { data: any; error: any }
 
     if (error) {
       console.error('Error duplicating template:', error)

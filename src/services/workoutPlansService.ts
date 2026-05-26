@@ -13,10 +13,9 @@ export interface WorkoutExercise {
   name: string;
   sets: number;
   reps: number;
-  weight: number;
-  weightUnit: 'lbs' | 'kg';
-  targetVelocityMin: number;
-  targetVelocityMax: number;
+  weight?: number;
+  weightUnit?: 'lbs' | 'kg';
+  targetVelocity: number;
 }
 
 export interface WorkoutPlanData {
@@ -40,15 +39,13 @@ export const sendWorkoutPlan = async (
       ? scheduledDate.toISOString().split('T')[0] 
       : scheduledDate;
 
-    // Map exercises to match mobile app format
     const exercisesArray = planData.exercises.map(ex => ({
       name: ex.name,
       sets: ex.sets,
       reps: ex.reps,
-      weight: ex.weight,
-      weightUnit: ex.weightUnit,
-      targetVelocityMin: ex.targetVelocityMin,
-      targetVelocityMax: ex.targetVelocityMax,
+      weight: ex.weight ?? 0,
+      weightUnit: ex.weightUnit ?? 'lbs',
+      targetVelocity: ex.targetVelocity,
     }));
 
     // Create workout plan records for each player

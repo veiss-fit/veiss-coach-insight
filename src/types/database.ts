@@ -20,6 +20,7 @@ export interface Database {
           created_at: string;
           player_id: string | null;
           coach_id: string | null;
+          job_title: string | null;
         };
         Insert: {
           id: string;
@@ -28,6 +29,7 @@ export interface Database {
           created_at?: string;
           player_id?: string | null;
           coach_id?: string | null;
+          job_title?: string | null;
         };
         Update: {
           id?: string;
@@ -36,6 +38,7 @@ export interface Database {
           created_at?: string;
           player_id?: string | null;
           coach_id?: string | null;
+          job_title?: string | null;
         };
       };
       groups: {

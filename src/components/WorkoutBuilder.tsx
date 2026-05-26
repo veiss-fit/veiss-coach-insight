@@ -44,8 +44,7 @@ interface WorkoutExercise {
     reps: number
     weight: number
     weightUnit: 'lbs' | 'kg'
-    targetVelocityMin: number
-    targetVelocityMax: number
+    targetVelocity: number
 }
 
 export const WorkoutBuilder = ({ open, onClose }: WorkoutBuilderProps) => {
@@ -65,6 +64,7 @@ export const WorkoutBuilder = ({ open, onClose }: WorkoutBuilderProps) => {
     const [athletes, setAthletes] = useState<PlayerWithStats[]>([])
     const [groupsList, setGroupsList] = useState<Array<{ id: string; name: string }>>([])
     const [loading, setLoading] = useState(false)
+    const [coachDbId, setCoachDbId] = useState<string | null>(null)
 
     useEffect(() => {
         if (open) loadData()
@@ -78,6 +78,8 @@ export const WorkoutBuilder = ({ open, onClose }: WorkoutBuilderProps) => {
                 .select('id')
                 .eq('user_id', user?.id)
                 .single() as { data: { id: string } | null }
+
+            setCoachDbId(coachRow?.id ?? null)
 
             const groupQuery = coachRow?.id
                 ? (supabase as any).from('groups').select('id, name').eq('coach_id', coachRow.id).order('name', { ascending: true })
@@ -122,8 +124,7 @@ export const WorkoutBuilder = ({ open, onClose }: WorkoutBuilderProps) => {
                     reps: ex.reps ?? 5,
                     weight: 0,
                     weightUnit: 'lbs' as const,
-                    targetVelocityMin: ex.targetVelocity ?? 0,
-                    targetVelocityMax: ex.targetVelocity ?? 0,
+                    targetVelocity: ex.targetVelocity ?? 0,
                 }))
             })
             setExercises(combined)
@@ -138,8 +139,7 @@ export const WorkoutBuilder = ({ open, onClose }: WorkoutBuilderProps) => {
             reps: 5,
             weight: 0,
             weightUnit: 'lbs',
-            targetVelocityMin: 0,
-            targetVelocityMax: 0,
+            targetVelocity: 0,
         }])
     }
 
@@ -196,7 +196,7 @@ export const WorkoutBuilder = ({ open, onClose }: WorkoutBuilderProps) => {
             for (const date of scheduledDates) {
                 const result = await sendWorkoutPlan(
                     selectedAthletes,
-                    profile?.coach?.id || null,
+                    coachDbId,
                     date,
                     planData
                 )
@@ -407,7 +407,7 @@ export const WorkoutBuilder = ({ open, onClose }: WorkoutBuilderProps) => {
                                                                 </Button>
                                                             </div>
                                                         </CardHeader>
-                                                        <CardContent className="pb-3 pt-0">
+                                                        <CardContent className="pb-3 pt-0 space-y-2">
                                                             <div className="grid grid-cols-4 gap-2">
                                                                 <div>
                                                                     <Label className="text-xs">Sets</Label>
@@ -446,6 +446,15 @@ export const WorkoutBuilder = ({ open, onClose }: WorkoutBuilderProps) => {
                                                                         </SelectContent>
                                                                     </Select>
                                                                 </div>
+                                                            </div>
+                                                            <div>
+                                                                <Label className="text-xs">Target Velocity (m/s)</Label>
+                                                                <Input
+                                                                    type="number" step="0.05" min="0" max="1.6"
+                                                                    className="h-8 text-sm"
+                                                                    value={parseFloat(exercise.targetVelocity.toFixed(2))}
+                                                                    onChange={e => updateExercise(index, 'targetVelocity', parseFloat(parseFloat(e.target.value || '0').toFixed(2)))}
+                                                                />
                                                             </div>
                                                         </CardContent>
                                                     </Card>

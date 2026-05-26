@@ -34,14 +34,13 @@ const getInitials = (name: string) => {
 };
 
 const Profile = () => {
-  const { user, profile } = useAuth();
+  const { user, profile, refreshProfile } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [isEditing, setIsEditing] = useState(false);
-
   const [formData, setFormData] = useState({
     fullName: "",
-    jobTitle: ""
+    jobTitle: "",
   });
 
   // Modal states
@@ -76,7 +75,7 @@ const Profile = () => {
     if (profile) {
       setFormData({
         fullName: profile.full_name || "",
-        jobTitle: "Head Coach - Strength & Conditioning"
+        jobTitle: (profile as any).job_title || "",
       });
     }
 
@@ -89,32 +88,34 @@ const Profile = () => {
   const handleSaveChanges = async () => {
     const name = formData.fullName.trim();
     if (!name) { toast.error("Name cannot be empty"); return; }
+    if (!user?.id) { toast.error("Not authenticated"); return; }
 
     try {
-      // Update profiles table (drives AuthContext + ProfileMenu)
-      const { error: profileError } = await supabase
+      const { error } = await supabase
         .from('profiles')
-        .update({ full_name: name } as any)
-        .eq('id', user?.id);
-      if (profileError) {
-        console.error('profiles update failed:', profileError);
-        throw profileError;
-      }
+        .update({
+          full_name: name,
+          job_title: formData.jobTitle.trim() || null,
+        })
+        .eq('id', user.id);
 
-      // Keep coaches.full_name in sync — non-fatal if RLS blocks it
-      const { error: coachError } = await (supabase as any)
+      if (error) throw error;
+
+      // Sync name to coaches table (non-fatal)
+      await (supabase as any)
         .from('coaches')
         .update({ full_name: name })
-        .eq('user_id', user?.id);
-      if (coachError) {
-        console.warn('coaches update failed (non-fatal):', coachError);
-      }
+        .eq('user_id', user.id);
 
-      toast.success("Profile updated — reloading…");
-      setTimeout(() => { window.location.href = '/'; }, 800);
-    } catch (err) {
-      console.error('handleSaveChanges error:', err);
-      toast.error("Failed to update profile");
+      // Refresh AuthContext so TopNav and avatar update immediately
+      await refreshProfile();
+
+      setIsEditing(false);
+      toast.success("Profile updated successfully");
+
+    } catch (err: any) {
+      console.error('Profile update error:', err);
+      toast.error(err?.message || "Failed to update profile");
     }
   };
 
@@ -304,7 +305,12 @@ const Profile = () => {
                   <Mail className="inline mr-2 h-4 w-4" />
                   Email Address
                 </Label>
-                <Input id="email" type="email" defaultValue={user?.email} disabled />
+                <Input
+                  id="email"
+                  value={user?.email ?? ""}
+                  disabled
+                  className="bg-muted text-muted-foreground cursor-not-allowed"
+                />
                 <p className="text-xs text-muted-foreground">Email cannot be changed directly.</p>
               </div>
 

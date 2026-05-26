@@ -77,7 +77,8 @@ const ZONE_BOUNDARIES = [
 const getZone = (v: number) =>
   VELOCITY_ZONES.find(z => v >= z.min && v < z.max) ?? VELOCITY_ZONES[VELOCITY_ZONES.length - 1]
 
-const snap = (v: number) => Math.round(Math.max(0, Math.min(VBT_MAX, v)) / VBT_STEP) * VBT_STEP
+const snap = (v: number) =>
+  parseFloat((Math.round(Math.max(0, Math.min(VBT_MAX, v)) / VBT_STEP) * VBT_STEP).toFixed(2))
 const fmt = (v: number) => v.toFixed(2)
 
 // --- SUB-COMPONENT: Single-handle velocity zone slider ---
@@ -218,6 +219,18 @@ const VelocitySlider = ({
   )
 }
 
+// LocalExercise extends the persisted shape with UI-only toggle flags
+type LocalExercise = WorkoutExercise & {
+  showSetsReps: boolean
+  showVelocity: boolean
+}
+
+const toLocal = (ex: WorkoutExercise): LocalExercise => ({
+  ...ex,
+  showSetsReps: ex.sets != null || ex.reps != null,
+  showVelocity: ex.targetVelocity != null,
+})
+
 // --- SUB-COMPONENT: The Form Editor ---
 const TemplateEditor = ({
   initialData,
@@ -230,7 +243,9 @@ const TemplateEditor = ({
 }) => {
   const [name, setName] = useState(initialData?.name || '')
   const [description, setDescription] = useState(initialData?.description || '')
-  const [exercises, setExercises] = useState<WorkoutExercise[]>(initialData?.exercises || [])
+  const [exercises, setExercises] = useState<LocalExercise[]>(
+    initialData?.exercises.map(toLocal) || []
+  )
   const [openLibraryIdx, setOpenLibraryIdx] = useState<number | null>(null)
 
   const exerciseLibrary = [
@@ -251,7 +266,7 @@ const TemplateEditor = ({
     setExercises(exercises.filter((_, i) => i !== index))
   }
 
-  const updateExercise = (index: number, updates: Partial<WorkoutExercise>) => {
+  const updateExercise = (index: number, updates: Partial<LocalExercise>) => {
     const updated = [...exercises]
     updated[index] = { ...updated[index], ...updates }
     setExercises(updated)
@@ -262,7 +277,9 @@ const TemplateEditor = ({
     if (exercises.length === 0) return toast.error('Add at least one exercise')
     const incomplete = exercises.findIndex(ex => !ex.name.trim())
     if (incomplete !== -1) return toast.error(`Exercise #${incomplete + 1} is missing a name`)
-    onSave({ name, description, exercises })
+    // Strip UI-only flags before persisting
+    const clean = exercises.map(({ showSetsReps, showVelocity, ...ex }) => ex)
+    onSave({ name, description, exercises: clean })
   }
 
   return (

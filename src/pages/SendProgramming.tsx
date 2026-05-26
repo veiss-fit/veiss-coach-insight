@@ -239,8 +239,7 @@ interface WorkoutExercise {
   reps: number
   weight: number
   weightUnit: 'lbs' | 'kg'
-  targetVelocityMin: number
-  targetVelocityMax: number
+  targetVelocity: number
 }
 
 const EXERCISE_LIBRARY = [
@@ -270,6 +269,7 @@ const SendProgramming = () => {
   const [athletes, setAthletes] = useState<PlayerWithStats[]>([])
   const [groupsList, setGroupsList] = useState<Array<{ id: string; name: string }>>([])
   const [loading, setLoading] = useState(false)
+  const [coachDbId, setCoachDbId] = useState<string | null>(null)
 
   useEffect(() => {
     if (user?.id) loadData()
@@ -284,6 +284,8 @@ const SendProgramming = () => {
         .select('id')
         .eq('user_id', user.id)
         .single() as { data: { id: string } | null }
+
+      setCoachDbId(coachRow?.id ?? null)
 
       const groupQuery = coachRow?.id
         ? (supabase as any).from('groups').select('id, name').eq('coach_id', coachRow.id).order('name', { ascending: true })
@@ -325,8 +327,7 @@ const SendProgramming = () => {
           reps: ex.reps ?? 5,
           weight: 0,
           weightUnit: 'lbs' as const,
-          targetVelocityMin: ex.targetVelocity ?? 0,
-          targetVelocityMax: ex.targetVelocity ?? 0,
+          targetVelocity: ex.targetVelocity ?? 0,
         }))
       })
       setExercises(combined)
@@ -337,7 +338,7 @@ const SendProgramming = () => {
   const addExercise = () =>
     setExercises(p => [
       ...p,
-      { name: '', sets: 3, reps: 5, weight: 0, weightUnit: 'lbs', targetVelocityMin: 0, targetVelocityMax: 0 },
+      { name: '', sets: 3, reps: 5, weight: 0, weightUnit: 'lbs', targetVelocity: 0 },
     ])
 
   const removeExercise = (i: number) =>
@@ -385,7 +386,7 @@ const SendProgramming = () => {
       for (const date of selectedDates) {
         const result = await sendWorkoutPlan(
           selectedAthletes,
-          null,
+          coachDbId,
           date,
           planData
         )
@@ -614,7 +615,7 @@ const SendProgramming = () => {
                               </Button>
                             </div>
                           </CardHeader>
-                          <CardContent className="pt-0 pb-4">
+                          <CardContent className="pt-0 pb-4 space-y-2">
                             <div className="grid grid-cols-4 gap-3">
                               {(['Sets', 'Reps', 'Weight'] as const).map(field => (
                                 <div key={field}>
@@ -644,6 +645,15 @@ const SendProgramming = () => {
                                   </SelectContent>
                                 </Select>
                               </div>
+                            </div>
+                            <div>
+                              <Label className="text-xs">Target Velocity (m/s)</Label>
+                              <Input
+                                type="number" step="0.05" min="0" max="1.6"
+                                className="h-9 text-sm mt-1"
+                                value={parseFloat(ex.targetVelocity.toFixed(2))}
+                                onChange={e => updateExercise(i, 'targetVelocity', parseFloat(parseFloat(e.target.value || '0').toFixed(2)))}
+                              />
                             </div>
                           </CardContent>
                         </Card>

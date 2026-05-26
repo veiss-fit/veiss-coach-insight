@@ -28,6 +28,7 @@ interface AuthContextType {
 	signup: (email: string, password: string, fullName: string) => Promise<{ success: boolean; error?: string }>
 	resetPassword: (email: string) => Promise<{ success: boolean; error?: string }>
 	logout: () => Promise<void>
+	refreshProfile: () => Promise<void>
 	loading: boolean
 }
 
@@ -421,6 +422,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 		}
 	}
 
+	const refreshProfile = async () => {
+		const uid = userRef.current?.id
+		if (!uid) return
+		const { data } = await supabase
+			.from('profiles')
+			.select('*')
+			.eq('id', uid)
+			.single()
+		if (data) setProfile(data as CoachProfile)
+	}
+
 	const resetPassword = async (email: string) => {
 		try {
 			const result = await supabaseResetPassword(email)
@@ -434,7 +446,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 	const isAuthenticated = !!user && !!profile && profile.role === 'coach'
 
 	return (
-		<AuthContext.Provider value={{ isAuthenticated, user, profile, login, signup, resetPassword, logout, loading }}>
+		<AuthContext.Provider value={{ isAuthenticated, user, profile, login, signup, resetPassword, logout, refreshProfile, loading }}>
 			{children}
 		</AuthContext.Provider>
 	)
