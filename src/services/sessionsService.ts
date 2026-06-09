@@ -1,8 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { Database } from '@/types/database';
 
-type Session = Database['public']['Tables']['sessions']['Row'];
-type Workout = Database['public']['Tables']['workouts']['Row'];
+type SessionRow = Database['public']['Tables']['sessions']['Row'];
 type Rep = Database['public']['Tables']['reps']['Row'];
 
 export interface RepData {
@@ -48,11 +47,12 @@ export const getPlayerSessions = async (
     const ownerIds = Array.from(new Set([playerId, linkedUserId].filter(Boolean) as string[]));
 
     // Fetch sessions for this player
-    const { data: sessions, error: sessionsError } = await supabase
+    const { data: sessionsRaw, error: sessionsError } = await supabase
       .from('sessions')
       .select('*')
       .in('user_id', ownerIds)
       .order('created_at', { ascending: false });
+    const sessions = sessionsRaw as SessionRow[] | null;
 
     if (sessionsError) {
       console.error('Error fetching sessions:', sessionsError);
@@ -91,20 +91,47 @@ export const getPlayerSessions = async (
 export const getSessionExercises = async (sessionId: string): Promise<ExerciseData[]> => {
   try {
     // 1. Fetch reps with the NEW Phase 22 columns
-    const { data: reps, error: repsError } = await supabase
+    const { data: repsRaw, error: repsError } = await supabase
       .from('reps')
-      .select('*, concentric_duration_s, rom_mm') // Explicitly select new columns
+      .select('*')
       .eq('session_id', sessionId)
       .order('exercise_name', { ascending: true })
       .order('set_number', { ascending: true })
       .order('rep_number', { ascending: true });
+    const reps = repsRaw as Rep[] | null;
 
     if (repsError) {
       console.error('Error fetching reps:', repsError);
       throw repsError;
     }
 
-    if (!reps || reps.length === 0) return [];
+    if (!reps || reps.length === 0) {
+      // No rep data — fall back to workouts table for exercise names only
+      const { data: workoutsRaw } = await supabase
+        .from('workouts')
+        .select('exercise_name, metrics')
+        .eq('session_id', sessionId);
+      type WorkoutRow = { exercise_name: string; metrics: Record<string, unknown> };
+      const workouts = workoutsRaw as WorkoutRow[] | null;
+      if (!workouts || workouts.length === 0) return [];
+      return workouts
+        .filter((w) => w.exercise_name && w.exercise_name.trim().length >= 2)
+        .map((w) => ({
+          id: `${sessionId}-${w.exercise_name}`,
+          name: w.exercise_name,
+          sets: (w.metrics as any)?.totalSets ?? 0,
+          reps: (w.metrics as any)?.totalReps ?? 0,
+          weight: (w.metrics as any)?.averageWeight ?? 0,
+          weightUnit: 'lbs',
+          avgVelocity: 0,
+          avgROM: 0,
+          avgTempo: 0,
+          peakVelocity: 0,
+          targetVelocityMin: 0,
+          targetVelocityMax: 0,
+          repData: [],
+        }));
+    }
 
     // 2. Group reps by exercise — skip artifact names (null, < 2 letters, or known generic labels)
     const ARTIFACT_EXERCISE_NAMES = new Set([
@@ -203,12 +230,13 @@ export const getPlayerPerformanceHistory = async (
     startDate.setDate(startDate.getDate() - days);
 
     // Fetch sessions in the date range
-    const { data: sessions, error: sessionsError } = await supabase
+    const { data: sessionsRaw2, error: sessionsError } = await supabase
       .from('sessions')
       .select('id, created_at')
       .eq('user_id', playerId)
       .gte('created_at', startDate.toISOString())
       .order('created_at', { ascending: true });
+    const sessions = sessionsRaw2 as Pick<SessionRow, 'id' | 'created_at'>[] | null;
 
     if (sessionsError) {
       console.error('Error fetching performance history:', sessionsError);
@@ -222,11 +250,12 @@ export const getPlayerPerformanceHistory = async (
     const sessionIds = sessions.map(s => s.id);
 
     // Fetch all reps for these sessions
-    const { data: reps, error: repsError } = await supabase
+    const { data: repsRaw2, error: repsError } = await supabase
       .from('reps')
       .select('session_id, average_rep_speed')
       .in('session_id', sessionIds)
       .not('average_rep_speed', 'is', null);
+    const reps = repsRaw2 as Pick<Rep, 'session_id' | 'average_rep_speed'>[] | null;
 
     if (repsError) {
       console.error('Error fetching reps for performance:', repsError);
@@ -273,16 +302,18 @@ export const getPlayerPerformanceHistory = async (
  */
 export const getSessionById = async (sessionId: string): Promise<SessionData | null> => {
   try {
-    const { data: session, error } = await supabase
+    const { data: sessionRaw, error } = await supabase
       .from('sessions')
       .select('*')
       .eq('id', sessionId)
       .single();
+    const session = sessionRaw as SessionRow | null;
 
     if (error) {
       console.error('Error fetching session:', error);
       return null;
     }
+    if (!session) return null;
 
     const exercises = await getSessionExercises(session.id);
 

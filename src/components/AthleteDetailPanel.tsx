@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
@@ -12,7 +12,7 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { getPlayerWorkoutPlans } from "@/services/workoutPlansService";
-import { getPlayerSessions, SessionData, ExerciseData, RepData } from "@/services/sessionsService";
+import { getPlayerSessions, getSessionById, SessionData, ExerciseData, RepData } from "@/services/sessionsService";
 import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { findMatchingSessionForPlan, getAttendanceSummary, WorkoutSessionLike } from "@/lib/workoutAttendance";
 import { format, isPast, isToday, parseISO, subWeeks, subDays } from "date-fns";
@@ -38,7 +38,6 @@ import {
   sessionVolume,
   DeviationIndicator,
   SparklineData,
-  RecentSessionRow,
   IndicatorTooltip,
 } from "@/lib/athleteSummaryUtils";
 
@@ -332,74 +331,6 @@ function DeviationSparklines({
   );
 }
 
-function RecentSessionsList({
-  rows,
-  onSessionClick,
-  onNavigate,
-  athleteId,
-}: {
-  rows: RecentSessionRow[];
-  onSessionClick: (sessionId: string) => void;
-  onNavigate: (path: string) => void;
-  athleteId: string;
-}) {
-  return (
-    <div>
-      <p className="text-sm font-semibold mb-3">Recent Sessions</p>
-      {rows.length === 0 ? (
-        <div className="rounded-xl border border-dashed px-4 py-6 text-center">
-          <p className="text-sm text-muted-foreground">No sessions recorded yet</p>
-        </div>
-      ) : (
-        <div className="rounded-xl border overflow-hidden divide-y">
-          {rows.map((row) => (
-            <div
-              key={row.id}
-              className="group flex items-center gap-3 px-4 py-2.5 hover:bg-muted/40 cursor-pointer transition-colors"
-              onClick={() => onSessionClick(row.id)}
-            >
-              <span className="text-xs text-muted-foreground w-12 shrink-0">
-                {format(parseISO(row.date), "MMM d")}
-              </span>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs text-muted-foreground truncate">
-                  {row.exerciseNames.map((name, i) => (
-                    <span key={name}>
-                      {i > 0 && <span className="mx-0.5 opacity-40">,</span>}
-                      <button
-                        className="hover:underline hover:text-foreground transition-colors"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onNavigate(`/athlete/${athleteId}/exercise/${encodeURIComponent(name)}`);
-                        }}
-                      >
-                        {name}
-                      </button>
-                    </span>
-                  ))}
-                </p>
-              </div>
-              <span className="text-xs text-muted-foreground shrink-0 hidden sm:block">
-                {row.totalSets}s · {row.totalReps}r
-              </span>
-              <span className={cn(
-                "text-xs font-medium shrink-0 w-12 text-right",
-                row.velocityDropoffPct === null ? "text-muted-foreground"
-                : row.velocityDropoffPct < 10   ? "text-green-600"
-                : row.velocityDropoffPct < 20   ? "text-amber-600"
-                : "text-red-500",
-              )}>
-                {row.velocityDropoffPct !== null ? `↓${row.velocityDropoffPct.toFixed(1)}%` : "—"}
-              </span>
-              <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0 group-hover:text-muted-foreground transition-colors" />
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── Inline session detail ────────────────────────────────────────────────────
 
 function groupRepsBySet(repData: RepData[]): Map<number, RepData[]> {
@@ -424,6 +355,25 @@ function ExerciseSection({ exercise }: { exercise: ExerciseData }) {
   const bySet      = groupRepsBySet(exercise.repData);
   const allSetNums = Array.from(bySet.keys()).sort((a, b) => a - b);
   const [selectedSet, setSelectedSet] = useState<number>(allSetNums[0] ?? 1);
+
+  if (exercise.repData.length === 0) {
+    return (
+      <div className="rounded-xl border bg-white overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-3 bg-muted/30 border-b">
+          <Dumbbell className="h-3.5 w-3.5 text-primary shrink-0" />
+          <p className="text-sm font-semibold flex-1 min-w-0 truncate">{exercise.name}</p>
+          {exercise.sets > 0 && (
+            <span className="text-xs text-muted-foreground shrink-0">
+              {exercise.sets} sets · {exercise.reps} reps
+            </span>
+          )}
+        </div>
+        <div className="px-4 py-5 text-center">
+          <p className="text-xs text-muted-foreground">No velocity data — completed without VBT device</p>
+        </div>
+      </div>
+    );
+  }
 
   // Session-average velocity for this exercise — reference line on the chart.
   const allValidVels = exercise.repData.filter((r) => r.velocity > 0).map((r) => r.velocity);
@@ -680,11 +630,12 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
   const [plans, setPlans]                     = useState<WorkoutPlan[]>([]);
   const [timeline, setTimeline]               = useState<TimelineItem[]>([]);
   const [loading, setLoading]                 = useState(false);
+  const [sessionDetailLoading, setSessionDetailLoading] = useState(false);
   const [timeWindow, setTimeWindow]           = useState<TimeWindow>("4W");
-  const [showHistory, setShowHistory]         = useState(false);
   const [selectedPlan, setSelectedPlan]       = useState<WorkoutPlan | null>(null);
   const [selectedSession, setSelectedSession] = useState<SessionData | null>(null);
   const [modalView, setModalView]             = useState<ModalView>("summary");
+  const dialogScrollRef                       = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (athlete && open) {
@@ -695,6 +646,10 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [athlete?.id, open]);
+
+  useEffect(() => {
+    if (dialogScrollRef.current) dialogScrollRef.current.scrollTop = 0;
+  }, [modalView]);
 
   const loadData = async () => {
     if (!athlete) return;
@@ -715,6 +670,13 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
       const sessionItems = sessionsData
         .filter((s) => !attSummary.matchedSessionIds.has(s.id))
         .map((s) => ({ ...s, _timelineType: "session" as const, _timelineDate: s.date }));
+      console.log('[Timeline]', {
+        totalPlans: plansData.length,
+        totalSessions: sessionsData.length,
+        matchedSessionIds: Array.from(attSummary.matchedSessionIds),
+        standaloneSessionItems: sessionItems.length,
+        sessionNames: sessionsData.map(s => ({ id: s.id, date: s.date, name: s.notes })),
+      });
       setTimeline(
         [...planItems, ...sessionItems].sort(
           (a, b) => parseISO(b._timelineDate).getTime() - parseISO(a._timelineDate).getTime(),
@@ -864,11 +826,6 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
     navigate(path);
   }, [onClose, navigate]);
 
-  const handleSessionClick = useCallback((sessionId: string) => {
-    const s = sessions.find((ss) => ss.id === sessionId);
-    if (s) { setSelectedSession(s); setModalView("session-detail"); }
-  }, [sessions]);
-
   const handleBackToSummary = useCallback(() => {
     setModalView("summary");
     setSelectedSession(null);
@@ -881,10 +838,6 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
   const attendanceSessions: WorkoutSessionLike[] = sessions.map((s) => ({
     id: s.id, date: s.date, name: s.notes, createdAt: s.createdAt,
   }));
-  const attendanceSummary = getAttendanceSummary(
-    plans.map((p) => ({ date: p.date ?? "", title: p.title ?? "", is_completed: p.is_completed ?? false })),
-    attendanceSessions,
-  );
 
   if (!athlete) return null;
 
@@ -893,17 +846,45 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
   // ── Preserved: timeline helpers ───────────────────────────────────────────
   const normalize = (v?: string) => (v ?? "").trim().toLowerCase();
 
-  const applyPlanTargets = (session: SessionData, plan: WorkoutPlan): SessionData => ({
-    ...session,
-    exercises: session.exercises.map((ex) => {
-      const exList = Array.isArray(plan.exercises) ? plan.exercises : [];
-      const match  = (exList as Array<{ name?: string; targetVelocityMin?: number; targetVelocityMax?: number }>)
-        .find((pe) => normalize(pe?.name) === normalize(ex.name));
-      return match
-        ? { ...ex, targetVelocityMin: Number(match.targetVelocityMin) || 0, targetVelocityMax: Number(match.targetVelocityMax) || 0 }
-        : ex;
-    }),
-  });
+  const applyPlanTargets = (session: SessionData, plan: WorkoutPlan): SessionData => {
+    type PlanEx = { name?: string; sets?: number; reps?: number; weight?: number; weightUnit?: string; targetVelocity?: number; targetVelocityMin?: number; targetVelocityMax?: number };
+    const exList = (Array.isArray(plan.exercises) ? plan.exercises : []) as PlanEx[];
+
+    // Session has no exercise data — synthesize from the plan so the detail view
+    // shows what was assigned with "No velocity data" rather than a blank screen.
+    if (session.exercises.length === 0 && exList.length > 0) {
+      return {
+        ...session,
+        exercises: exList
+          .filter((pe) => pe?.name)
+          .map((pe, i) => ({
+            id: `${session.id}-plan-${i}`,
+            name: pe.name!,
+            sets: Number(pe.sets) || 0,
+            reps: Number(pe.reps) || 0,
+            weight: Number(pe.weight) || 0,
+            weightUnit: (pe.weightUnit as 'lbs' | 'kg') || 'lbs',
+            avgVelocity: 0,
+            avgROM: 0,
+            avgTempo: 0,
+            peakVelocity: 0,
+            targetVelocityMin: Number(pe.targetVelocityMin ?? pe.targetVelocity) || 0,
+            targetVelocityMax: Number(pe.targetVelocityMax ?? pe.targetVelocity) || 0,
+            repData: [],
+          })),
+      };
+    }
+
+    return {
+      ...session,
+      exercises: session.exercises.map((ex) => {
+        const match = exList.find((pe) => normalize(pe?.name) === normalize(ex.name));
+        return match
+          ? { ...ex, targetVelocityMin: Number(match.targetVelocityMin ?? match.targetVelocity) || 0, targetVelocityMax: Number(match.targetVelocityMax ?? match.targetVelocity) || 0 }
+          : ex;
+      }),
+    };
+  };
 
   const getPlanStatus = (plan: WorkoutPlan) => {
     const matched = findMatchingSessionForPlan({ date: plan.date ?? "", title: plan.title ?? "" }, attendanceSessions);
@@ -918,14 +899,48 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
     return matched ? sessions.find((s) => s.id === matched.id) ?? null : null;
   };
 
-  const handleTimelineItemClick = (item: TimelineItem) => {
+  const handleTimelineItemClick = async (item: TimelineItem) => {
     if (item._timelineType === "plan") {
       const status = getPlanStatus(item);
       if (status === "completed") {
-        const match = getMatchingSession(item);
-        if (match) { setSelectedSession(applyPlanTargets(match, item)); } else { setSelectedPlan(item); }
-      } else { setSelectedPlan(item); }
-    } else { setSelectedSession(item); }
+        setSessionDetailLoading(true);
+        try {
+          // 1. Prefer exact name match
+          const namedMatch = getMatchingSession(item);
+          // 2. Fall back to any session on the same date (e.g. "Push" session for a "New Push Day Test" plan)
+          const anyDayMatch = namedMatch ?? sessions.find(s => s.date === (item.date ?? "")) ?? null;
+
+          if (anyDayMatch) {
+            const fresh = await getSessionById(anyDayMatch.id);
+            setSelectedSession(applyPlanTargets(fresh ?? anyDayMatch, item));
+          } else {
+            // No session in DB at all — synthesize from plan exercises so the user
+            // can at least see what was assigned and the target velocities.
+            const planSession: SessionData = {
+              id: `plan-${item.id}`,
+              date: item.date ?? "",
+              createdAt: item.created_at ?? "",
+              exercises: [],
+            };
+            setSelectedSession(applyPlanTargets(planSession, item));
+          }
+          setModalView("session-detail");
+        } finally {
+          setSessionDetailLoading(false);
+        }
+      } else {
+        setSelectedPlan(item);
+      }
+    } else {
+      setSessionDetailLoading(true);
+      try {
+        const fresh = await getSessionById(item.id);
+        setSelectedSession(fresh ?? item);
+        setModalView("session-detail");
+      } finally {
+        setSessionDetailLoading(false);
+      }
+    }
   };
 
   return (
@@ -939,9 +954,9 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
        * paints on top without needing an explicit z-index fight.
        */}
       <Dialog open={open} onOpenChange={onClose}>
-        <DialogContent className="max-w-[860px] max-h-[90vh] p-0 gap-0 overflow-y-auto">
+        <DialogContent ref={dialogScrollRef} className="max-w-[860px] max-h-[90vh] p-0 gap-0 overflow-y-auto">
           <div className="relative flex flex-col">
-            <LoadingOverlay isLoading={loading} message="Loading athlete data…" />
+            <LoadingOverlay isLoading={loading || sessionDetailLoading} message={sessionDetailLoading ? "Loading session…" : "Loading athlete data…"} />
 
             {modalView === "summary" ? (
               <div className="sticky top-0 z-[1] bg-background flex items-start gap-4 px-6 pt-5 pb-4 border-b pr-14">
@@ -1000,12 +1015,96 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
 
                     <DeviationSparklines indicators={anomalyIndicators} sparklines={sparklineMap} />
 
-                    <RecentSessionsList
-                      rows={recentSessionRows}
-                      athleteId={athlete.id}
-                      onSessionClick={handleSessionClick}
-                      onNavigate={handleExerciseNavigate}
-                    />
+                    {/* ── Combined sessions + assigned plans list ───────── */}
+                    <div>
+                      <p className="text-sm font-semibold mb-3">Recent Sessions</p>
+                      {timeline.length === 0 ? (
+                        <div className="rounded-xl border border-dashed px-4 py-6 text-center">
+                          <p className="text-sm text-muted-foreground">No sessions recorded yet</p>
+                        </div>
+                      ) : (
+                        <div className="rounded-xl border overflow-hidden divide-y">
+                          {timeline.map((item) => {
+                            if (item._timelineType === "plan") {
+                              const status = getPlanStatus(item);
+                              const exCount = Array.isArray(item.exercises) ? (item.exercises as any[]).length : 0;
+                              return (
+                                <div
+                                  key={`plan-${item.id}`}
+                                  className="group flex items-center gap-3 px-4 py-2.5 hover:bg-muted/40 cursor-pointer transition-colors"
+                                  onClick={() => handleTimelineItemClick(item)}
+                                >
+                                  <span className="text-xs text-muted-foreground w-12 shrink-0">
+                                    {item._timelineDate ? format(parseISO(item._timelineDate), "MMM d") : "—"}
+                                  </span>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-medium truncate">{item.title}</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {status === "completed"
+                                        ? `Completed · ${exCount} exercise${exCount !== 1 ? "s" : ""}`
+                                        : `${item.coach_id ? "Assigned by coach" : "Self-completed"} · ${exCount} exercise${exCount !== 1 ? "s" : ""}`}
+                                    </p>
+                                  </div>
+                                  {status === "completed" ? (
+                                    <>
+                                      <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                                      <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0 group-hover:text-muted-foreground transition-colors" />
+                                    </>
+                                  ) : status === "missed" ? (
+                                    <AlertCircle className="h-4 w-4 text-red-400 shrink-0" />
+                                  ) : (
+                                    <Clock className="h-4 w-4 text-blue-400 shrink-0" />
+                                  )}
+                                </div>
+                              );
+                            }
+                            // session item — look up precomputed row for velocity dropoff
+                            const row = recentSessionRows.find((r) => r.id === item.id);
+                            const exNames = item.exercises
+                              .map((e) => e.name)
+                              .filter((n) => n && n.trim().length > 0);
+                            const sessionTitle = item.notes || "Self-completed workout";
+                            const dropoff = row?.velocityDropoffPct ?? null;
+                            return (
+                              <div
+                                key={`session-${item.id}`}
+                                className="group flex items-center gap-3 px-4 py-2.5 hover:bg-muted/40 cursor-pointer transition-colors"
+                                onClick={() => handleTimelineItemClick(item)}
+                              >
+                                <span className="text-xs text-muted-foreground w-12 shrink-0">
+                                  {item._timelineDate ? format(parseISO(item._timelineDate), "MMM d") : "—"}
+                                </span>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-xs font-medium truncate">{sessionTitle}</p>
+                                  <p className="text-xs text-muted-foreground truncate">
+                                    {exNames.length > 0 ? (
+                                      <>
+                                        Self-completed ·{" "}
+                                        {exNames.map((name, i) => (
+                                          <span key={name}>
+                                            {i > 0 && <span className="mx-0.5 opacity-40">,</span>}
+                                            <button
+                                              className="hover:underline hover:text-foreground transition-colors"
+                                              onClick={(e) => { e.stopPropagation(); handleExerciseNavigate(`/athlete/${athlete.id}/exercise/${encodeURIComponent(name)}`); }}
+                                            >
+                                              {name}
+                                            </button>
+                                          </span>
+                                        ))}
+                                      </>
+                                    ) : (
+                                      "Self-completed · No exercise data"
+                                    )}
+                                  </p>
+                                </div>
+                                <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                                <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0 group-hover:text-muted-foreground transition-colors" />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
                   </>
                 ) : (
                   selectedSession && (
@@ -1037,27 +1136,42 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
           <DialogHeader>
             <DialogTitle>{selectedPlan?.title}</DialogTitle>
             <DialogDescription>
-              {selectedPlan && format(parseISO(selectedPlan.date), "PPPP")}
+              {selectedPlan?.date ? format(parseISO(selectedPlan.date), "PPPP") : ""}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 mt-2">
-            <Badge variant={selectedPlan?.is_completed ? "default" : "secondary"}>
-              {selectedPlan?.is_completed ? "Completed" : "Not Completed"}
-            </Badge>
-            {selectedPlan?.description && (
-              <p className="bg-muted/30 p-3 rounded-md text-sm">{selectedPlan.description}</p>
-            )}
+            <div className="flex items-center gap-2">
+              <Badge variant={selectedPlan?.is_completed ? "default" : "secondary"}>
+                {selectedPlan?.is_completed
+                  ? "Completed"
+                  : selectedPlan && getPlanStatus(selectedPlan) === "missed"
+                  ? "Missed"
+                  : "Upcoming"}
+              </Badge>
+              {selectedPlan?.coach_id && (
+                <span className="text-xs text-muted-foreground">Assigned by coach</span>
+              )}
+            </div>
             <div className="space-y-2">
               <h4 className="font-semibold flex items-center gap-2 text-sm">
                 <Dumbbell className="h-4 w-4" /> Assigned Exercises
               </h4>
-              <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                {(selectedPlan?.exercises as Array<{ name: string; sets: number; reps: number; weight: number; weightUnit: string }>)?.map((ex, i) => (
-                  <div key={i} className="flex justify-between items-center border-b pb-2 last:border-0">
-                    <span className="font-medium text-sm">{ex.name}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {ex.sets} × {ex.reps} @ {ex.weight}{ex.weightUnit}
-                    </span>
+              <div className="divide-y max-h-72 overflow-y-auto">
+                {(selectedPlan?.exercises as Array<{ name: string; sets: number; reps: number; weight: number; weightUnit: string; targetVelocity?: number }>)?.map((ex, i) => (
+                  <div key={i} className="py-2.5 first:pt-0 last:pb-0">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-sm">{ex.name}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {ex.sets} × {ex.reps}
+                        {ex.weight > 0 && ` @ ${ex.weight} ${ex.weightUnit || 'lbs'}`}
+                      </span>
+                    </div>
+                    {ex.targetVelocity != null && ex.targetVelocity > 0 && (
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="text-xs text-muted-foreground">Target velocity:</span>
+                        <span className="text-xs font-medium">{ex.targetVelocity.toFixed(2)} m/s</span>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

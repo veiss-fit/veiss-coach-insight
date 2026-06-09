@@ -34,9 +34,13 @@ export const sendWorkoutPlan = async (
   planData: WorkoutPlanData
 ): Promise<{ success: boolean; count: number; error?: string }> => {
   try {
-    // Ensure scheduledDate is a Date object and format as YYYY-MM-DD
-    const dateStr = scheduledDate instanceof Date 
-      ? scheduledDate.toISOString().split('T')[0] 
+    // Use local date parts to avoid UTC timezone shift (toISOString would subtract hours for UTC+ zones)
+    const dateStr = scheduledDate instanceof Date
+      ? [
+          scheduledDate.getFullYear(),
+          String(scheduledDate.getMonth() + 1).padStart(2, '0'),
+          String(scheduledDate.getDate()).padStart(2, '0'),
+        ].join('-')
       : scheduledDate;
 
     const exercisesArray = planData.exercises.map(ex => ({
@@ -280,19 +284,26 @@ export const getCoachWorkoutHistory = async (userId: string) => {
           id: plan.id,
           workoutName: plan.title,
           sentAt: plan.created_at,
-          scheduledDate: plan.date,
-          recipients: [],
-          totalCount: 0,
+          scheduledDates: [] as string[],
+          recipients: [] as string[],
+          seenPlayerIds: new Set<string>(),
           exercises: plan.exercises,
         });
       }
       const batch = batchMap.get(key);
+      // Collect each unique scheduled date
+      if (plan.date && !batch.scheduledDates.includes(plan.date)) {
+        batch.scheduledDates.push(plan.date);
+      }
+      // Deduplicate recipients by player_id so multi-date sends don't repeat names
       const playerName = (plan as any).players?.full_name;
-      if (playerName) batch.recipients.push(playerName);
-      batch.totalCount++;
+      if (playerName && !batch.seenPlayerIds.has(plan.player_id)) {
+        batch.seenPlayerIds.add(plan.player_id);
+        batch.recipients.push(playerName);
+      }
     });
 
-    return Array.from(batchMap.values());
+    return Array.from(batchMap.values()).map(({ seenPlayerIds, ...batch }) => batch);
   } catch (error) {
     console.error('Error fetching workout history:', error);
     return [];

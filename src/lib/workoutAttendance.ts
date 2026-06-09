@@ -43,19 +43,21 @@ export const findMatchingSessionForPlan = (
   }
 
   const normalizedTitle = normalizeWorkoutText(plan.title);
-  if (!normalizedTitle) {
-    return sameDaySessions[0];
+
+  // Exact name match — only meaningful when the plan actually has a title.
+  if (normalizedTitle) {
+    const exactMatch = sameDaySessions.find(
+      (session) => normalizeWorkoutText(session.name) === normalizedTitle
+    );
+    if (exactMatch) return exactMatch;
   }
 
-  const exactMatch = sameDaySessions.find(
-    (session) => normalizeWorkoutText(session.name) === normalizedTitle
-  );
-
-  if (exactMatch) {
-    return exactMatch;
-  }
-
-  return sameDaySessions.length === 1 ? sameDaySessions[0] : null;
+  // Fall back to the sole *unnamed* session of the day (a device-only recording
+  // with no workout context). Named sessions — whether or not the plan has a
+  // title — stay independent and are never absorbed by a title-less plan.
+  return sameDaySessions.length === 1 && !normalizeWorkoutText(sameDaySessions[0].name)
+    ? sameDaySessions[0]
+    : null;
 };
 
 export const getWorkoutPlanStatus = (

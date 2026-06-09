@@ -17,7 +17,10 @@
       "Bash(supabase --version)",
       "Bash(psql --version)",
       "PowerShell(Get-Command *)",
-      "Bash(findstr *)"
+      "Bash(findstr *)",
+      "WebSearch",
+      "Bash(find \"C:\\\\Users\\\\gokul\\\\Desktop\\\\veiss-mobile-app\" -type f -name \"*.js\" -not -path \"*/node_modules/*\" | sort)",
+      "Read(//c/Users/gokul/Desktop/veiss-mobile-app/**)"
     ]
   }
 }

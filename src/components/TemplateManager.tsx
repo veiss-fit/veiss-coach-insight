@@ -22,7 +22,13 @@ import {
   Search,
   X,
   ChevronDown,
+  Info,
 } from 'lucide-react'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { useTemplates, WorkoutTemplate, WorkoutExercise } from '@/contexts/TemplatesContext'
@@ -125,7 +131,45 @@ const VelocitySlider = ({
     <div className="w-full space-y-2.5 pt-1 pb-1">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Target Velocity (m/s)</span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Target Velocity (m/s)</span>
+          <Popover>
+            <PopoverTrigger asChild>
+              <button type="button" className="text-muted-foreground/50 hover:text-primary transition-colors">
+                <Info className="h-3.5 w-3.5" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent side="top" align="start" className="w-96 p-4 text-sm">
+              <p className="font-semibold mb-1">Velocity-Based Training Zones</p>
+              <p className="text-xs text-muted-foreground mb-3">
+                Developed by <span className="font-medium text-foreground">Dr. Bryan Mann</span> from data collected on Division I athletes. Each zone targets a distinct neuromuscular adaptation based on bar speed.
+              </p>
+              <div className="space-y-1.5">
+                {[
+                  { label: 'Absolute Strength',     min: 0,    max: 0.35, color: '#b91c1c', pct: '>90%'   },
+                  { label: 'Accelerative Strength', min: 0.35, max: 0.5,  color: '#ef4444', pct: '80–90%' },
+                  { label: 'Strength/Speed',        min: 0.5,  max: 0.75, color: '#f59e0b', pct: '70–80%' },
+                  { label: 'Speed/Strength',        min: 0.75, max: 1.0,  color: '#84cc16', pct: '50–70%' },
+                  { label: 'Starting Strength',     min: 1.0,  max: 1.3,  color: '#22c55e', pct: '30–50%' },
+                ].map(z => (
+                  <div key={z.label} className="flex items-center gap-2 text-xs">
+                    <span className="w-2 h-2 rounded-full shrink-0" style={{ background: z.color }} />
+                    <span className="font-medium">{z.label}</span>
+                    <span className="text-muted-foreground ml-auto">{z.min}–{z.max} m/s · {z.pct} 1RM</span>
+                  </div>
+                ))}
+              </div>
+              <a
+                href="https://www.vbtcoach.com/blog/velocity-zones-part-1"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 mt-3 text-xs text-primary hover:underline"
+              >
+                Learn more about Bryan Mann's velocity zones →
+              </a>
+            </PopoverContent>
+          </Popover>
+        </div>
         <button type="button" onClick={onRemove} className="text-muted-foreground/40 hover:text-destructive transition-colors">
           <X className="h-3.5 w-3.5" />
         </button>

@@ -108,18 +108,23 @@ export const CommunicationHistory = ({ open, onClose }: CommunicationHistoryProp
                                   <span>Sent: {format(new Date(batch.sentAt), "PP p")}</span>
                                 </div>
                                 <p className="text-xs text-muted-foreground mt-0.5">
-                                  Scheduled for: {format(new Date(batch.scheduledDate), "PP")}
+                                  Scheduled for:{' '}
+                                  {(batch.scheduledDates as string[])
+                                    .slice()
+                                    .sort()
+                                    .map((d: string) => format(new Date(d + 'T12:00:00'), 'PP'))
+                                    .join(', ')}
                                 </p>
                               </div>
                             </div>
                             <div className="text-right shrink-0 ml-4">
                               <Badge variant="secondary" className="mb-1.5">
                                 <Users className="h-3 w-3 mr-1" />
-                                {batch.totalCount} Recipient{batch.totalCount !== 1 ? "s" : ""}
+                                {batch.recipients.length} Recipient{batch.recipients.length !== 1 ? "s" : ""}
                               </Badge>
                               <p className="text-xs text-muted-foreground max-w-[180px] truncate">
                                 {batch.recipients.slice(0, 3).join(", ")}
-                                {batch.totalCount > 3 && ` +${batch.totalCount - 3} more`}
+                                {batch.recipients.length > 3 && ` +${batch.recipients.length - 3} more`}
                               </p>
                             </div>
                           </div>

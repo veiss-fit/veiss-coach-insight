@@ -103,7 +103,14 @@ export default function History() {
                                 <span>Sent: {format(new Date(batch.sentAt), "PP p")}</span>
                               </div>
                               <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
-                                <span>Scheduled for: {format(new Date(batch.scheduledDate), "PP")}</span>
+                                <span>
+                                  Scheduled for:{' '}
+                                  {(batch.scheduledDates as string[])
+                                    .slice()
+                                    .sort()
+                                    .map((d: string) => format(new Date(d + 'T12:00:00'), 'PP'))
+                                    .join(', ')}
+                                </span>
                               </div>
                             </div>
                           </div>
@@ -111,11 +118,11 @@ export default function History() {
                           <div className="text-right">
                             <Badge variant="secondary" className="mb-2">
                               <Users className="h-3 w-3 mr-1" />
-                              {batch.totalCount} Recipients
+                              {batch.recipients.length} {batch.recipients.length === 1 ? 'Recipient' : 'Recipients'}
                             </Badge>
                             <p className="text-xs text-muted-foreground max-w-[200px] truncate">
                               {batch.recipients.slice(0, 3).join(", ")}
-                              {batch.totalCount > 3 && ` +${batch.totalCount - 3} more`}
+                              {batch.recipients.length > 3 && ` +${batch.recipients.length - 3} more`}
                             </p>
                           </div>
                         </div>
