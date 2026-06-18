@@ -125,17 +125,21 @@ export const AnnouncementBuilder = ({ open, onClose }: AnnouncementBuilderProps)
 
       // Send to Supabase
       const result = await sendMessage(
-        user.id, // sender_id (coach's user ID)
+        user.id,
         selectedAthletes,
         title.trim(),
         message.trim(),
         'announcement',
-        priority
+        priority,
+        scheduledDate
       );
 
       if (result.success) {
-        const dateInfo = scheduledDate ? ` for ${format(scheduledDate, "PPP")}` : "";
-        toast.success(`Announcement "${title}" sent to ${result.count} athlete(s)${dateInfo}`);
+        if (scheduledDate) {
+          toast.success(`Announcement scheduled for ${format(scheduledDate, "PPP")} · ${result.count} athlete(s)`);
+        } else {
+          toast.success(`Announcement sent to ${result.count} athlete(s)`);
+        }
         onClose();
         
         // Reset form
@@ -239,7 +243,7 @@ export const AnnouncementBuilder = ({ open, onClose }: AnnouncementBuilderProps)
                 </PopoverContent>
               </Popover>
               <p className="text-xs text-muted-foreground">
-                Note: Messages are sent immediately. Date is for reference only.
+                Leave blank to send immediately, or pick a future date to schedule delivery.
               </p>
             </div>
 

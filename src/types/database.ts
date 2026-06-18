@@ -256,6 +256,7 @@ export interface Database {
           is_completed: boolean;
           is_template: boolean; // true = saved template, false = sent to player
           completed_at: string | null;
+          session_id: string | null; // linked session row, set when athlete completes
           created_at: string;
           updated_at: string;
         };
@@ -271,6 +272,7 @@ export interface Database {
           is_completed?: boolean;
           is_template?: boolean;
           completed_at?: string | null;
+          session_id?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -286,6 +288,7 @@ export interface Database {
           is_completed?: boolean;
           is_template?: boolean;
           completed_at?: string | null;
+          session_id?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -299,6 +302,8 @@ export interface Database {
           message: string;
           is_read: boolean;
           is_archived: boolean;
+          scheduled_at: string | null;
+          is_delivered: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -310,6 +315,8 @@ export interface Database {
           message: string;
           is_read?: boolean;
           is_archived?: boolean;
+          scheduled_at?: string | null;
+          is_delivered?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -321,6 +328,8 @@ export interface Database {
           message?: string;
           is_read?: boolean;
           is_archived?: boolean;
+          scheduled_at?: string | null;
+          is_delivered?: boolean;
           created_at?: string;
           updated_at?: string;
         };

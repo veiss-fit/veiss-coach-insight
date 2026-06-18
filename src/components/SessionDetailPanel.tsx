@@ -155,10 +155,10 @@ export const SessionDetailPanel = ({ session, open, onClose, isSelfLoggedSession
                     </ResponsiveContainer>
                   </div>
 
-                  {/* 2. RANGE OF CONTRACTION CHART - PHASE 22 NEW */}
+                  {/* 2. VERTICAL DISPLACEMENT CHART */}
                   <div className="space-y-2 pt-4 border-t border-border/50">
                     <div className="flex justify-between items-center text-xs text-muted-foreground">
-                      <span className="flex items-center gap-1"><Maximize2 className="h-3 w-3" /> Range of Contraction (mm)</span>
+                      <span className="flex items-center gap-1"><Maximize2 className="h-3 w-3" /> Vertical Displacement (mm)</span>
                     </div>
                     <ResponsiveContainer width="100%" height={180}>
                       <LineChart data={chartData} margin={{ top: 8, right: 8, left: 4, bottom: 4 }}>
@@ -195,7 +195,7 @@ export const SessionDetailPanel = ({ session, open, onClose, isSelfLoggedSession
 
                     <div className="space-y-1">
                       <span className="text-[10px] uppercase text-muted-foreground flex items-center gap-1">
-                        <Maximize2 className="h-3 w-3" /> Avg ROC
+                        <Maximize2 className="h-3 w-3" /> Avg Displacement
                       </span>
                       <div className="text-lg font-bold">
                         {exercise.avgROM} <span className="text-xs font-normal">mm</span>

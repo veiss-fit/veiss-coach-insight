@@ -7,7 +7,7 @@ import { PlayerWithStats } from "@/services/playersService";
 import {
   ChevronLeft, TrendingUp, TrendingDown, Minus, Dumbbell,
   CheckCircle2, AlertCircle, Clock, Activity, Maximize2,
-  ChevronRight as ArrowRight,
+  ChevronRight as ArrowRight, RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -297,6 +297,7 @@ function DeviationSparklines({
               ) : (
                 <ResponsiveContainer width="100%" height={56}>
                   <LineChart data={sparkline.points} margin={{ top: 4, right: 2, left: 2, bottom: 0 }}>
+                    <XAxis dataKey="date" hide />
                     <YAxis hide domain={["auto", "auto"]} />
                     {sparkline.mean !== null && (
                       <ReferenceLine
@@ -480,7 +481,7 @@ function ExerciseSection({ exercise }: { exercise: ExerciseData }) {
         {hasRomData && (
           <div className="space-y-1 pt-4 border-t border-border/50">
             <span className="text-xs text-muted-foreground flex items-center gap-1">
-              <Maximize2 className="h-3 w-3" /> Range of Contraction (mm)
+              <Maximize2 className="h-3 w-3" /> Vertical Displacement (mm)
             </span>
             <ResponsiveContainer width="100%" height={120}>
               <LineChart data={chartData} margin={{ top: 6, right: 6, left: 0, bottom: 2 }}>
@@ -516,7 +517,7 @@ function ExerciseSection({ exercise }: { exercise: ExerciseData }) {
           </div>
         )}
 
-        {/* Peak velocity + Avg ROC stat row */}
+        {/* Peak velocity + Avg Vertical Displacement stat row */}
         <div className="flex items-center gap-6 pt-3 border-t border-border">
           <div>
             <p className="text-[10px] uppercase text-muted-foreground flex items-center gap-1 mb-0.5">
@@ -530,7 +531,7 @@ function ExerciseSection({ exercise }: { exercise: ExerciseData }) {
           {exercise.avgROM > 0 && (
             <div>
               <p className="text-[10px] uppercase text-muted-foreground flex items-center gap-1 mb-0.5">
-                <Maximize2 className="h-3 w-3" /> Avg ROC
+                <Maximize2 className="h-3 w-3" /> Avg Displacement
               </p>
               <p className="text-base font-bold">
                 {exercise.avgROM}{" "}
@@ -621,8 +622,8 @@ function InlineSessionDetail({ session }: { session: SessionData }) {
 // ── Main component ───────────────────────────────────────────────────────────
 export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPanelProps) => {
   type WorkoutPlan = Database["public"]["Tables"]["workout_plans"]["Row"];
-  type TimelineItem = (WorkoutPlan & { _timelineType: "plan"; _timelineDate: string })
-    | (SessionData & { _timelineType: "session"; _timelineDate: string });
+  type TimelineItem = (WorkoutPlan & { _timelineType: "plan"; _timelineDate: string; _sortKey: string })
+    | (SessionData & { _timelineType: "session"; _timelineDate: string; _sortKey: string });
 
   const navigate = useNavigate();
 
@@ -663,13 +664,13 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
       setSessions(sessionsData);
 
       const attSummary = getAttendanceSummary(
-        plansData.map((p) => ({ date: p.date ?? "", title: p.title ?? "", is_completed: p.is_completed ?? false })),
+        plansData.map((p) => ({ date: p.date ?? "", title: p.title ?? "", is_completed: p.is_completed ?? false, session_id: p.session_id ?? null })),
         sessionsData.map((s) => ({ id: s.id, date: s.date, name: s.notes, createdAt: s.createdAt })),
       );
-      const planItems = plansData.map((p) => ({ ...p, _timelineType: "plan" as const, _timelineDate: p.date ?? "" }));
+      const planItems = plansData.map((p) => ({ ...p, _timelineType: "plan" as const, _timelineDate: p.date ?? "", _sortKey: p.created_at ?? p.date ?? "" }));
       const sessionItems = sessionsData
         .filter((s) => !attSummary.matchedSessionIds.has(s.id))
-        .map((s) => ({ ...s, _timelineType: "session" as const, _timelineDate: s.date }));
+        .map((s) => ({ ...s, _timelineType: "session" as const, _timelineDate: s.date, _sortKey: s.startedAt ?? s.createdAt }));
       console.log('[Timeline]', {
         totalPlans: plansData.length,
         totalSessions: sessionsData.length,
@@ -679,7 +680,7 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
       });
       setTimeline(
         [...planItems, ...sessionItems].sort(
-          (a, b) => parseISO(b._timelineDate).getTime() - parseISO(a._timelineDate).getTime(),
+          (a, b) => new Date(b._sortKey).getTime() - new Date(a._sortKey).getTime(),
         ) as TimelineItem[],
       );
     } catch {
@@ -905,21 +906,29 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
       if (status === "completed") {
         setSessionDetailLoading(true);
         try {
-          // 1. Prefer exact name match
-          const namedMatch = getMatchingSession(item);
-          // 2. Fall back to any session on the same date (e.g. "Push" session for a "New Push Day Test" plan)
-          const anyDayMatch = namedMatch ?? sessions.find(s => s.date === (item.date ?? "")) ?? null;
+          // 1. Direct link — no name matching needed
+          const linkedId = item.session_id ?? null;
+          // 2. Fuzzy fallback: exact name match first, then any same-date session
+          //    only when this is the sole plan on that date (avoids ambiguity with
+          //    multiple completed plans sharing the same date).
+          const plansOnDate = plans.filter(p => p.date === item.date);
+          const anyDayFallback = plansOnDate.length === 1
+            ? sessions.find(s => s.date === (item.date ?? "")) ?? null
+            : null;
+          const match = linkedId
+            ? (sessions.find(s => s.id === linkedId) ?? null)
+            : (getMatchingSession(item) ?? anyDayFallback);
 
-          if (anyDayMatch) {
-            const fresh = await getSessionById(anyDayMatch.id);
-            setSelectedSession(applyPlanTargets(fresh ?? anyDayMatch, item));
+          if (match) {
+            const fresh = await getSessionById(match.id);
+            setSelectedSession(applyPlanTargets(fresh ?? match, item));
           } else {
-            // No session in DB at all — synthesize from plan exercises so the user
-            // can at least see what was assigned and the target velocities.
+            // No session at all — synthesize from plan exercises
             const planSession: SessionData = {
               id: `plan-${item.id}`,
               date: item.date ?? "",
               createdAt: item.created_at ?? "",
+              startedAt: null,
               exercises: [],
             };
             setSelectedSession(applyPlanTargets(planSession, item));
@@ -960,7 +969,7 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
 
             {modalView === "summary" ? (
               <div className="sticky top-0 z-[1] bg-background flex items-start gap-4 px-6 pt-5 pb-4 border-b pr-14">
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <h2 className="text-xl font-semibold text-foreground leading-tight">{athlete.name}</h2>
                     {athlete.group && (
@@ -977,6 +986,14 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
                     <p className="text-xs text-muted-foreground mt-1">Last session: {kpi.lastSessionDate}</p>
                   )}
                 </div>
+                <button
+                  onClick={() => loadData()}
+                  disabled={loading}
+                  title="Refresh athlete data"
+                  className="shrink-0 mt-0.5 p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-40"
+                >
+                  <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+                </button>
               </div>
             ) : (
               <div className="sticky top-0 z-[1] bg-background flex items-center gap-3 px-6 pt-5 pb-4 border-b pr-14">
@@ -1040,9 +1057,7 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
                                   <div className="flex-1 min-w-0">
                                     <p className="text-xs font-medium truncate">{item.title}</p>
                                     <p className="text-xs text-muted-foreground">
-                                      {status === "completed"
-                                        ? `Completed · ${exCount} exercise${exCount !== 1 ? "s" : ""}`
-                                        : `${item.coach_id ? "Assigned by coach" : "Self-completed"} · ${exCount} exercise${exCount !== 1 ? "s" : ""}`}
+                                      {`${item.coach_id ? "Assigned by coach" : "Self-completed"} · ${exCount} exercise${exCount !== 1 ? "s" : ""}`}
                                     </p>
                                   </div>
                                   {status === "completed" ? (
@@ -1051,7 +1066,10 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
                                       <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0 group-hover:text-muted-foreground transition-colors" />
                                     </>
                                   ) : status === "missed" ? (
-                                    <AlertCircle className="h-4 w-4 text-red-400 shrink-0" />
+                                    <>
+                                      <AlertCircle className="h-4 w-4 text-red-400 shrink-0" />
+                                      <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0 group-hover:text-muted-foreground transition-colors" />
+                                    </>
                                   ) : (
                                     <Clock className="h-4 w-4 text-blue-400 shrink-0" />
                                   )}
@@ -1077,24 +1095,7 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
                                 <div className="flex-1 min-w-0">
                                   <p className="text-xs font-medium truncate">{sessionTitle}</p>
                                   <p className="text-xs text-muted-foreground truncate">
-                                    {exNames.length > 0 ? (
-                                      <>
-                                        Self-completed ·{" "}
-                                        {exNames.map((name, i) => (
-                                          <span key={name}>
-                                            {i > 0 && <span className="mx-0.5 opacity-40">,</span>}
-                                            <button
-                                              className="hover:underline hover:text-foreground transition-colors"
-                                              onClick={(e) => { e.stopPropagation(); handleExerciseNavigate(`/athlete/${athlete.id}/exercise/${encodeURIComponent(name)}`); }}
-                                            >
-                                              {name}
-                                            </button>
-                                          </span>
-                                        ))}
-                                      </>
-                                    ) : (
-                                      "Self-completed · No exercise data"
-                                    )}
+                                    {`Self-completed · ${exNames.length} exercise${exNames.length !== 1 ? "s" : ""}`}
                                   </p>
                                 </div>
                                 <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
@@ -1152,6 +1153,14 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
                 <span className="text-xs text-muted-foreground">Assigned by coach</span>
               )}
             </div>
+            {selectedPlan && getPlanStatus(selectedPlan) === "missed" && (
+              <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3">
+                <p className="text-sm text-red-700">
+                  {athlete?.name ?? "This athlete"} did not complete this workout on{" "}
+                  {selectedPlan.date ? format(parseISO(selectedPlan.date), "MMMM d") : "the scheduled date"}.
+                </p>
+              </div>
+            )}
             <div className="space-y-2">
               <h4 className="font-semibold flex items-center gap-2 text-sm">
                 <Dumbbell className="h-4 w-4" /> Assigned Exercises

@@ -12,6 +12,7 @@ import { Users, UserCheck, Layers, Send, CalendarDays, Megaphone } from "lucide-
 import { useAuth } from "@/contexts/AuthContext";
 import { getPlayersWithStatsByCoach, getCoachTeamIds, PlayerWithStats } from "@/services/playersService";
 import { getCoachDashboardStats, DashboardStats } from "@/services/statsService";
+import { deliverScheduledMessages } from "@/services/messagesService";
 // import { useDashboardSubscription } from "@/hooks/useRealtimeSubscriptions"; // Disabled for free tier
 import { TemplateManager } from '@/components/TemplateManager';
 import { LoadingOverlay } from '@/components/ui/LoadingOverlay';
@@ -61,6 +62,14 @@ const Index = () => {
       setLoading(false);
     }
   }, [profile, refreshKey, authLoading]);
+
+  // Deliver any scheduled messages whose time has passed, checked every 60 seconds.
+  useEffect(() => {
+    if (!user?.id) return;
+    deliverScheduledMessages(user.id);
+    const interval = setInterval(() => deliverScheduledMessages(user.id!), 60_000);
+    return () => clearInterval(interval);
+  }, [user?.id]);
 
   const loadData = async () => {
     // Safety check: don't load if profile is not available

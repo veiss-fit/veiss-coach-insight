@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
-import { CalendarDays, Megaphone, Users, Clock, ArrowLeft } from "lucide-react"; // 2. Import ArrowLeft
+import { CalendarDays, Megaphone, Users, Clock, ArrowLeft, CalendarClock } from "lucide-react"; // 2. Import ArrowLeft
 import { useAuth } from "@/contexts/AuthContext";
 import { getCoachWorkoutHistory } from "@/services/workoutPlansService";
 import { getCoachMessageHistory } from "@/services/messagesService";
@@ -161,13 +161,27 @@ export default function History() {
                               <div>
                                 <h4 className="font-semibold text-lg">{msg.title}</h4>
                                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                  <span>{format(new Date(msg.sentAt), "PPP p")}</span>
+                                  {msg.isDelivered === false && msg.scheduledAt ? (
+                                    <span className="flex items-center gap-1">
+                                      <CalendarClock className="h-3 w-3" />
+                                      Scheduled for {format(new Date(msg.scheduledAt), "PPP p")}
+                                    </span>
+                                  ) : (
+                                    <span>{format(new Date(msg.sentAt), "PPP p")}</span>
+                                  )}
                                 </div>
                               </div>
                             </div>
-                            {msg.priority === 'urgent' && (
-                              <Badge variant="destructive">Urgent</Badge>
-                            )}
+                            <div className="flex items-center gap-2">
+                              {msg.isDelivered === false && (
+                                <Badge variant="outline" className="text-amber-600 border-amber-300 bg-amber-50">
+                                  Scheduled
+                                </Badge>
+                              )}
+                              {msg.priority === 'urgent' && (
+                                <Badge variant="destructive">Urgent</Badge>
+                              )}
+                            </div>
                           </div>
                           
                           <div className="pl-12">

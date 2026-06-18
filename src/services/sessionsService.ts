@@ -2,6 +2,17 @@ import { supabase } from '@/lib/supabase';
 import { Database } from '@/types/database';
 
 type SessionRow = Database['public']['Tables']['sessions']['Row'];
+
+// Extract YYYY-MM-DD in the coach's local timezone, not UTC.
+// Without this, a session at 11 PM local time (e.g. EST) is stored as
+// the next day in UTC and would display the wrong date on the dashboard.
+const toLocalDateString = (iso: string): string => {
+  const d = new Date(iso);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
 type Rep = Database['public']['Tables']['reps']['Row'];
 
 export interface RepData {
@@ -32,6 +43,7 @@ export interface SessionData {
   id: string;
   date: string;
   createdAt: string;
+  startedAt: string | null;
   exercises: ExerciseData[];
   notes?: string;
 }
@@ -51,7 +63,7 @@ export const getPlayerSessions = async (
       .from('sessions')
       .select('*')
       .in('user_id', ownerIds)
-      .order('created_at', { ascending: false });
+      .order('started_at', { ascending: false });
     const sessions = sessionsRaw as SessionRow[] | null;
 
     if (sessionsError) {
@@ -70,8 +82,9 @@ export const getPlayerSessions = async (
         
         return {
           id: session.id,
-          date: session.created_at.split('T')[0], // Format as YYYY-MM-DD
+          date: toLocalDateString(session.started_at ?? session.created_at),
           createdAt: session.created_at,
+          startedAt: session.started_at ?? null,
           exercises,
           notes: session.name || undefined,
         };
@@ -319,8 +332,9 @@ export const getSessionById = async (sessionId: string): Promise<SessionData | n
 
     return {
       id: session.id,
-      date: session.created_at.split('T')[0],
+      date: toLocalDateString(session.started_at ?? session.created_at),
       createdAt: session.created_at,
+      startedAt: session.started_at ?? null,
       exercises,
       notes: session.name || undefined,
     };

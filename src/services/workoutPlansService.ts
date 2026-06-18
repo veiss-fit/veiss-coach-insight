@@ -78,6 +78,27 @@ export const sendWorkoutPlan = async (
       return { success: false, count: 0, error: error.message };
     }
 
+    // Resolve player_ids → auth user_ids via profiles, then push directly
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('id')
+      .in('player_id', playerIds);
+
+    const userIds = (profiles || []).map((p: any) => p.id);
+
+    await Promise.allSettled(
+      userIds.map((userId: string) =>
+        supabase.functions.invoke('send-push-notification', {
+          body: {
+            userId,
+            title: 'New workout assigned',
+            body: `${planData.workoutName} has been added to your schedule`,
+            data: { type: 'workout_plan', screen: 'Workout' },
+          },
+        })
+      )
+    );
+
     return { success: true, count: data?.length || 0 };
   } catch (error: any) {
     console.error('Error in sendWorkoutPlan:', error);
@@ -94,7 +115,7 @@ export const getPlayerWorkoutPlans = async (
   try {
     const { data, error } = await supabase
       .from('workout_plans')
-      .select('*')
+      .select('id, player_id, coach_id, date, title, description, exercises, notes, is_completed, is_template, completed_at, session_id, created_at, updated_at')
       .eq('player_id', playerId)
       .order('date', { ascending: false });
 

@@ -186,9 +186,24 @@ export function sessionAvgTempo(s: SessionData): number | null {
 }
 
 export function sessionVolume(s: SessionData): number | null {
-  const total = s.exercises
-    .filter((e) => isValidExerciseName(e.name))
-    .reduce((sum, e) => sum + e.repData.length, 0);
+  let total = 0;
+  for (const exercise of s.exercises) {
+    if (!isValidExerciseName(exercise.name)) continue;
+    const weight = exercise.weight ?? 0;
+    const bySet = new Map<number, RepData[]>();
+    for (const rep of exercise.repData) {
+      const setNum = rep.setNumber ?? 1;
+      if (!bySet.has(setNum)) bySet.set(setNum, []);
+      bySet.get(setNum)!.push(rep);
+    }
+    for (const reps of bySet.values()) {
+      if (weight > 0) {
+        total += reps.length * weight; // sets × reps × weight per set
+      } else {
+        total += reps.length;          // bodyweight: count reps only
+      }
+    }
+  }
   return total > 0 ? total : null;
 }
 
@@ -249,7 +264,9 @@ function buildIndicator(
 
 export function computeAnomalyIndicators(sessions: SessionData[]): DeviationIndicator[] {
   const sorted = [...sessions].sort(
-    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+    (a, b) =>
+      new Date(a.startedAt ?? a.createdAt).getTime() -
+      new Date(b.startedAt ?? b.createdAt).getTime(),
   );
 
   return [
@@ -288,10 +305,16 @@ export function computeAnomalyIndicators(sessions: SessionData[]): DeviationIndi
       "Concentric Tempo", "tempo", sessionAvgTempo, sorted,
       "s", (v) => `${v.toFixed(2)}s`,
     ),
-    buildIndicator(
-      "Volume", "volume", sessionVolume, sorted,
-      "reps", (v) => `${Math.round(v)} reps`,
-    ),
+    (() => {
+      const hasWeight = sessions.some((s) =>
+        s.exercises.some((e) => isValidExerciseName(e.name) && (e.weight ?? 0) > 0),
+      );
+      const unit = hasWeight ? "lbs" : "reps";
+      return buildIndicator(
+        "Volume", "volume", sessionVolume, sorted,
+        unit, (v) => `${Math.round(v)} ${unit}`,
+      );
+    })(),
   ];
 }
 
@@ -301,7 +324,11 @@ export function computeSparkline(
   windowSize = SPARKLINE_SESSION_COUNT,
 ): SparklineData {
   const sorted = [...sessions]
-    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+    .sort(
+      (a, b) =>
+        new Date(a.startedAt ?? a.createdAt).getTime() -
+        new Date(b.startedAt ?? b.createdAt).getTime(),
+    )
     .slice(-windowSize);
 
   const points: SparklinePoint[] = sorted
@@ -323,7 +350,9 @@ export function computeSparkline(
 // it's a raw fitness signal tracked chronologically.
 export function computeFirstRepTrend(sessions: SessionData[]): TrendLineData {
   const sorted = [...sessions].sort(
-    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+    (a, b) =>
+      new Date(a.startedAt ?? a.createdAt).getTime() -
+      new Date(b.startedAt ?? b.createdAt).getTime(),
   );
 
   const points: SparklinePoint[] = sorted
@@ -339,7 +368,11 @@ export function computeFirstRepTrend(sessions: SessionData[]): TrendLineData {
 
 export function computeRecentSessions(sessions: SessionData[], count = 5): RecentSessionRow[] {
   return [...sessions]
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .sort(
+      (a, b) =>
+        new Date(b.startedAt ?? b.createdAt).getTime() -
+        new Date(a.startedAt ?? a.createdAt).getTime(),
+    )
     .slice(0, count)
     .map((s) => ({
       id: s.id,

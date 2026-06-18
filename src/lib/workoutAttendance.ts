@@ -2,6 +2,7 @@ export interface WorkoutPlanLike {
   date: string;
   title?: string | null;
   is_completed: boolean;
+  session_id?: string | null;
 }
 
 export interface WorkoutSessionLike {
@@ -65,7 +66,8 @@ export const getWorkoutPlanStatus = (
   sessions: WorkoutSessionLike[],
   today = new Date()
 ) => {
-  if (plan.is_completed || findMatchingSessionForPlan(plan, sessions) !== null) {
+  const linkedDirectly = plan.session_id != null;
+  if (plan.is_completed || linkedDirectly || findMatchingSessionForPlan(plan, sessions) !== null) {
     return 'completed';
   }
 
@@ -90,7 +92,10 @@ export const getAttendanceSummary = (
     const status = getWorkoutPlanStatus(plan, sessions, today);
     if (status === 'completed') {
       completedPlanCount += 1;
-      const matchedSession = findMatchingSessionForPlan(plan, sessions, matchedSessionIds);
+      // Prefer direct session_id link; fall back to fuzzy date+name matching.
+      const matchedSession = plan.session_id
+        ? (sessions.find(s => s.id === plan.session_id && !matchedSessionIds.has(s.id)) ?? null)
+        : findMatchingSessionForPlan(plan, sessions, matchedSessionIds);
       if (matchedSession) {
         matchedSessionIds.add(matchedSession.id);
       }

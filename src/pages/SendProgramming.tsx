@@ -376,9 +376,24 @@ const SendProgramming = () => {
 
     try {
       setSending(true)
+      // If the coach never opened the exercise editor, derive exercises from selected templates
+      const effectiveExercises = exercises.length > 0
+        ? exercises
+        : selectedTemplateIds.flatMap(id => {
+            const t = templates.find(t => t.id === id)
+            return (t?.exercises ?? []).map(ex => ({
+              name: ex.name,
+              sets: ex.sets ?? 3,
+              reps: ex.reps ?? 5,
+              weight: 0,
+              weightUnit: 'lbs' as const,
+              targetVelocity: ex.targetVelocity ?? 0,
+            }))
+          })
+
       const planData = {
         workoutName,
-        exercises,
+        exercises: effectiveExercises,
         notes: `Assigned by Coach`,
       }
 
@@ -502,7 +517,7 @@ const SendProgramming = () => {
             <div className="border rounded-xl overflow-hidden shadow-sm">
 
               {/* Template multi-select */}
-              <div className="p-6 border-b space-y-3">
+              <div className="p-6 border-b space-y-3 bg-muted/30">
                 <Label className="text-sm font-semibold">Load from Templates</Label>
                 <Popover open={templateDropdownOpen} onOpenChange={setTemplateDropdownOpen}>
                   <PopoverTrigger asChild>
@@ -561,7 +576,7 @@ const SendProgramming = () => {
                 <button
                   type="button"
                   onClick={handleToggleExerciseEditor}
-                  className="w-full flex items-center justify-between px-6 py-4 text-sm font-semibold hover:bg-muted/40 transition-colors"
+                  className="w-full flex items-center justify-between px-6 py-4 text-sm font-semibold bg-muted/20 hover:bg-muted/40 transition-colors"
                 >
                   <span className="flex items-center gap-2">
                     {showExerciseEditor
@@ -578,7 +593,7 @@ const SendProgramming = () => {
                 </button>
 
                 {showExerciseEditor && (
-                  <div className="px-6 pb-6 space-y-3 border-t pt-5">
+                  <div className="px-6 pb-6 space-y-3 border-t pt-5 bg-muted/40">
                     {exercises.length === 0 ? (
                       <div className="text-center py-8 text-muted-foreground">
                         <p className="text-sm">No exercises loaded.</p>
@@ -588,7 +603,7 @@ const SendProgramming = () => {
                       </div>
                     ) : (
                       exercises.map((ex, i) => (
-                        <Card key={i}>
+                        <Card key={i} className="bg-background border-border/70 shadow-sm">
                           <CardHeader className="pt-4 pb-2">
                             <div className="flex items-center gap-2">
                               <Input
@@ -615,15 +630,15 @@ const SendProgramming = () => {
                               </Button>
                             </div>
                           </CardHeader>
-                          <CardContent className="pt-0 pb-4 space-y-2">
-                            <div className="grid grid-cols-4 gap-3">
-                              {(['Sets', 'Reps', 'Weight'] as const).map(field => (
+                          <CardContent className="pt-0 pb-4">
+                            <div className="grid grid-cols-3 gap-3">
+                              {(['Sets', 'Reps'] as const).map(field => (
                                 <div key={field}>
                                   <Label className="text-xs">{field}</Label>
                                   <Input
                                     type="number"
                                     className="h-9 text-sm mt-1"
-                                    value={ex[field.toLowerCase() as 'sets' | 'reps' | 'weight']}
+                                    value={ex[field.toLowerCase() as 'sets' | 'reps']}
                                     onChange={e =>
                                       updateExercise(i, field.toLowerCase() as keyof WorkoutExercise, parseInt(e.target.value))
                                     }
@@ -631,29 +646,14 @@ const SendProgramming = () => {
                                 </div>
                               ))}
                               <div>
-                                <Label className="text-xs">Unit</Label>
-                                <Select
-                                  value={ex.weightUnit}
-                                  onValueChange={(v: 'lbs' | 'kg') => updateExercise(i, 'weightUnit', v)}
-                                >
-                                  <SelectTrigger className="h-9 text-sm mt-1">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="lbs">lbs</SelectItem>
-                                    <SelectItem value="kg">kg</SelectItem>
-                                  </SelectContent>
-                                </Select>
+                                <Label className="text-xs">Target Velocity (m/s)</Label>
+                                <Input
+                                  type="number" step="0.05" min="0" max="1.6"
+                                  className="h-9 text-sm mt-1"
+                                  value={parseFloat(ex.targetVelocity.toFixed(2))}
+                                  onChange={e => updateExercise(i, 'targetVelocity', parseFloat(parseFloat(e.target.value || '0').toFixed(2)))}
+                                />
                               </div>
-                            </div>
-                            <div>
-                              <Label className="text-xs">Target Velocity (m/s)</Label>
-                              <Input
-                                type="number" step="0.05" min="0" max="1.6"
-                                className="h-9 text-sm mt-1"
-                                value={parseFloat(ex.targetVelocity.toFixed(2))}
-                                onChange={e => updateExercise(i, 'targetVelocity', parseFloat(parseFloat(e.target.value || '0').toFixed(2)))}
-                              />
                             </div>
                           </CardContent>
                         </Card>
@@ -670,7 +670,7 @@ const SendProgramming = () => {
             {/* Box 2: Filter Groups + Athletes */}
             <div className="border rounded-xl overflow-hidden shadow-sm">
               {/* Filter header */}
-              <div className="px-6 py-5 border-b bg-muted/20 space-y-3">
+              <div className="px-6 py-5 border-b bg-muted/40 space-y-3">
                 <Label className="text-sm font-semibold">Filter Groups</Label>
                 <Select value={filterGroup} onValueChange={setFilterGroup}>
                   <SelectTrigger className="h-10">
@@ -713,7 +713,10 @@ const SendProgramming = () => {
                   filteredAthletes.map(athlete => (
                     <label
                       key={athlete.id}
-                      className="flex items-center gap-3 px-6 py-3.5 hover:bg-muted/40 cursor-pointer"
+                      className={cn(
+                        "flex items-center gap-3 px-6 py-3.5 cursor-pointer transition-colors hover:bg-muted/40",
+                        selectedAthletes.includes(athlete.id) && "bg-primary/5"
+                      )}
                     >
                       <Checkbox
                         checked={selectedAthletes.includes(athlete.id)}
@@ -737,7 +740,7 @@ const SendProgramming = () => {
               </div>
 
               {selectedAthletes.length > 0 && (
-                <div className="px-6 py-3 border-t bg-muted/20 text-xs text-muted-foreground">
+                <div className="px-6 py-3 border-t bg-primary/5 text-xs text-muted-foreground">
                   {selectedAthletes.length} athlete{selectedAthletes.length !== 1 ? 's' : ''} selected
                 </div>
               )}

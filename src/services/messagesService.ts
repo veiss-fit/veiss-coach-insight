@@ -19,9 +19,12 @@ export const sendMessage = async (
   title: string,
   message: string,
   type: 'announcement' | 'feedback' | 'general' = 'announcement',
-  priority: 'normal' | 'urgent' = 'normal'
+  priority: 'normal' | 'urgent' = 'normal',
+  scheduledAt?: Date
 ): Promise<{ success: boolean; count: number; error?: string }> => {
   try {
+    const isScheduled = !!scheduledAt;
+
     // Convert player IDs to user IDs (profile IDs)
     // receiver_id should be the user's profile ID, not player_id
     const { data: profiles, error: profilesError } = await supabase
@@ -46,11 +49,13 @@ export const sendMessage = async (
     // The mobile app determines type dynamically from subject/message content
     const messages: MessageInsert[] = receiverUserIds.map((receiverUserId) => ({
       sender_id: senderId,
-      receiver_id: receiverUserId, // Use receiver_id (user's profile ID)
-      subject: title, // Use subject (not title)
+      receiver_id: receiverUserId,
+      subject: title,
       message,
       is_read: false,
       is_archived: false,
+      scheduled_at: isScheduled ? scheduledAt!.toISOString() : null,
+      is_delivered: !isScheduled,
     }));
 
     const { data, error } = await supabase
@@ -67,6 +72,35 @@ export const sendMessage = async (
   } catch (error: any) {
     console.error('Error in sendMessage:', error);
     return { success: false, count: 0, error: error.message || 'Unknown error' };
+  }
+};
+
+/**
+ * Deliver scheduled messages whose scheduled_at has passed.
+ * Call on dashboard load and on a polling interval.
+ */
+export const deliverScheduledMessages = async (senderId: string): Promise<number> => {
+  try {
+    const now = new Date().toISOString();
+    const { data: pending } = await supabase
+      .from('messages')
+      .select('id')
+      .eq('sender_id', senderId)
+      .eq('is_delivered', false)
+      .lte('scheduled_at', now);
+
+    if (!pending?.length) return 0;
+
+    const ids = pending.map(m => m.id);
+    await supabase
+      .from('messages')
+      .update({ is_delivered: true })
+      .in('id', ids);
+
+    return ids.length;
+  } catch (error) {
+    console.error('Error in deliverScheduledMessages:', error);
+    return 0;
   }
 };
 
@@ -299,6 +333,8 @@ export const getCoachMessageHistory = async (userId: string) => {
           title: msg.subject,
           content: msg.message,
           sentAt: msg.created_at,
+          scheduledAt: msg.scheduled_at ?? null,
+          isDelivered: msg.is_delivered,
           priority: 'normal',
           recipientCount: 0,
         });
