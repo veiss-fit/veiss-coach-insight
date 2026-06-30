@@ -44,6 +44,7 @@ export interface SessionData {
   date: string;
   createdAt: string;
   startedAt: string | null;
+  status: string | null;
   exercises: ExerciseData[];
   notes?: string;
 }
@@ -85,6 +86,7 @@ export const getPlayerSessions = async (
           date: toLocalDateString(session.started_at ?? session.created_at),
           createdAt: session.created_at,
           startedAt: session.started_at ?? null,
+          status: session.status ?? null,
           exercises,
           notes: session.name || undefined,
         };
@@ -335,6 +337,7 @@ export const getSessionById = async (sessionId: string): Promise<SessionData | n
       date: toLocalDateString(session.started_at ?? session.created_at),
       createdAt: session.created_at,
       startedAt: session.started_at ?? null,
+      status: session.status ?? null,
       exercises,
       notes: session.name || undefined,
     };

@@ -622,8 +622,8 @@ function InlineSessionDetail({ session }: { session: SessionData }) {
 // ── Main component ───────────────────────────────────────────────────────────
 export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPanelProps) => {
   type WorkoutPlan = Database["public"]["Tables"]["workout_plans"]["Row"];
-  type TimelineItem = (WorkoutPlan & { _timelineType: "plan"; _timelineDate: string; _sortKey: string })
-    | (SessionData & { _timelineType: "session"; _timelineDate: string; _sortKey: string });
+  type TimelineItem = (WorkoutPlan & { _timelineType: "plan"; _timelineDate: string; _sortKey: string; _displayTime: string | null })
+    | (SessionData & { _timelineType: "session"; _timelineDate: string; _sortKey: string; _displayTime: string | null });
 
   const navigate = useNavigate();
 
@@ -665,12 +665,17 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
 
       const attSummary = getAttendanceSummary(
         plansData.map((p) => ({ date: p.date ?? "", title: p.title ?? "", is_completed: p.is_completed ?? false, session_id: p.session_id ?? null })),
-        sessionsData.map((s) => ({ id: s.id, date: s.date, name: s.notes, createdAt: s.createdAt })),
+        sessionsData.map((s) => ({ id: s.id, date: s.date, name: s.notes, createdAt: s.createdAt, status: s.status })),
       );
-      const planItems = plansData.map((p) => ({ ...p, _timelineType: "plan" as const, _timelineDate: p.date ?? "", _sortKey: p.created_at ?? p.date ?? "" }));
+      const planItems = plansData
+        .filter((p) => (Array.isArray(p.exercises) && (p.exercises as any[]).length > 0) || p.session_id != null)
+        .map((p) => {
+          const linked = p.session_id ? sessionsData.find(s => s.id === p.session_id) : null;
+          return { ...p, _timelineType: "plan" as const, _timelineDate: p.date ?? "", _sortKey: p.date ?? "", _displayTime: linked?.startedAt ?? null };
+        });
       const sessionItems = sessionsData
         .filter((s) => !attSummary.matchedSessionIds.has(s.id))
-        .map((s) => ({ ...s, _timelineType: "session" as const, _timelineDate: s.date, _sortKey: s.startedAt ?? s.createdAt }));
+        .map((s) => ({ ...s, _timelineType: "session" as const, _timelineDate: s.date, _sortKey: s.startedAt ?? s.createdAt, _displayTime: s.startedAt ?? s.createdAt }));
       console.log('[Timeline]', {
         totalPlans: plansData.length,
         totalSessions: sessionsData.length,
@@ -837,7 +842,7 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
   });
 
   const attendanceSessions: WorkoutSessionLike[] = sessions.map((s) => ({
-    id: s.id, date: s.date, name: s.notes, createdAt: s.createdAt,
+    id: s.id, date: s.date, name: s.notes, createdAt: s.createdAt, status: s.status,
   }));
 
   if (!athlete) return null;
@@ -888,8 +893,18 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
   };
 
   const getPlanStatus = (plan: WorkoutPlan) => {
+    // Resolve direct session link first — a missed session means the plan is missed.
+    if (plan.session_id) {
+      const linked = sessions.find(s => s.id === plan.session_id);
+      if (linked?.status === 'missed') {
+        const planDate = parseISO(plan.date ?? "");
+        return isPast(planDate) && !isToday(planDate) ? "missed" : "pending";
+      }
+      if (linked) return "completed";
+    }
+    if (plan.is_completed) return "completed";
     const matched = findMatchingSessionForPlan({ date: plan.date ?? "", title: plan.title ?? "" }, attendanceSessions);
-    if (plan.is_completed || matched) return "completed";
+    if (matched) return "completed";
     const planDate = parseISO(plan.date ?? "");
     if (isPast(planDate) && !isToday(planDate)) return "missed";
     return "pending";
@@ -929,6 +944,7 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
               date: item.date ?? "",
               createdAt: item.created_at ?? "",
               startedAt: null,
+              status: null,
               exercises: [],
             };
             setSelectedSession(applyPlanTargets(planSession, item));
@@ -1045,6 +1061,9 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
                             if (item._timelineType === "plan") {
                               const status = getPlanStatus(item);
                               const exCount = Array.isArray(item.exercises) ? (item.exercises as any[]).length : 0;
+                              const planTimeLabel = item._displayTime
+                                ? new Date(item._displayTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+                                : null;
                               return (
                                 <div
                                   key={`plan-${item.id}`}
@@ -1057,7 +1076,7 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
                                   <div className="flex-1 min-w-0">
                                     <p className="text-xs font-medium truncate">{item.title}</p>
                                     <p className="text-xs text-muted-foreground">
-                                      {`${item.coach_id ? "Assigned by coach" : "Self-completed"} · ${exCount} exercise${exCount !== 1 ? "s" : ""}`}
+                                      {`${item.coach_id ? "Assigned by coach" : "Self-completed"} · ${exCount} exercise${exCount !== 1 ? "s" : ""}${planTimeLabel ? ` · ${planTimeLabel}` : ""}`}
                                     </p>
                                   </div>
                                   {status === "completed" ? (
@@ -1083,6 +1102,9 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
                               .filter((n) => n && n.trim().length > 0);
                             const sessionTitle = item.notes || "Self-completed workout";
                             const dropoff = row?.velocityDropoffPct ?? null;
+                            const sessionTimeLabel = item._displayTime
+                              ? new Date(item._displayTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+                              : null;
                             return (
                               <div
                                 key={`session-${item.id}`}
@@ -1095,10 +1117,13 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
                                 <div className="flex-1 min-w-0">
                                   <p className="text-xs font-medium truncate">{sessionTitle}</p>
                                   <p className="text-xs text-muted-foreground truncate">
-                                    {`Self-completed · ${exNames.length} exercise${exNames.length !== 1 ? "s" : ""}`}
+                                    {`Self-completed · ${exNames.length} exercise${exNames.length !== 1 ? "s" : ""}${sessionTimeLabel ? ` · ${sessionTimeLabel}` : ""}`}
                                   </p>
                                 </div>
-                                <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                                {item.status === "missed"
+                                  ? <AlertCircle className="h-4 w-4 text-red-400 shrink-0" />
+                                  : <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                                }
                                 <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0 group-hover:text-muted-foreground transition-colors" />
                               </div>
                             );

@@ -10,6 +10,7 @@ export interface WorkoutSessionLike {
   date: string;
   name?: string | null;
   createdAt?: string | null;
+  status?: string | null;
 }
 
 export interface AttendanceSummary {
@@ -31,7 +32,7 @@ export const findMatchingSessionForPlan = (
   excludedSessionIds: Set<string> = new Set()
 ) => {
   const sameDaySessions = sessions
-    .filter((session) => session.date === plan.date && !excludedSessionIds.has(session.id))
+    .filter((session) => session.date === plan.date && !excludedSessionIds.has(session.id) && session.status !== 'missed')
     .sort((a, b) => {
       // Always prefer latest completion when multiple same-day sessions exist.
       const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
@@ -66,9 +67,16 @@ export const getWorkoutPlanStatus = (
   sessions: WorkoutSessionLike[],
   today = new Date()
 ) => {
-  const linkedDirectly = plan.session_id != null;
-  if (plan.is_completed || linkedDirectly || findMatchingSessionForPlan(plan, sessions) !== null) {
-    return 'completed';
+  const linkedSession = plan.session_id != null
+    ? (sessions.find(s => s.id === plan.session_id) ?? null)
+    : null;
+
+  // A directly linked session recorded as 'missed' means the athlete did not
+  // complete the workout — the plan should surface as missed, not completed.
+  if (linkedSession?.status !== 'missed') {
+    if (plan.is_completed || linkedSession != null || findMatchingSessionForPlan(plan, sessions) !== null) {
+      return 'completed';
+    }
   }
 
   const planDate = new Date(`${plan.date}T00:00:00`);
@@ -108,6 +116,12 @@ export const getAttendanceSummary = (
     }
 
     missedPlanCount += 1;
+    // Absorb the directly linked session so it doesn't appear as a standalone
+    // session item — the plan entry already represents this event in the timeline.
+    if (plan.session_id) {
+      const linked = sessions.find(s => s.id === plan.session_id && !matchedSessionIds.has(s.id));
+      if (linked) matchedSessionIds.add(linked.id);
+    }
   });
 
   const selfLoggedCompletedCount = sessions.filter(

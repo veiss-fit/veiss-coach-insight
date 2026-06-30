@@ -79,25 +79,36 @@ export const sendWorkoutPlan = async (
     }
 
     // Resolve player_ids → auth user_ids via profiles, then push directly
-    const { data: profiles } = await supabase
+    const { data: profiles, error: profilesError } = await supabase
       .from('profiles')
       .select('id')
       .in('player_id', playerIds);
 
+    if (profilesError) console.error('Profiles lookup failed:', profilesError);
     const userIds = (profiles || []).map((p: any) => p.id);
+    if (userIds.length === 0) console.warn('No auth user IDs resolved — no notifications will be sent');
 
-    await Promise.allSettled(
+    const pushResults = await Promise.allSettled(
       userIds.map((userId: string) =>
         supabase.functions.invoke('send-push-notification', {
           body: {
             userId,
-            title: 'New workout assigned',
-            body: `${planData.workoutName} has been added to your schedule`,
+            title: 'New Workout Assigned',
+            body: 'Your coach has assigned you a new workout.',
             data: { type: 'workout_plan', screen: 'Workout' },
           },
         })
       )
     );
+    pushResults.forEach((r, i) => {
+      if (r.status === 'rejected') {
+        console.error(`Push network error for userId ${userIds[i]}:`, r.reason);
+      } else if (r.value?.error) {
+        console.error(`Push function error for userId ${userIds[i]}:`, r.value.error);
+      } else {
+        console.log(`✅ Push sent for userId ${userIds[i]}`);
+      }
+    });
 
     return { success: true, count: data?.length || 0 };
   } catch (error: any) {

@@ -68,6 +68,19 @@ export const sendMessage = async (
       return { success: false, count: 0, error: error.message };
     }
 
+    await Promise.allSettled(
+      receiverUserIds.map((userId: string) =>
+        supabase.functions.invoke('send-push-notification', {
+          body: {
+            userId,
+            title: title ?? 'New Announcement',
+            body: message,
+            data: { type: 'announcement', screen: 'Announcements' },
+          },
+        })
+      )
+    );
+
     return { success: true, count: data?.length || 0 };
   } catch (error: any) {
     console.error('Error in sendMessage:', error);

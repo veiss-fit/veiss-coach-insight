@@ -1,5 +1,4 @@
 import { useState, useMemo, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { TopNav } from "@/components/TopNav";
 import { StatCard } from "@/components/StatCard";
@@ -7,8 +6,7 @@ import { AthleteTable } from "@/components/AthleteTable";
 import { AthleteDetailPanel } from "@/components/AthleteDetailPanel";
 import { FilterSidebar } from "@/components/FilterSidebar";
 import { AnnouncementBuilder } from "@/components/AnnouncementBuilder";
-import { Button } from "@/components/ui/button";
-import { Users, UserCheck, Layers, Send, CalendarDays, Megaphone } from "lucide-react";
+import { Users, UserCheck, Layers, CalendarDays } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { getPlayersWithStatsByCoach, getCoachTeamIds, PlayerWithStats } from "@/services/playersService";
 import { getCoachDashboardStats, DashboardStats } from "@/services/statsService";
@@ -18,7 +16,6 @@ import { TemplateManager } from '@/components/TemplateManager';
 import { LoadingOverlay } from '@/components/ui/LoadingOverlay';
 
 const Index = () => {
-  const navigate = useNavigate();
   const { profile, user, loading: authLoading } = useAuth();
   const [selectedAthlete, setSelectedAthlete] = useState<PlayerWithStats | null>(null);
   const [announcementBuilderOpen, setAnnouncementBuilderOpen] = useState(false);
@@ -178,12 +175,15 @@ const Index = () => {
   */
 
   return (
-    <div className="min-h-screen bg-background">
-      <TopNav />
+    <div className="min-h-screen bg-gray-100">
+      <TopNav
+        onAnnouncementsClick={() => setAnnouncementBuilderOpen(true)}
+        onCreateTemplateClick={() => setIsTemplateBuilderOpen(true)}
+      />
 
       <div className="flex">
         {/* Sidebar */}
-        <aside className="w-80 p-6 border-r border-border bg-background">
+        <aside className="w-80 p-6 border-r border-border bg-white">
           <FilterSidebar
             teamFilter={teamFilter}
             onTeamChange={setTeamFilter}
@@ -194,27 +194,6 @@ const Index = () => {
         {/* Main Content */}
         <main className="flex-1 p-6 space-y-6">
           <LoadingOverlay isLoading={loading} fullScreen message="Loading dashboard..." />
-          {/* Action Buttons */}
-          <div className="flex justify-end gap-2">
-            <Button 
-              variant="outline"
-              onClick={() => setAnnouncementBuilderOpen(true)}
-            >
-              <Megaphone className="h-4 w-4 mr-2" />
-              Announcements
-            </Button>
-            <Button variant="outline" onClick={() => setIsTemplateBuilderOpen(true)}>
-              <Layers className="h-4 w-4 mr-2" />
-              Create Template
-            </Button>
-            <Button
-              onClick={() => navigate('/send-programming')}
-              className="bg-primary text-navy-dark hover:bg-primary/90"
-            >
-              <Send className="h-4 w-4 mr-2" />
-              Send Programming
-            </Button>
-          </div>
 
           {/* Overview Stats */}
           <div>
