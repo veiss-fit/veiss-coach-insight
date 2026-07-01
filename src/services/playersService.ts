@@ -16,8 +16,9 @@ export interface PlayerWithStats extends Player {
   engagement: 'High' | 'Moderate' | 'Low';
   
   // ✅ PHASE 22 NEW METRICS
-  avgROM: number;   
-  avgTempo: number; 
+  avgROM: number;
+  avgTempo: number;
+  lastWorkout: { name: string; date: string } | null;
 
   // For compatibility with existing UI components
   sport: string;
@@ -213,7 +214,7 @@ export const getPlayersByTeamId = async (teamId: string): Promise<PlayerWithStat
       .single() as { data: { user_id: string | null } | null; error: any };
 
     if (playerError || !player) {
-      return { avgVelocity: 0, attendance: 0, loadRec: 'New', engagement: 'Moderate' as const, avgROM: 0, avgTempo: 0 };
+      return { avgVelocity: 0, attendance: 0, loadRec: 'New', engagement: 'Moderate' as const, avgROM: 0, avgTempo: 0, lastWorkout: null };
     }
 
     const { data: workoutPlans } = await supabase
@@ -229,6 +230,13 @@ export const getPlayersByTeamId = async (teamId: string): Promise<PlayerWithStat
           .select('id, created_at, name')
           .in('user_id', sessionOwnerIds)
       : { data: [] as Pick<Session, 'id' | 'created_at' | 'name'>[] };
+
+    const lastSession = (allSessions ?? [])
+      .filter(s => s.created_at)
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0] ?? null;
+    const lastWorkout = lastSession
+      ? { name: lastSession.name ?? '', date: lastSession.created_at }
+      : null;
 
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -293,13 +301,14 @@ export const getPlayersByTeamId = async (teamId: string): Promise<PlayerWithStat
       avgVelocity,
       attendance,
       loadRec,
-      avgROM,      // NEW
-      avgTempo,    // NEW
+      avgROM,
+      avgTempo,
+      lastWorkout,
       engagement: (attendance >= 90 && avgVelocity >= 0.7) ? 'High' : 'Moderate',
     };
   } catch (error) {
     console.error(error);
-    return { avgVelocity: 0, attendance: 0, loadRec: 'Error', engagement: 'Low' as const, avgROM: 0, avgTempo: 0 };
+    return { avgVelocity: 0, attendance: 0, loadRec: 'Error', engagement: 'Low' as const, avgROM: 0, avgTempo: 0, lastWorkout: null };
   }
 };
 

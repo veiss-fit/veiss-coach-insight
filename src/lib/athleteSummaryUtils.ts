@@ -19,6 +19,7 @@ export interface DeviationIndicator {
   baseline: number | null;
   stdDev: number | null;
   deltaPercent: number | null;
+  latestValue: number | null;
   ragStatus: RAGStatus;
   unit: string;
   formatFn: (v: number) => string;
@@ -31,6 +32,7 @@ export interface DeviationIndicator {
 export interface SparklinePoint {
   date: string;
   value: number;
+  sessionId: string;
 }
 
 export interface SparklineData {
@@ -224,6 +226,7 @@ function buildIndicator(
     return {
       label, metric,
       value: null, baseline: null, stdDev: null, deltaPercent: null,
+      latestValue: null,
       ragStatus: "insufficient",
       unit, formatFn, ...opts,
     };
@@ -256,6 +259,7 @@ function buildIndicator(
   return {
     label, metric,
     value: recentMean, baseline: baselineMean, stdDev: baselineSd, deltaPercent,
+    latestValue: allValues[allValues.length - 1] ?? null,
     ragStatus, unit, formatFn, ...opts,
   };
 }
@@ -335,7 +339,7 @@ export function computeSparkline(
     .map((s) => {
       const v = extractFn(s);
       if (v === null) return null;
-      return { date: format(parseISO(s.date), "MMM d"), value: v };
+      return { date: format(parseISO(s.date), "MMM d"), value: v, sessionId: s.id };
     })
     .filter((p): p is SparklinePoint => p !== null);
 
@@ -344,6 +348,37 @@ export function computeSparkline(
   }
 
   return { points, mean: arrayMean(points.map((p) => p.value)), insufficient: false };
+}
+
+export const HIGHER_IS_BETTER: Record<string, boolean> = {
+  velocity: true,
+  withinSetDropoff: false,
+  sessionFatigue: false,
+  tempo: false,
+  volume: true,
+};
+
+export function computeTrendLabel(
+  points: SparklinePoint[],
+  higherIsBetter: boolean,
+): { label: string; direction: 'improving' | 'declining' | 'stable'; consecutiveCount: number } {
+  if (points.length < 3) return { label: 'Not enough data', direction: 'stable', consecutiveCount: 0 };
+  const last3 = points.slice(-3);
+  const deltas = [last3[1].value - last3[0].value, last3[2].value - last3[1].value];
+  const threshold = 0.005;
+  const directions = deltas.map(d => Math.abs(d) < threshold ? 'stable' : d > 0 ? 'up' : 'down');
+  let consecutive = 1;
+  for (let i = points.length - 2; i >= 0; i--) {
+    const d = points[i + 1].value - points[i].value;
+    const dir = Math.abs(d) < threshold ? 'stable' : d > 0 ? 'up' : 'down';
+    if (dir === directions[1]) consecutive++;
+    else break;
+  }
+  const lastDir = directions[1];
+  const improving = higherIsBetter ? lastDir === 'up' : lastDir === 'down';
+  if (lastDir === 'stable') return { label: 'Stable', direction: 'stable', consecutiveCount: consecutive };
+  if (improving) return { label: `Improving ${consecutive} session${consecutive > 1 ? 's' : ''}`, direction: 'improving', consecutiveCount: consecutive };
+  return { label: `Declining ${consecutive} session${consecutive > 1 ? 's' : ''}`, direction: 'declining', consecutiveCount: consecutive };
 }
 
 // First-rep trend uses ALL sessions (not a fixed window) and has no mean reference —

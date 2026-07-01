@@ -54,7 +54,7 @@ export const FilterSidebar = ({
   return (
     <div className="space-y-4">
       {/* Management Card */}
-      <Card className="bg-white border-border">
+      <Card className="bg-[#fbfbfc] border-border">
         <CardHeader>
           <CardTitle className="text-navy-dark flex items-center gap-2">
             <Users className="h-5 w-5" />
@@ -85,7 +85,7 @@ export const FilterSidebar = ({
       </Card>
 
       {/* Filters Card */}
-      <Card className="bg-white border-border">
+      <Card className="bg-[#fbfbfc] border-border">
         <CardHeader>
           <CardTitle className="text-navy-dark">Filters</CardTitle>
         </CardHeader>

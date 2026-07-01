@@ -17,7 +17,7 @@ export const StatCard = ({ title, value, icon: Icon, status, subtitle }: StatCar
   };
 
   return (
-    <Card className="bg-card border-border hover:border-gold transition-colors">
+    <Card className="bg-[#fbfbfc] border-border hover:border-gold transition-colors">
       <CardContent className="p-6">
         <div className="flex items-center justify-between gap-4">
           <div className="space-y-1 min-w-0">

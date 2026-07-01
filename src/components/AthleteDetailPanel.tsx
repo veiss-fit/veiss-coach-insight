@@ -31,6 +31,8 @@ import {
   computeAnomalyIndicators,
   computeSparkline,
   computeRecentSessions,
+  computeTrendLabel,
+  HIGHER_IS_BETTER,
   sessionAvgVelocity,
   sessionWithinSetDropoff,
   sessionVelocityDropoff,
@@ -47,7 +49,7 @@ interface AthleteDetailPanelProps {
   onClose: () => void;
 }
 
-type ModalView = "summary" | "session-detail";
+type ModalView = "summary" | "session-detail" | "metric-detail";
 type TimeWindow = "1W" | "4W" | "8W";
 type RagFlag = "ok" | "warn" | "alert" | "neutral";
 type ReadinessStatus = "ready" | "monitor" | "flag";
@@ -221,9 +223,9 @@ function LastSessionCard({ session }: { session: SessionData }) {
   const crossExercise = exerciseNames.length > 1;
 
   return (
-    <div className="rounded-xl border bg-white px-5 py-4">
+    <div className="rounded-xl px-5 py-4" style={{ backgroundColor: '#eef1f6', border: '1px solid rgba(7,16,31,0.06)', borderLeft: '4px solid #f5b400' }}>
       <div className="flex items-center justify-between mb-2.5">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Last Session</p>
+        <p className="text-[10px] font-semibold uppercase tracking-[0.06em]" style={{ color: '#205783' }}>Last Session</p>
         <p className="text-xs text-muted-foreground">{format(parseISO(session.date), "MMM d, yyyy")}</p>
       </div>
       <p className="text-sm font-medium text-foreground leading-snug mb-3">
@@ -232,7 +234,7 @@ function LastSessionCard({ session }: { session: SessionData }) {
       <div className="flex items-center gap-5 flex-wrap">
         <span className="text-xs text-muted-foreground">{totalSets}s · {totalReps}r</span>
         <div className="flex items-center gap-1">
-          <span className="text-sm font-semibold">
+          <span className="text-sm font-semibold" style={{ color: '#c48a00' }}>
             {avgVel !== null ? `${avgVel.toFixed(2)} m/s` : "—"}
           </span>
           {crossExercise && avgVel !== null && (
@@ -262,43 +264,65 @@ function LastSessionCard({ session }: { session: SessionData }) {
 function DeviationSparklines({
   indicators,
   sparklines,
+  onCardClick,
 }: {
   indicators: DeviationIndicator[];
   sparklines: Record<string, SparklineData>;
+  onCardClick: (ind: DeviationIndicator, sparkline: SparklineData) => void;
 }) {
   return (
     <div>
-      <p className="text-sm font-semibold mb-3">Deviation Trends (last 8 sessions)</p>
+      <p className="text-sm font-semibold mb-3" style={{ color: '#071c32' }}>Deviation Trends (last 8 sessions)</p>
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         {indicators.map((ind) => {
           const sparkline = sparklines[ind.metric];
+          const trendLabel = sparkline && !sparkline.insufficient
+            ? computeTrendLabel(sparkline.points, HIGHER_IS_BETTER[ind.metric] ?? true)
+            : null;
           return (
-            <div key={ind.metric} className="rounded-xl border bg-white p-3">
-              <div className="flex items-start justify-between mb-2">
-                <div className="flex items-center min-w-0">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground truncate">
+            <div
+              key={ind.metric}
+              className="rounded-xl p-3 cursor-pointer transition-all hover:shadow-md"
+              style={{ backgroundColor: '#f8f9fb', border: '1px solid rgba(7,16,31,0.06)' }}
+              onClick={() => onCardClick(ind, sparkline)}
+            >
+              {/* Header row */}
+              <div className="flex items-start justify-between mb-1">
+                <div className="flex items-center min-w-0 gap-1">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.06em] truncate" style={{ color: '#205783' }}>
                     {ind.label}
                   </p>
                   {ind.tooltip && <InfoTooltip tooltip={ind.tooltip} />}
                 </div>
-                {ind.ragStatus !== "insufficient" && (
+                {ind.ragStatus !== 'insufficient' && (
                   <div className={cn(
-                    "w-2 h-2 rounded-full shrink-0 mt-0.5 ml-1.5",
-                    ind.ragStatus === "red"    ? "bg-red-500"
-                    : ind.ragStatus === "amber" ? "bg-amber-500"
-                    : "bg-muted-foreground/25",
+                    'w-2 h-2 rounded-full shrink-0 mt-0.5 ml-1.5',
+                    ind.ragStatus === 'red' ? 'bg-red-500'
+                    : ind.ragStatus === 'amber' ? 'bg-amber-500'
+                    : 'bg-green-500',
                   )} />
                 )}
               </div>
-              {!sparkline || sparkline.insufficient ? (
-                <div className="h-14 flex items-center justify-center">
-                  <p className="text-[10px] text-muted-foreground italic">Not enough data</p>
-                </div>
-              ) : (
-                <ResponsiveContainer width="100%" height={56}>
+              {/* Current value */}
+              <p className="text-lg font-bold mb-0.5" style={{ color: '#071c32' }}>
+                {ind.latestValue !== null ? ind.formatFn(ind.latestValue) : '—'}
+              </p>
+              {/* Delta */}
+              {ind.deltaPercent !== null && (
+                <p className="text-[10px] font-semibold mb-2" style={{
+                  color: ind.ragStatus === 'red' ? '#c2410c'
+                    : ind.ragStatus === 'amber' ? '#d97706'
+                    : '#1f8a5b',
+                }}>
+                  {ind.deltaPercent > 0 ? '+' : ''}{ind.deltaPercent.toFixed(1)}% vs baseline
+                </p>
+              )}
+              {/* Sparkline */}
+              {sparkline && !sparkline.insufficient ? (
+                <ResponsiveContainer width="100%" height={48}>
                   <LineChart data={sparkline.points} margin={{ top: 4, right: 2, left: 2, bottom: 0 }}>
                     <XAxis dataKey="date" hide />
-                    <YAxis hide domain={["auto", "auto"]} />
+                    <YAxis hide domain={['auto', 'auto']} />
                     {sparkline.mean !== null && (
                       <ReferenceLine
                         y={sparkline.mean}
@@ -309,8 +333,8 @@ function DeviationSparklines({
                       />
                     )}
                     <Tooltip
-                      contentStyle={{ fontSize: 10, borderRadius: 4, border: "1px solid hsl(var(--border))", padding: "2px 6px" }}
-                      formatter={(v: number) => [`${ind.formatFn(v)}`, ind.label]}
+                      contentStyle={{ fontSize: 10, borderRadius: 4, border: '1px solid rgba(7,16,31,0.06)', padding: '2px 6px' }}
+                      formatter={(v: number) => [ind.formatFn(v), ind.label]}
                       labelFormatter={(l: string) => l}
                     />
                     <Line
@@ -323,6 +347,22 @@ function DeviationSparklines({
                     />
                   </LineChart>
                 </ResponsiveContainer>
+              ) : (
+                <div className="h-12 flex items-center justify-center">
+                  <p className="text-[10px] text-muted-foreground italic">Not enough data</p>
+                </div>
+              )}
+              {/* Trend label */}
+              {trendLabel && trendLabel.direction !== 'stable' && (
+                <p className="text-[10px] font-medium mt-1" style={{
+                  color: trendLabel.direction === 'improving' ? '#1f8a5b' : '#c2410c',
+                }}>
+                  {trendLabel.label}
+                </p>
+              )}
+              {/* Click hint */}
+              {sparkline && !sparkline.insufficient && (
+                <p className="text-[9px] mt-1" style={{ color: '#8d95a4' }}>Tap to expand →</p>
               )}
             </div>
           );
@@ -635,6 +675,11 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
   const [timeWindow, setTimeWindow]           = useState<TimeWindow>("4W");
   const [selectedPlan, setSelectedPlan]       = useState<WorkoutPlan | null>(null);
   const [selectedSession, setSelectedSession] = useState<SessionData | null>(null);
+  const [selectedMetric, setSelectedMetric]   = useState<{
+    indicator: DeviationIndicator;
+    sparkline: SparklineData;
+    trendLabel: ReturnType<typeof computeTrendLabel>;
+  } | null>(null);
   const [modalView, setModalView]             = useState<ModalView>("summary");
   const dialogScrollRef                       = useRef<HTMLDivElement>(null);
 
@@ -643,6 +688,7 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
       setTimeWindow("4W");
       setModalView("summary");
       setSelectedSession(null);
+      setSelectedMetric(null);
       loadData();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -835,6 +881,14 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
   const handleBackToSummary = useCallback(() => {
     setModalView("summary");
     setSelectedSession(null);
+    setSelectedMetric(null);
+  }, []);
+
+  const handleMetricCardClick = useCallback((ind: DeviationIndicator, sparkline: SparklineData) => {
+    if (!sparkline || sparkline.insufficient) return;
+    const trendLabel = computeTrendLabel(sparkline.points, HIGHER_IS_BETTER[ind.metric] ?? true);
+    setSelectedMetric({ indicator: ind, sparkline, trendLabel });
+    setModalView("metric-detail");
   }, []);
 
   const isActive = sessions.some((s) => {
@@ -984,29 +1038,32 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
             <LoadingOverlay isLoading={loading || sessionDetailLoading} message={sessionDetailLoading ? "Loading session…" : "Loading athlete data…"} />
 
             {modalView === "summary" ? (
-              <div className="sticky top-0 z-[1] bg-background flex items-start gap-4 px-6 pt-5 pb-4 border-b pr-14">
+              <div className="sticky top-0 z-[1] flex items-start gap-4 px-6 pt-5 pb-4 border-b pr-14" style={{ backgroundColor: '#071c32' }}>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <h2 className="text-xl font-semibold text-foreground leading-tight">{athlete.name}</h2>
-                    {athlete.group && (
-                      <Badge variant="secondary" className="text-xs font-medium">{athlete.group}</Badge>
-                    )}
-                    <Badge className={cn(
-                      "rounded-full px-2.5 py-0.5 text-xs font-medium border-0",
-                      isActive ? "bg-green-100 text-green-700" : "bg-muted text-muted-foreground",
-                    )}>
+                    <h2 className="text-xl font-semibold leading-tight" style={{ color: '#ffffff' }}>{athlete.name}</h2>
+                    <span style={isActive
+                      ? { backgroundColor: '#1f8a5b22', color: '#34c98a', borderRadius: 999, padding: '2px 8px', fontSize: 11, fontWeight: 500, display: 'inline-flex', alignItems: 'center', marginTop: 4 }
+                      : { backgroundColor: 'rgba(255,255,255,0.08)', color: '#9aa6ba', borderRadius: 999, padding: '2px 8px', fontSize: 11, fontWeight: 500, display: 'inline-flex', alignItems: 'center', marginTop: 4 }
+                    }>
                       {isActive ? "Active" : "Inactive"}
-                    </Badge>
+                    </span>
                   </div>
+                  {athlete.group && (
+                    <div className="mt-1">
+                      <Badge className="text-xs font-medium" style={{ backgroundColor: 'rgba(255,255,255,0.12)', color: '#ffffff', borderRadius: 999, padding: '2px 8px' }}>{athlete.group}</Badge>
+                    </div>
+                  )}
                   {kpi.lastSessionDate && (
-                    <p className="text-xs text-muted-foreground mt-1">Last session: {kpi.lastSessionDate}</p>
+                    <p className="text-xs mt-1" style={{ color: '#9aa6ba' }}>Last session: {kpi.lastSessionDate}</p>
                   )}
                 </div>
                 <button
                   onClick={() => loadData()}
                   disabled={loading}
                   title="Refresh athlete data"
-                  className="shrink-0 mt-0.5 p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-40"
+                  className="shrink-0 mt-0.5 p-1.5 rounded-md transition-colors disabled:opacity-40"
+                  style={{ color: '#9aa6ba' }}
                 >
                   <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
                 </button>
@@ -1023,7 +1080,9 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
                 <div className="w-px h-4 bg-border shrink-0" />
                 <div className="min-w-0">
                   <h2 className="text-base font-semibold text-foreground leading-tight truncate">
-                    {selectedSession ? format(parseISO(selectedSession.date), "MMMM d, yyyy") : "Session Detail"}
+                    {modalView === "session-detail" && selectedSession
+                      ? format(parseISO(selectedSession.date), "MMMM d, yyyy")
+                      : selectedMetric?.indicator.label ?? "Metric Detail"}
                   </h2>
                   <p className="text-xs text-muted-foreground mt-0.5">{athlete.name}</p>
                 </div>
@@ -1032,21 +1091,21 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
 
             {/* Body — isolation: isolate keeps positioned body descendants
                 (charts, badges) below the sticky header's stacking context */}
-            <div className="isolate px-6 py-5 space-y-6">
+            <div className="isolate px-6 py-5 space-y-6" style={{ backgroundColor: '#f6f7f9' }}>
 
                 {modalView === "summary" ? (
                   <>
                     {sessions.length > 0 && <LastSessionCard session={sessions[0]} />}
 
                     {sessionMetadata && (
-                      <p className="text-xs text-muted-foreground -mt-2">
+                      <p className="text-xs -mt-2" style={{ color: '#205783' }}>
                         {sessionMetadata.count} session{sessionMetadata.count !== 1 ? "s" : ""}{" "}
                         · {sessionMetadata.activeWeeks} active week{sessionMetadata.activeWeeks !== 1 ? "s" : ""}{" "}
                         · First recorded {format(parseISO(sessionMetadata.firstDate), "MMM d, yyyy")}
                       </p>
                     )}
 
-                    <DeviationSparklines indicators={anomalyIndicators} sparklines={sparklineMap} />
+                    <DeviationSparklines indicators={anomalyIndicators} sparklines={sparklineMap} onCardClick={handleMetricCardClick} />
 
                     {/* ── Combined sessions + assigned plans list ───────── */}
                     <div>
@@ -1130,6 +1189,141 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
                           })}
                         </div>
                       )}
+                    </div>
+                  </>
+                ) : modalView === "metric-detail" && selectedMetric ? (
+                  <>
+                    {/* Metric header card */}
+                    <div className="rounded-xl px-5 py-4" style={{ backgroundColor: '#071c32', borderRadius: 12 }}>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.06em] mb-1" style={{ color: '#9aa6ba' }}>
+                        {selectedMetric.indicator.label}
+                      </p>
+                      <div className="flex items-end gap-4 flex-wrap">
+                        <div>
+                          <p className="text-3xl font-bold" style={{ color: '#f5b400' }}>
+                            {selectedMetric.indicator.latestValue !== null
+                              ? selectedMetric.indicator.formatFn(selectedMetric.indicator.latestValue)
+                              : '—'}
+                          </p>
+                          <p className="text-xs mt-0.5" style={{ color: '#9aa6ba' }}>Latest session</p>
+                        </div>
+                        <div>
+                          <p className="text-xl font-semibold" style={{ color: '#ffffff' }}>
+                            {selectedMetric.indicator.baseline !== null
+                              ? selectedMetric.indicator.formatFn(selectedMetric.indicator.baseline)
+                              : '—'}
+                          </p>
+                          <p className="text-xs mt-0.5" style={{ color: '#9aa6ba' }}>Baseline avg</p>
+                        </div>
+                        <div>
+                          <p className="text-xl font-semibold" style={{
+                            color: selectedMetric.indicator.ragStatus === 'red' ? '#f87171'
+                              : selectedMetric.indicator.ragStatus === 'amber' ? '#fbbf24'
+                              : '#34c98a',
+                          }}>
+                            {selectedMetric.indicator.deltaPercent !== null
+                              ? `${selectedMetric.indicator.deltaPercent > 0 ? '+' : ''}${selectedMetric.indicator.deltaPercent.toFixed(1)}%`
+                              : '—'}
+                          </p>
+                          <p className="text-xs mt-0.5" style={{ color: '#9aa6ba' }}>vs baseline</p>
+                        </div>
+                        <div className="ml-auto">
+                          <span className="px-3 py-1 rounded-full text-xs font-semibold" style={{
+                            backgroundColor: selectedMetric.trendLabel.direction === 'improving' ? '#1f8a5b22'
+                              : selectedMetric.trendLabel.direction === 'declining' ? '#ef444422'
+                              : 'rgba(255,255,255,0.08)',
+                            color: selectedMetric.trendLabel.direction === 'improving' ? '#34c98a'
+                              : selectedMetric.trendLabel.direction === 'declining' ? '#f87171'
+                              : '#9aa6ba',
+                          }}>
+                            {selectedMetric.trendLabel.label}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Full session-by-session chart */}
+                    <div className="rounded-xl px-5 py-4" style={{ backgroundColor: '#ffffff', border: '1px solid rgba(7,16,31,0.06)' }}>
+                      <p className="text-sm font-semibold mb-4" style={{ color: '#071c32' }}>Session history</p>
+                      <ResponsiveContainer width="100%" height={160}>
+                        <LineChart data={selectedMetric.sparkline.points}>
+                          <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#8d95a4' }} axisLine={false} tickLine={false} />
+                          <YAxis tick={{ fontSize: 10, fill: '#8d95a4' }} axisLine={false} tickLine={false} width={36} />
+                          <ReferenceLine
+                            y={selectedMetric.indicator.baseline ?? undefined}
+                            stroke="#205783"
+                            strokeDasharray="4 2"
+                            strokeWidth={1}
+                            opacity={0.6}
+                          />
+                          <Tooltip
+                            contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid rgba(7,16,31,0.06)', backgroundColor: '#ffffff' }}
+                            formatter={(val: number) => [selectedMetric.indicator.formatFn(val), selectedMetric.indicator.label]}
+                          />
+                          <Line
+                            dataKey="value"
+                            stroke="#f5b400"
+                            strokeWidth={2}
+                            dot={{ r: 3, fill: '#f5b400', strokeWidth: 0 }}
+                            activeDot={{ r: 5, fill: '#f5b400' }}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                      <p className="text-[10px] mt-2" style={{ color: '#8d95a4' }}>Dashed line = baseline average</p>
+                    </div>
+
+                    {/* Session-by-session table */}
+                    <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(7,16,31,0.06)' }}>
+                      <table className="w-full" style={{ borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr style={{ backgroundColor: '#f8f9fb', borderBottom: '1px solid rgba(7,16,31,0.06)' }}>
+                            {(['Session', 'Date', 'Value', 'vs Baseline'] as const).map(h => (
+                              <th key={h} style={{
+                                padding: '8px 14px', textAlign: 'left' as const,
+                                fontSize: 10.5, fontWeight: 600, color: '#8d95a4',
+                                letterSpacing: '0.07em', textTransform: 'uppercase' as const,
+                              }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {[...selectedMetric.sparkline.points].reverse().map((pt, i) => {
+                            const diff = selectedMetric.indicator.baseline !== null
+                              ? ((pt.value - selectedMetric.indicator.baseline) / selectedMetric.indicator.baseline) * 100
+                              : null;
+                            const isGood = HIGHER_IS_BETTER[selectedMetric.indicator.metric]
+                              ? (diff ?? 0) >= 0
+                              : (diff ?? 0) <= 0;
+                            return (
+                              <tr
+                                key={i}
+                                style={{ borderBottom: '1px solid rgba(7,16,31,0.06)', cursor: pt.sessionId ? 'pointer' : 'default' }}
+                                onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#f8f9fb')}
+                                onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
+                                onClick={() => {
+                                  if (pt.sessionId) {
+                                    handleTimelineItemClick({ id: pt.sessionId, _timelineType: 'session' } as any);
+                                  }
+                                }}
+                              >
+                                <td style={{ padding: '10px 14px', fontSize: 13, fontWeight: 500, color: '#07101f' }}>
+                                  {i === 0 ? 'Latest' : `Session -${i}`}
+                                </td>
+                                <td style={{ padding: '10px 14px', fontFamily: 'Inter', fontSize: 11, color: '#8d95a4' }}>
+                                  {pt.date}
+                                </td>
+                                <td style={{ padding: '10px 14px', fontFamily: 'Inter', fontSize: 13, fontWeight: 600, color: '#07101f' }}>
+                                  {selectedMetric.indicator.formatFn(pt.value)}
+                                </td>
+                                <td style={{ padding: '10px 14px', fontFamily: 'Inter', fontSize: 12, fontWeight: 500,
+                                  color: diff === null ? '#8d95a4' : isGood ? '#1f8a5b' : '#c2410c' }}>
+                                  {diff !== null ? `${diff > 0 ? '+' : ''}${diff.toFixed(1)}%` : '—'}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
                     </div>
                   </>
                 ) : (

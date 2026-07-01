@@ -48,6 +48,24 @@ const keyToDate = (key: string): Date => {
   return new Date(y, m - 1, d)
 }
 
+// ─── Card style shared across panels ─────────────────────────────────────────
+
+const CARD_STYLE: React.CSSProperties = {
+  backgroundColor: '#ffffff',
+  borderRadius: 12,
+  border: '1px solid rgba(7,16,31,0.06)',
+  boxShadow: '0 4px 12px rgba(7,16,31,0.05), 0 1px 0 rgba(7,16,31,0.02)',
+}
+
+const SECTION_HEADER_STYLE: React.CSSProperties = {
+  fontFamily: 'Inter',
+  fontSize: 13,
+  fontWeight: 600,
+  color: '#071c32',
+  marginBottom: 12,
+  display: 'block',
+}
+
 // ─── Drag-select calendar ─────────────────────────────────────────────────────
 
 const WEEK_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -61,8 +79,8 @@ const DragCalendar = ({ selected, onSelect }: DragCalendarProps) => {
   const [viewMonth, setViewMonth] = useState(() => startOfMonth(new Date()))
 
   const today = useMemo(() => startOfDay(new Date()), [])
+  const todayKey = useMemo(() => toKey(today), [today])
 
-  // Refs that survive re-renders without causing them
   const isDragging = useRef(false)
   const visitedKeys = useRef(new Set<string>())
   const workingDates = useRef<Date[]>([])
@@ -81,7 +99,6 @@ const DragCalendar = ({ selected, onSelect }: DragCalendarProps) => {
 
   const isPast = useCallback((d: Date) => isBefore(d, today), [today])
 
-  // Called once on mousedown/touchstart on a day cell
   const startDrag = useCallback(
     (date: Date, e: React.MouseEvent | React.TouchEvent) => {
       if (isPast(date)) return
@@ -91,11 +108,9 @@ const DragCalendar = ({ selected, onSelect }: DragCalendarProps) => {
       const key = toKey(date)
       visitedKeys.current = new Set([key])
 
-      // Snapshot current selection into working refs
       workingDates.current = [...selected]
       workingKeys.current = new Set(selected.map(toKey))
 
-      // Toggle: clicked date flips state
       if (workingKeys.current.has(key)) {
         workingDates.current = workingDates.current.filter(d => toKey(d) !== key)
         workingKeys.current.delete(key)
@@ -108,7 +123,6 @@ const DragCalendar = ({ selected, onSelect }: DragCalendarProps) => {
     [selected, isPast, onSelect]
   )
 
-  // Called as the cursor/finger moves over new cells during drag
   const addDateByKey = useCallback(
     (key: string) => {
       if (visitedKeys.current.has(key)) return
@@ -148,7 +162,6 @@ const DragCalendar = ({ selected, onSelect }: DragCalendarProps) => {
     [addDateByKey, keyAtPoint]
   )
 
-  // End drag on mouse/touch release anywhere on the page
   useEffect(() => {
     const end = () => {
       isDragging.current = false
@@ -172,29 +185,31 @@ const DragCalendar = ({ selected, onSelect }: DragCalendarProps) => {
           onClick={() => setViewMonth(m => subMonths(m, 1))}
           className="p-1.5 rounded-md hover:bg-muted transition-colors"
         >
-          <ChevronLeft className="h-4 w-4" />
+          <ChevronLeft className="h-4 w-4" style={{ color: '#8d95a4' }} />
         </button>
-        <span className="text-sm font-semibold">{format(viewMonth, 'MMMM yyyy')}</span>
+        <span style={{ fontFamily: 'Inter', fontWeight: 600, color: '#071c32', fontSize: 15 }}>
+          {format(viewMonth, 'MMMM yyyy')}
+        </span>
         <button
           type="button"
           aria-label="Next month"
           onClick={() => setViewMonth(m => addMonths(m, 1))}
           className="p-1.5 rounded-md hover:bg-muted transition-colors"
         >
-          <ChevronRight className="h-4 w-4" />
+          <ChevronRight className="h-4 w-4" style={{ color: '#8d95a4' }} />
         </button>
       </div>
 
       {/* Day-of-week headers */}
       <div className="grid grid-cols-7 mb-1">
         {WEEK_DAYS.map(d => (
-          <div key={d} className="text-center text-xs text-muted-foreground font-medium py-1">
+          <div key={d} className="text-center py-1" style={{ color: '#205783', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
             {d}
           </div>
         ))}
       </div>
 
-      {/* Day grid — mouse/touch handlers on the container for fast movement */}
+      {/* Day grid */}
       <div
         className="grid grid-cols-7 gap-0.5"
         onMouseMove={handleMouseMove}
@@ -206,6 +221,13 @@ const DragCalendar = ({ selected, onSelect }: DragCalendarProps) => {
           const inMonth = isSameMonth(day, viewMonth)
           const past = isPast(day)
           const sel = selectedKeys.has(key)
+          const isToday = key === todayKey
+
+          const dayStyle: React.CSSProperties = sel
+            ? { backgroundColor: '#fff4cc', color: '#6b4d00', borderRadius: 999, border: '1.5px solid #f5b400', fontWeight: 600 }
+            : isToday
+            ? { backgroundColor: '#f5b400', color: '#6b4d00', borderRadius: 999, fontWeight: 600 }
+            : {}
 
           return (
             <div
@@ -213,13 +235,13 @@ const DragCalendar = ({ selected, onSelect }: DragCalendarProps) => {
               data-date={key}
               onMouseDown={e => startDrag(day, e)}
               onTouchStart={e => startDrag(day, e)}
+              style={dayStyle}
               className={cn(
-                'flex items-center justify-center rounded-md h-10 text-sm transition-colors',
+                'flex items-center justify-center h-10 text-sm transition-colors',
                 past ? 'opacity-25 cursor-not-allowed' : 'cursor-pointer',
-                !inMonth && !sel && 'text-muted-foreground/40',
-                sel
-                  ? 'bg-primary text-primary-foreground font-semibold'
-                  : !past && 'hover:bg-muted'
+                !inMonth && !sel && !isToday && 'text-muted-foreground/40',
+                !sel && !isToday && !past && 'hover:bg-muted rounded-md',
+                !sel && !isToday && 'rounded-md',
               )}
             >
               {format(day, 'd')}
@@ -376,7 +398,6 @@ const SendProgramming = () => {
 
     try {
       setSending(true)
-      // If the coach never opened the exercise editor, derive exercises from selected templates
       const effectiveExercises = exercises.length > 0
         ? exercises
         : selectedTemplateIds.flatMap(id => {
@@ -426,99 +447,107 @@ const SendProgramming = () => {
   // ─────────────────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      <TopNav />
+    <div className="min-h-screen bg-[#f6f7f9] flex flex-col">
+      <TopNav
+        onAnnouncementsClick={() => {}}
+        onCreateTemplateClick={() => {}}
+      />
       <LoadingOverlay isLoading={loading} fullScreen message="Loading data..." />
       <LoadingOverlay isLoading={sending} fullScreen message="Sending programming..." />
 
       <main className="flex-1 w-full max-w-[1440px] mx-auto px-10 py-10">
         {/* Page header */}
         <div className="mb-10">
-          <h1 className="text-3xl font-bold flex items-center gap-3">
-            <Send className="h-7 w-7 text-primary" />
-            Send Programming
-          </h1>
-          <p className="text-muted-foreground mt-1.5 text-sm">
-            Assign programming to athletes across one or more dates
-          </p>
+          <div style={{ borderLeft: '4px solid #f5b400', paddingLeft: 16 }}>
+            <h1 className="text-3xl" style={{ color: '#071c32', fontWeight: 700 }}>Send Programming</h1>
+            <p className="mt-1.5 text-sm" style={{ color: '#5b6577' }}>
+              Assign programming to athletes across
+              <span style={{ color: '#205783' }}> one or more dates</span>
+            </p>
+          </div>
         </div>
 
         {/* Two-panel grid */}
         <div className="grid grid-cols-[440px_1fr] gap-12 items-start">
 
-          {/* ── Left panel: Program name + calendar ── */}
-          <div className="space-y-8">
-            <div className="space-y-2">
-              <Label htmlFor="programName" className="text-sm font-semibold">
-                Program Name <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="programName"
-                placeholder="e.g., Spring Phase 1"
-                value={workoutName}
-                onChange={e => setWorkoutName(e.target.value)}
-                className="h-10"
-              />
+          {/* ── Left panel ── */}
+          <div className="space-y-4">
+
+            {/* Program Name card */}
+            <div style={{ ...CARD_STYLE, padding: 20 }}>
+              <div className="space-y-2">
+                <Label htmlFor="programName" style={{ color: '#071c32', fontWeight: 600 }}>
+                  Program Name <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="programName"
+                  placeholder="e.g., Spring Phase 1"
+                  value={workoutName}
+                  onChange={e => setWorkoutName(e.target.value)}
+                  className="h-10"
+                />
+              </div>
             </div>
 
-            <div className="space-y-3">
-              <div>
-                <Label className="text-sm font-semibold">
-                  Schedule Dates <span className="text-destructive">*</span>
-                </Label>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Click to toggle · Hold and drag to select multiple
-                </p>
-              </div>
-
-              <div className="border rounded-xl p-5 bg-card shadow-sm">
-                <DragCalendar selected={selectedDates} onSelect={setSelectedDates} />
-              </div>
-
-              {selectedDates.length > 0 && (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-muted-foreground">
-                      {selectedDates.length} date{selectedDates.length !== 1 ? 's' : ''} selected
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedDates([])}
-                      className="text-xs text-muted-foreground hover:text-destructive transition-colors"
-                    >
-                      Clear all
-                    </button>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {[...selectedDates]
-                      .sort((a, b) => a.getTime() - b.getTime())
-                      .map(d => (
-                        <Badge
-                          key={toKey(d)}
-                          variant="secondary"
-                          className="text-xs cursor-pointer select-none hover:bg-destructive/20 hover:text-destructive"
-                          onClick={() =>
-                            setSelectedDates(prev => prev.filter(x => toKey(x) !== toKey(d)))
-                          }
-                        >
-                          {format(d, 'MMM d')} ×
-                        </Badge>
-                      ))}
-                  </div>
+            {/* Schedule Dates card */}
+            <div style={{ ...CARD_STYLE, padding: 20 }}>
+              <div className="space-y-3">
+                <div>
+                  <Label style={{ color: '#071c32', fontWeight: 600 }}>
+                    Schedule Dates <span className="text-destructive">*</span>
+                  </Label>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Click to toggle · Hold and drag to select multiple
+                  </p>
                 </div>
-              )}
+
+                <DragCalendar selected={selectedDates} onSelect={setSelectedDates} />
+
+                {selectedDates.length > 0 && (
+                  <div className="space-y-2 pt-2 border-t border-border/50">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        {selectedDates.length} date{selectedDates.length !== 1 ? 's' : ''} selected
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedDates([])}
+                        className="text-xs text-muted-foreground hover:text-destructive transition-colors"
+                      >
+                        Clear all
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {[...selectedDates]
+                        .sort((a, b) => a.getTime() - b.getTime())
+                        .map(d => (
+                          <Badge
+                            key={toKey(d)}
+                            variant="secondary"
+                            className="text-xs cursor-pointer select-none hover:bg-destructive/20 hover:text-destructive"
+                            onClick={() =>
+                              setSelectedDates(prev => prev.filter(x => toKey(x) !== toKey(d)))
+                            }
+                          >
+                            {format(d, 'MMM d')} ×
+                          </Badge>
+                        ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
           {/* ── Right panel ── */}
-          <div className="space-y-6">
+          <div className="space-y-4">
 
-            {/* Box 1: Templates + Exercise accordion */}
-            <div className="border rounded-xl overflow-hidden shadow-sm">
+            {/* Box 1: Templates + Exercises */}
+            <div style={{ ...CARD_STYLE, overflow: 'hidden' }}>
 
-              {/* Template multi-select */}
-              <div className="p-6 border-b space-y-3 bg-muted/30">
-                <Label className="text-sm font-semibold">Load from Templates</Label>
+              {/* Load from Templates */}
+              <div className="p-6 border-b space-y-3" style={{ backgroundColor: '#eef1f6' }}>
+                <span style={SECTION_HEADER_STYLE}>Load from Templates</span>
                 <Popover open={templateDropdownOpen} onOpenChange={setTemplateDropdownOpen}>
                   <PopoverTrigger asChild>
                     <Button variant="outline" className="w-full justify-between font-normal h-10">
@@ -576,12 +605,13 @@ const SendProgramming = () => {
                 <button
                   type="button"
                   onClick={handleToggleExerciseEditor}
-                  className="w-full flex items-center justify-between px-6 py-4 text-sm font-semibold bg-muted/20 hover:bg-muted/40 transition-colors"
+                  className="w-full flex items-center justify-between px-6 py-4 hover:bg-[#f6f7f9] transition-colors"
+                  style={{ fontSize: 13, fontWeight: 600, color: '#07101f', fontFamily: 'Inter' }}
                 >
                   <span className="flex items-center gap-2">
                     {showExerciseEditor
-                      ? <ChevronDown className="h-4 w-4" />
-                      : <ChevronRight className="h-4 w-4" />}
+                      ? <ChevronDown className="h-4 w-4" style={{ color: '#8d95a4' }} />
+                      : <ChevronRight className="h-4 w-4" style={{ color: '#8d95a4' }} />}
                     Modify Exercises
                     {exercises.length > 0 && (
                       <Badge variant="outline" className="text-xs ml-1">
@@ -593,7 +623,7 @@ const SendProgramming = () => {
                 </button>
 
                 {showExerciseEditor && (
-                  <div className="px-6 pb-6 space-y-3 border-t pt-5 bg-muted/40">
+                  <div className="px-6 pb-6 space-y-3 border-t pt-5" style={{ backgroundColor: '#eef1f6' }}>
                     {exercises.length === 0 ? (
                       <div className="text-center py-8 text-muted-foreground">
                         <p className="text-sm">No exercises loaded.</p>
@@ -668,10 +698,11 @@ const SendProgramming = () => {
             </div>
 
             {/* Box 2: Filter Groups + Athletes */}
-            <div className="border rounded-xl overflow-hidden shadow-sm">
+            <div style={{ ...CARD_STYLE, overflow: 'hidden' }}>
+
               {/* Filter header */}
-              <div className="px-6 py-5 border-b bg-muted/40 space-y-3">
-                <Label className="text-sm font-semibold">Filter Groups</Label>
+              <div className="px-6 py-5 border-b space-y-3" style={{ backgroundColor: '#eef1f6' }}>
+                <span style={SECTION_HEADER_STYLE}>Filter Groups</span>
                 <Select value={filterGroup} onValueChange={setFilterGroup}>
                   <SelectTrigger className="h-10">
                     <SelectValue placeholder="All Groups" />
@@ -684,23 +715,37 @@ const SendProgramming = () => {
                   </SelectContent>
                 </Select>
                 <div className="flex gap-2">
-                  <Button
-                    size="sm" variant="outline" className="flex-1"
+                  <button
+                    type="button"
+                    style={{
+                      flex: 1, backgroundColor: '#f1f2f5', border: '1px solid rgba(7,16,31,0.06)',
+                      borderRadius: 8, color: '#07101f', fontWeight: 500, fontSize: 13,
+                      padding: '6px 12px', cursor: 'pointer',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#e4e6ea'; e.currentTarget.style.borderColor = '#205783' }}
+                    onMouseLeave={e => { e.currentTarget.style.backgroundColor = '#f1f2f5'; e.currentTarget.style.borderColor = 'rgba(7,16,31,0.06)' }}
                     onClick={() => setSelectedAthletes(filteredAthletes.map(a => a.id))}
                   >
                     Select All ({filteredAthletes.length})
-                  </Button>
-                  <Button
-                    size="sm" variant="outline" className="flex-1"
+                  </button>
+                  <button
+                    type="button"
+                    style={{
+                      flex: 1, backgroundColor: '#f1f2f5', border: '1px solid rgba(7,16,31,0.06)',
+                      borderRadius: 8, color: '#07101f', fontWeight: 500, fontSize: 13,
+                      padding: '6px 12px', cursor: 'pointer',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#e4e6ea'; e.currentTarget.style.borderColor = '#205783' }}
+                    onMouseLeave={e => { e.currentTarget.style.backgroundColor = '#f1f2f5'; e.currentTarget.style.borderColor = 'rgba(7,16,31,0.06)' }}
                     onClick={() => setSelectedAthletes([])}
                   >
                     Clear
-                  </Button>
+                  </button>
                 </div>
               </div>
 
               {/* Athlete list */}
-              <div className="divide-y">
+              <div>
                 {loading ? (
                   <p className="text-center text-sm text-muted-foreground py-10">
                     Loading athletes...
@@ -713,10 +758,12 @@ const SendProgramming = () => {
                   filteredAthletes.map(athlete => (
                     <label
                       key={athlete.id}
-                      className={cn(
-                        "flex items-center gap-3 px-6 py-3.5 cursor-pointer transition-colors hover:bg-muted/40",
-                        selectedAthletes.includes(athlete.id) && "bg-primary/5"
-                      )}
+                      className="flex items-center gap-3 cursor-pointer transition-colors hover:bg-[#eef1f6]"
+                      style={{
+                        padding: '12px 16px',
+                        borderBottom: '1px solid rgba(7,16,31,0.06)',
+                        backgroundColor: selectedAthletes.includes(athlete.id) ? '#fff4cc' : undefined,
+                      }}
                     >
                       <Checkbox
                         checked={selectedAthletes.includes(athlete.id)}
@@ -729,9 +776,13 @@ const SendProgramming = () => {
                         }
                       />
                       <div className="flex-1">
-                        <p className="text-sm font-medium">{athlete.name}</p>
+                        <p style={{ fontWeight: 500, color: '#07101f', fontSize: 13 }}>
+                          {athlete.name}
+                        </p>
                         {athlete.group && (
-                          <p className="text-xs text-muted-foreground">{athlete.group}</p>
+                          <p style={{ fontFamily: 'JetBrains Mono', fontSize: 11, color: '#205783', marginTop: 2 }}>
+                            {athlete.group}
+                          </p>
                         )}
                       </div>
                     </label>
@@ -740,7 +791,7 @@ const SendProgramming = () => {
               </div>
 
               {selectedAthletes.length > 0 && (
-                <div className="px-6 py-3 border-t bg-primary/5 text-xs text-muted-foreground">
+                <div className="px-6 py-3 border-t text-xs text-muted-foreground" style={{ backgroundColor: '#fff4cc', color: '#6b4d00' }}>
                   {selectedAthletes.length} athlete{selectedAthletes.length !== 1 ? 's' : ''} selected
                 </div>
               )}
@@ -751,13 +802,28 @@ const SendProgramming = () => {
       </main>
 
       {/* Sticky action bar */}
-      <div className="sticky bottom-0 border-t bg-background/95 backdrop-blur-sm px-10 py-4 flex justify-end gap-3 z-10">
-        <Button variant="outline" onClick={() => navigate('/')} disabled={sending}>
+      <div className="sticky bottom-0 bg-white px-10 py-4 flex justify-end gap-3 z-10" style={{ borderTop: '2px solid #eef1f6' }}>
+        <button
+          type="button"
+          onClick={() => navigate('/')}
+          disabled={sending}
+          style={{
+            backgroundColor: '#ffffff',
+            border: '1px solid rgba(7,16,31,0.10)',
+            borderRadius: 8,
+            color: '#5b6577',
+            fontWeight: 500,
+            padding: '8px 20px',
+            cursor: sending ? 'not-allowed' : 'pointer',
+            opacity: sending ? 0.5 : 1,
+            fontSize: 14,
+          }}
+        >
           Cancel
-        </Button>
+        </button>
         <Button
           onClick={handleSend}
-          className="bg-primary text-navy-dark hover:bg-primary/90"
+          className="bg-primary text-navy-dark hover:bg-primary/90 font-bold"
           disabled={sending}
         >
           <Send className="h-4 w-4 mr-2" />

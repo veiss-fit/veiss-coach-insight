@@ -179,11 +179,12 @@ const Index = () => {
       <TopNav
         onAnnouncementsClick={() => setAnnouncementBuilderOpen(true)}
         onCreateTemplateClick={() => setIsTemplateBuilderOpen(true)}
+        announcementsOpen={announcementBuilderOpen}
       />
 
       <div className="flex">
         {/* Sidebar */}
-        <aside className="w-80 p-6 border-r border-border bg-white">
+        <aside className="w-80 p-6 bg-gray-100">
           <FilterSidebar
             teamFilter={teamFilter}
             onTeamChange={setTeamFilter}
