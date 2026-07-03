@@ -155,6 +155,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 				return
 			}
 
+			// AuthCallback.tsx owns the full setup sequence for new users arriving via
+			// email confirmation (profile upsert, coaches insert, group, coach_id link).
+			// If we race with it and fetch the profile before the upsert commits, we'll
+			// see the handle_new_user trigger's row which may not have role:'coach', and
+			// the role check in loadProfile will force-logout the user mid-confirmation.
+			if (window.location.pathname === '/auth/callback') {
+				return
+			}
+
 			// Handle sign out
 			if (event === 'SIGNED_OUT') {
 				setUser(null)
@@ -340,62 +349,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 			}
 
 			if (data.user) {
-				// Check if email confirmation is required
+				// When email confirmation is required, data.session is null.
+				// All DB setup (profiles upsert, coaches insert, group, coach_id link)
+				// runs in AuthCallback.tsx after the user confirms and a real session exists.
+				// It cannot run here because auth.uid() is null until confirmation.
 				const needsConfirmation = data.session === null;
-				if (needsConfirmation) {
-					if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current)
-					return { success: true, needsConfirmation: true };
-				}
-
-				const userId = data.user.id
-
-				// Step 1: Create profile (upsert handles the case where handle_new_user trigger already created the row)
-				const { error: profileError } = await supabase
-					.from('profiles')
-					.upsert({
-						id: userId,
-						full_name: fullName,
-						role: 'coach' as const,
-						email: email,
-						created_at: new Date().toISOString(),
-					} as any, { onConflict: 'id' })
-
-				if (profileError) {
-					console.error('Error creating profile:', profileError)
-					if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current)
-					return { success: false, error: 'Account created but failed to initialize profile' }
-				}
-
-				// Step 2: Create coach record
-				const { data: coachData, error: coachError } = await supabase
-					.from('coaches')
-					.insert({ full_name: fullName, email, user_id: userId } as any)
-					.select()
-					.single()
-
-				if (coachError) {
-					console.error('Error creating coach record:', coachError)
-					if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current)
-					return { success: true } // Profile exists; coach setup can be completed later
-				}
-
-				// Step 3: Create a default group for the coach
-				const { error: groupError } = await (supabase as any)
-					.from('groups')
-					.insert({ name: `${fullName}'s Group`, sport: '', coach_id: userId })
-
-				if (groupError) {
-					console.error('Error creating default group:', groupError)
-				}
-
-				// Step 4: Link profile to coach record
-				await supabase
-					.from('profiles')
-					.update({ coach_id: userId } as any)
-					.eq('id', userId)
-
 				if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current)
-				return { success: true }
+				return { success: true, needsConfirmation };
 			}
 
 			if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current)
