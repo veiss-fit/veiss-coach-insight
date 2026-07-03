@@ -25,7 +25,7 @@ interface AuthContextType {
 	user: User | null
 	profile: CoachProfile | null
 	login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>
-	signup: (email: string, password: string, fullName: string) => Promise<{ success: boolean; error?: string }>
+	signup: (email: string, password: string, fullName: string) => Promise<{ success: boolean; needsConfirmation?: boolean; error?: string }>
 	resetPassword: (email: string) => Promise<{ success: boolean; error?: string }>
 	logout: () => Promise<void>
 	refreshProfile: () => Promise<void>
@@ -326,7 +326,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 				email,
 				password,
 				options: {
-					emailRedirectTo: `${window.location.origin}/login`,
+					emailRedirectTo: `${window.location.origin}/auth/callback`,
 					data: {
 						full_name: fullName,
 					},
@@ -340,6 +340,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 			}
 
 			if (data.user) {
+				// Check if email confirmation is required
+				const needsConfirmation = data.session === null;
+				if (needsConfirmation) {
+					if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current)
+					return { success: true, needsConfirmation: true };
+				}
+
 				const userId = data.user.id
 
 				// Step 1: Create profile (upsert handles the case where handle_new_user trigger already created the row)

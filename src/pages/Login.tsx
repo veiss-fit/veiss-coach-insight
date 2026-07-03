@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,16 @@ const Login = () => {
   const navigate = useNavigate();
 
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('error') === 'confirmation_failed') {
+      toast.error('Email confirmation failed. Please try signing up again.');
+    }
+    if (params.get('message') === 'password_updated') {
+      toast.success('Password updated successfully. Please log in.');
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -91,19 +101,19 @@ const Login = () => {
                 required
                 className="bg-background border-border"
               />
+              <div className="flex justify-end mt-1">
+                <a href="/forgot-password" className="text-xs font-medium" style={{ color: '#205783' }}>
+                  Forgot password?
+                </a>
+              </div>
             </div>
-            <Button 
-              type="submit" 
+            <Button
+              type="submit"
               className="w-full bg-gold text-navy-dark hover:bg-gold/90 font-semibold"
               disabled={loading}
             >
               {loading ? "Signing in..." : "Sign In"}
             </Button>
-            <div className="text-center text-sm text-muted-foreground">
-              <Link to="/forgot-password" className="text-gold hover:text-gold/80 font-medium">
-                Forgot password?
-              </Link>
-            </div>
             <div className="text-center text-sm text-muted-foreground">
               Don't have an account?{" "}
               <Link to="/signup" className="text-gold hover:text-gold/80 font-medium">

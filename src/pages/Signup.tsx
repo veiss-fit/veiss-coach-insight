@@ -7,6 +7,8 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 import { Validators } from "@/lib/validators";
+import { Mail } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 import veissLogo from "@/assets/veiss-logo.png";
 
 const Signup = () => {
@@ -15,6 +17,7 @@ const Signup = () => {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [loading, setLoading] = useState(false);
+  const [emailSent, setEmailSent] = useState(false);
   const { signup } = useAuth();
   const navigate = useNavigate();
 
@@ -50,11 +53,11 @@ const Signup = () => {
     
     try {
       const result = await signup(email, password, fullName);
-      if (result.success) {
-        toast.success("Account created successfully! Redirecting to login...");
-        setTimeout(() => {
-          navigate("/login");
-        }, 1500);
+      if (result.success && result.needsConfirmation) {
+        setEmailSent(true);
+      } else if (result.success) {
+        toast.success("Account created! Redirecting...");
+        setTimeout(() => navigate("/"), 1500);
       } else {
         toast.error(result.error || "Failed to create account. Please try again.");
       }
@@ -64,6 +67,46 @@ const Signup = () => {
       setLoading(false);
     }
   };
+
+  if (emailSent) {
+    return (
+      <div
+        className="min-h-screen flex items-center justify-center"
+        style={{ background: 'linear-gradient(135deg, #071c32 0%, #205783 100%)' }}
+      >
+        <div className="bg-white rounded-2xl p-10 max-w-md w-full text-center shadow-2xl">
+          <img src={veissLogo} alt="Veiss" className="h-8 mx-auto mb-6" />
+          <div
+            className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"
+            style={{ backgroundColor: '#fff4cc' }}
+          >
+            <Mail className="h-8 w-8" style={{ color: '#f5b400' }} />
+          </div>
+          <h2 className="text-2xl font-bold mb-2" style={{ color: '#071c32' }}>
+            Check your email
+          </h2>
+          <p className="text-sm mb-6" style={{ color: '#5b6577' }}>
+            We sent a confirmation link to{' '}
+            <strong style={{ color: '#071c32' }}>{email}</strong>.
+            Click the link to activate your account and get started.
+          </p>
+          <p className="text-xs" style={{ color: '#8d95a4' }}>
+            Didn't receive it? Check your spam folder or{' '}
+            <button
+              className="underline font-medium"
+              style={{ color: '#205783' }}
+              onClick={async () => {
+                await supabase.auth.resend({ type: 'signup', email });
+                toast.success('Confirmation email resent');
+              }}
+            >
+              resend the email
+            </button>
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-navy-dark via-navy to-navy-light flex items-center justify-center p-4">
