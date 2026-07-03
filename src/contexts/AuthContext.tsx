@@ -342,15 +342,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 			if (data.user) {
 				const userId = data.user.id
 
-				// Step 1: Create profile
+				// Step 1: Create profile (upsert handles the case where handle_new_user trigger already created the row)
 				const { error: profileError } = await supabase
 					.from('profiles')
-					.insert([{
+					.upsert({
 						id: userId,
 						full_name: fullName,
 						role: 'coach' as const,
+						email: email,
 						created_at: new Date().toISOString(),
-					}])
+					} as any, { onConflict: 'id' })
 
 				if (profileError) {
 					console.error('Error creating profile:', profileError)
@@ -362,10 +363,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 				const { data: coachData, error: coachError } = await supabase
 					.from('coaches')
 					.insert({ full_name: fullName, email, user_id: userId } as any)
-					.select('id')
+					.select()
 					.single()
 
-				if (coachError || !coachData) {
+				if (coachError) {
 					console.error('Error creating coach record:', coachError)
 					if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current)
 					return { success: true } // Profile exists; coach setup can be completed later
@@ -374,7 +375,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 				// Step 3: Create a default group for the coach
 				const { error: groupError } = await (supabase as any)
 					.from('groups')
-					.insert({ name: `${fullName}'s Group`, sport: '', coach_id: coachData.id })
+					.insert({ name: `${fullName}'s Group`, sport: '', coach_id: userId })
 
 				if (groupError) {
 					console.error('Error creating default group:', groupError)
@@ -383,7 +384,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 				// Step 4: Link profile to coach record
 				await supabase
 					.from('profiles')
-					.update({ coach_id: coachData.id })
+					.update({ coach_id: userId } as any)
 					.eq('id', userId)
 
 				if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current)
