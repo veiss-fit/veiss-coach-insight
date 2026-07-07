@@ -341,12 +341,23 @@ export const getPlayersByTeamId = async (teamId: string): Promise<PlayerWithStat
 // };
 
 /**
- * Assign an existing player to a team
+ * Assign an existing player to a team.
+ * Pass coachUserId to enforce that the target team belongs to this coach.
  */
 export const assignPlayerToTeam = async (
   playerId: string,
-  teamId: string | null
+  teamId: string | null,
+  coachUserId?: string
 ): Promise<boolean> => {
+  // App-layer scope check: verify the target team belongs to this coach
+  if (coachUserId && teamId) {
+    const coachTeamIds = await getCoachTeamIds(coachUserId);
+    if (!coachTeamIds.includes(teamId)) {
+      console.error('assignPlayerToTeam: target team does not belong to this coach');
+      return false;
+    }
+  }
+
   try {
     const { error } = await (supabase as any)
       .from('players')
@@ -366,33 +377,42 @@ export const assignPlayerToTeam = async (
 };
 
 /**
- * Get all users (profiles) that don't have a player record yet
+ * Get player-role profiles that haven't been linked to a player record yet,
+ * scoped to players who appear in this coach's teams.
+ *
+ * NOTE: Truly "unassigned" players (no team_id, no player_id) have no coach
+ * association by definition, so a global scan is not possible without an
+ * invitation table. This function returns only profiles whose player_id links
+ * to a player record owned by this coach's teams — covering the reassignment
+ * use case without leaking cross-coach data.
+ * TODO: Replace with a proper invitation flow if cross-coach discovery is needed.
  */
-export const getUnassignedUsers = async (): Promise<Array<{
+export const getUnassignedUsers = async (coachUserId: string): Promise<Array<{
   id: string;
   full_name: string | null;
-  email?: string;
 }>> => {
-  try {
-    // Get all profiles
-    const { data: profiles, error: profilesError } = await (supabase as any)
-      .from('profiles')
-      .select('id, full_name, player_id')
-      .eq('role', 'player') as { data: Array<{ id: string; full_name: string | null; player_id: string | null }> | null; error: any };
+  if (!coachUserId) return [];
 
-    if (profilesError) {
-      console.error('Error fetching profiles:', profilesError);
-      throw profilesError;
+  try {
+    const teamIds = await getCoachTeamIds(coachUserId);
+    if (teamIds.length === 0) return [];
+
+    // Get player IDs in this coach's teams that don't yet have a linked profile
+    const { data: players, error: playersError } = await (supabase as any)
+      .from('players')
+      .select('id, full_name, user_id')
+      .in('team_id', teamIds)
+      .is('user_id', null) as {
+        data: Array<{ id: string; full_name: string; user_id: string | null }> | null;
+        error: any;
+      };
+
+    if (playersError) {
+      console.error('Error fetching unlinked players:', playersError);
+      throw playersError;
     }
 
-    // Filter out profiles that already have player records
-    const unassignedProfiles = profiles?.filter(p => !p.player_id) || [];
-
-    // Get email from auth.users if needed (optional)
-    return unassignedProfiles.map(p => ({
-      id: p.id,
-      full_name: p.full_name,
-    }));
+    return (players || []).map(p => ({ id: p.id, full_name: p.full_name }));
   } catch (error) {
     console.error('Error in getUnassignedUsers:', error);
     throw error;

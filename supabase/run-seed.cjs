@@ -1,13 +1,30 @@
 // Temporary execution script — safe to delete after running.
 // Mirrors the logic in seed-test108.sql exactly.
-// Run with:  node supabase/run-seed.cjs
+//
+// Usage:
+//   SUPABASE_URL=https://xxx.supabase.co \
+//   SUPABASE_ANON_KEY=sb_publishable_... \
+//   node supabase/run-seed.cjs <player-uuid>
+//
+// The player UUID is a CLI argument (not an env var) because it changes per run.
+// Get it from the Supabase Dashboard → Table Editor → players.
 
 const { createClient } = require('../node_modules/@supabase/supabase-js/dist/index.cjs');
 
-const SUPABASE_URL = 'https://xjyugqxdfrbluprtgftj.supabase.co';
-const ANON_KEY     = 'sb_publishable_smdgoXHi_zin3b50mOTu1w_q8L5DI6d';
-const PLAYER_ID    = '297f16f4-6965-4d99-83fb-efa00ec9516b';
-const MARKER       = '[seed-v1]';
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const ANON_KEY     = process.env.SUPABASE_ANON_KEY;
+const PLAYER_ID    = process.argv[2];
+
+if (!SUPABASE_URL || !ANON_KEY) {
+  console.error('Missing required env vars: SUPABASE_URL, SUPABASE_ANON_KEY');
+  process.exit(1);
+}
+if (!PLAYER_ID) {
+  console.error('Usage: node supabase/run-seed.cjs <player-uuid>');
+  process.exit(1);
+}
+
+const MARKER = '[seed-v1]';
 
 const sb = createClient(SUPABASE_URL, ANON_KEY);
 
@@ -176,7 +193,7 @@ async function run() {
     console.log(`  Session ${String(si+1).padStart(2)} (${sessionDate.slice(0,10)})${tag}  — inserted`);
   }
 
-  console.log(`\nDone. ${totalSessions} sessions, ${totalReps} reps inserted for Test 108.`);
+  console.log(`\nDone. ${totalSessions} sessions, ${totalReps} reps inserted for player ${PLAYER_ID}.`);
 }
 
 run().catch(err => { console.error('Fatal:', err.message); process.exit(1); });

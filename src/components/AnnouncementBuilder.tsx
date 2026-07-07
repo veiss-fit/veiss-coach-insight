@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { format } from "date-fns";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -6,8 +6,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -25,6 +23,14 @@ interface AnnouncementBuilderProps {
   open: boolean;
   onClose: () => void;
 }
+
+const getInitials = (name: string) =>
+  name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
+
+const TH: React.CSSProperties = {
+  fontFamily: 'Inter', fontSize: 10.5, fontWeight: 600, color: '#8d95a4',
+  letterSpacing: '0.07em', textTransform: 'uppercase', padding: '10px 14px', textAlign: 'left',
+};
 
 export const AnnouncementBuilder = ({ open, onClose }: AnnouncementBuilderProps) => {
   const { user } = useAuth();
@@ -295,38 +301,80 @@ export const AnnouncementBuilder = ({ open, onClose }: AnnouncementBuilderProps)
               <Label className="mb-2 block">
                 Selected Athletes ({selectedAthletes.length})
               </Label>
-              <Card className="max-h-[400px] overflow-y-auto">
-                <CardContent className="p-3 space-y-2">
-                  {loading ? (
-                    <div className="text-center py-8 text-muted-foreground">
-                      <p>Loading athletes...</p>
-                    </div>
-                  ) : filteredAthletes.length === 0 ? (
-                    <div className="text-center py-8 text-muted-foreground">
-                      <p>No athletes found</p>
-                    </div>
-                  ) : (
-                    filteredAthletes.map(athlete => (
-                      <div
-                        key={athlete.id}
-                        className="flex items-center space-x-2 p-2 hover:bg-muted rounded-md cursor-pointer"
-                        onClick={() => toggleAthlete(athlete.id)}
-                      >
-                        <Checkbox
-                          checked={selectedAthletes.includes(athlete.id)}
-                          onCheckedChange={() => toggleAthlete(athlete.id)}
-                        />
-                        <div className="flex-1">
-                          <p className="text-sm font-medium">{athlete.name}</p>
-                          <div className="flex gap-1 mt-1">
-                            <Badge variant="outline" className="text-xs">{athlete.group || 'No Group'}</Badge>
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </CardContent>
-              </Card>
+              <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'rgba(7,16,31,0.06)' }}>
+                <div className="max-h-[400px] overflow-y-auto">
+                  <table className="w-full" style={{ borderCollapse: 'collapse' }}>
+                    <thead className="sticky top-0 z-10">
+                      <tr style={{ backgroundColor: '#fbfbfc', borderBottom: '1px solid rgba(7,16,31,0.06)' }}>
+                        <th style={{ width: 44, padding: '10px 14px' }} />
+                        <th style={TH}>Athlete</th>
+                        <th style={TH}>Group</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {loading ? (
+                        <tr>
+                          <td colSpan={3} style={{ textAlign: 'center', padding: '40px 0', color: '#8d95a4', fontSize: 13 }}>
+                            Loading athletes...
+                          </td>
+                        </tr>
+                      ) : filteredAthletes.length === 0 ? (
+                        <tr>
+                          <td colSpan={3} style={{ textAlign: 'center', padding: '40px 0', color: '#8d95a4', fontSize: 13 }}>
+                            No athletes found
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredAthletes.map(athlete => {
+                          const isSelected = selectedAthletes.includes(athlete.id);
+                          return (
+                            <tr
+                              key={athlete.id}
+                              style={{ height: 44, borderBottom: '1px solid rgba(7,16,31,0.06)', cursor: 'pointer', backgroundColor: isSelected ? '#fffdf0' : '#ffffff' }}
+                              onMouseEnter={e => { if (!isSelected) e.currentTarget.style.backgroundColor = '#fbfbfc'; }}
+                              onMouseLeave={e => { e.currentTarget.style.backgroundColor = isSelected ? '#fffdf0' : '#ffffff'; }}
+                              onClick={() => toggleAthlete(athlete.id)}
+                            >
+                              <td style={{ width: 44, padding: '0 14px' }} onClick={e => e.stopPropagation()}>
+                                <Checkbox
+                                  checked={isSelected}
+                                  onCheckedChange={() => toggleAthlete(athlete.id)}
+                                />
+                              </td>
+                              <td style={{ padding: '0 14px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                  <div style={{
+                                    width: 28, height: 28, borderRadius: '50%',
+                                    backgroundColor: '#eef1f6', color: '#07101f',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    fontSize: 11, fontWeight: 600, letterSpacing: '0.01em', flexShrink: 0,
+                                  }}>
+                                    {getInitials(athlete.name)}
+                                  </div>
+                                  <span style={{ fontFamily: 'Inter', fontSize: 13, fontWeight: 500, color: '#07101f' }}>
+                                    {athlete.name}
+                                  </span>
+                                </div>
+                              </td>
+                              <td style={{ padding: '0 14px' }}>
+                                <span style={{
+                                  display: 'inline-flex', alignItems: 'center', gap: 5,
+                                  height: 20, padding: '0 7px', borderRadius: 999,
+                                  backgroundColor: '#f1f2f5', border: '1px solid rgba(7,16,31,0.06)',
+                                  fontSize: 11, fontWeight: 500, color: '#28344a', letterSpacing: '0.01em',
+                                }}>
+                                  <span style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: '#8d95a4', flexShrink: 0 }} />
+                                  {(athlete as any).group || '—'}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           </div>
         </div>

@@ -175,14 +175,14 @@ const Index = () => {
   */
 
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className="min-h-screen bg-gray-100 grid grid-rows-[auto_1fr_auto]">
       <TopNav
         onAnnouncementsClick={() => setAnnouncementBuilderOpen(true)}
         onCreateTemplateClick={() => setIsTemplateBuilderOpen(true)}
         announcementsOpen={announcementBuilderOpen}
       />
 
-      <div className="flex">
+      <div className="flex min-h-0">
         {/* Sidebar */}
         <aside className="w-80 p-6 bg-gray-100">
           <FilterSidebar
@@ -193,7 +193,7 @@ const Index = () => {
         </aside>
 
         {/* Main Content */}
-        <main className="flex-1 p-6 space-y-6">
+        <main className="flex-1 p-6 space-y-6 min-h-0">
           <LoadingOverlay isLoading={loading} fullScreen message="Loading dashboard..." />
 
           {/* Overview Stats */}

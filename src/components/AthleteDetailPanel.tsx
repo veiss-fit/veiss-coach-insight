@@ -34,10 +34,10 @@ import {
   computeTrendLabel,
   HIGHER_IS_BETTER,
   sessionAvgVelocity,
-  sessionWithinSetDropoff,
   sessionVelocityDropoff,
-  sessionAvgTempo,
-  sessionVolume,
+  sessionRomConsistency,
+  sessionEccentricConcentricRatio,
+  sessionTUT,
   DeviationIndicator,
   SparklineData,
   IndicatorTooltip,
@@ -184,7 +184,7 @@ function InfoTooltip({ tooltip }: { tooltip: IndicatorTooltip }) {
           i
         </button>
       </TooltipTrigger>
-      <TooltipContent side="top" className="max-w-[260px] p-3 space-y-2 text-left">
+      <TooltipContent side="left" align="start" avoidCollisions collisionPadding={16} className="max-w-[260px] p-3 space-y-2 text-left z-[9999]">
         <div>
           <p className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">What</p>
           <p className="text-xs leading-snug">{tooltip.what}</p>
@@ -273,7 +273,7 @@ function DeviationSparklines({
   return (
     <div>
       <p className="text-sm font-semibold mb-3" style={{ color: '#071c32' }}>Deviation Trends (last 8 sessions)</p>
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-4 gap-4">
         {indicators.map((ind) => {
           const sparkline = sparklines[ind.metric];
           const trendLabel = sparkline && !sparkline.insufficient
@@ -282,14 +282,14 @@ function DeviationSparklines({
           return (
             <div
               key={ind.metric}
-              className="rounded-xl p-3 cursor-pointer transition-all hover:shadow-md"
+              className="rounded-xl p-5 cursor-pointer transition-all hover:shadow-md"
               style={{ backgroundColor: '#f8f9fb', border: '1px solid rgba(7,16,31,0.06)' }}
               onClick={() => onCardClick(ind, sparkline)}
             >
               {/* Header row */}
-              <div className="flex items-start justify-between mb-1">
-                <div className="flex items-center min-w-0 gap-1">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.06em] truncate" style={{ color: '#205783' }}>
+              <div className="flex items-start justify-between mb-2">
+                <div className="flex items-start min-w-0 gap-1">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.06em]" style={{ color: '#205783' }}>
                     {ind.label}
                   </p>
                   {ind.tooltip && <InfoTooltip tooltip={ind.tooltip} />}
@@ -304,12 +304,12 @@ function DeviationSparklines({
                 )}
               </div>
               {/* Current value */}
-              <p className="text-lg font-bold mb-0.5" style={{ color: '#071c32' }}>
+              <p className="text-2xl font-bold mb-1" style={{ color: '#071c32' }}>
                 {ind.latestValue !== null ? ind.formatFn(ind.latestValue) : '—'}
               </p>
               {/* Delta */}
               {ind.deltaPercent !== null && (
-                <p className="text-[10px] font-semibold mb-2" style={{
+                <p className="text-[11px] font-semibold mb-3" style={{
                   color: ind.ragStatus === 'red' ? '#c2410c'
                     : ind.ragStatus === 'amber' ? '#d97706'
                     : '#1f8a5b',
@@ -319,7 +319,7 @@ function DeviationSparklines({
               )}
               {/* Sparkline */}
               {sparkline && !sparkline.insufficient ? (
-                <ResponsiveContainer width="100%" height={48}>
+                <ResponsiveContainer width="100%" height={72}>
                   <LineChart data={sparkline.points} margin={{ top: 4, right: 2, left: 2, bottom: 0 }}>
                     <XAxis dataKey="date" hide />
                     <YAxis hide domain={['auto', 'auto']} />
@@ -348,13 +348,13 @@ function DeviationSparklines({
                   </LineChart>
                 </ResponsiveContainer>
               ) : (
-                <div className="h-12 flex items-center justify-center">
+                <div className="h-[72px] flex items-center justify-center">
                   <p className="text-[10px] text-muted-foreground italic">Not enough data</p>
                 </div>
               )}
               {/* Trend label */}
               {trendLabel && trendLabel.direction !== 'stable' && (
-                <p className="text-[10px] font-medium mt-1" style={{
+                <p className="text-[11px] font-medium mt-2" style={{
                   color: trendLabel.direction === 'improving' ? '#1f8a5b' : '#c2410c',
                 }}>
                   {trendLabel.label}
@@ -423,20 +423,30 @@ function ExerciseSection({ exercise }: { exercise: ExerciseData }) {
     : null;
   const refLineVal = avgVelAllSets !== null ? Number(avgVelAllSets.toFixed(2)) : null;
 
+  const allValidEccentrics = exercise.repData.filter((r) => r.eccentric > 0).map((r) => r.eccentric);
+  const avgEccentricAllSets = allValidEccentrics.length > 0
+    ? allValidEccentrics.reduce((a, b) => a + b, 0) / allValidEccentrics.length
+    : null;
+
   // Chart data filtered to the selected set, sorted by rep number.
   const setReps = [...(bySet.get(selectedSet) ?? [])].sort((a, b) => a.repNumber - b.repNumber);
   const chartData = setReps.map((r) => ({
     label: `R${r.repNumber}`,
-    velocity: r.velocity > 0 ? Number(r.velocity.toFixed(2)) : null,
-    rom:      r.rom > 0     ? Math.round(r.rom)             : null,
+    velocity:  r.velocity > 0  ? Number(r.velocity.toFixed(2))  : null,
+    rom:       r.rom > 0       ? Math.round(r.rom)              : null,
+    tempo:     r.tempo > 0     ? Number(r.tempo.toFixed(2))     : null,
+    eccentric: r.eccentric > 0 ? Number(r.eccentric.toFixed(2)) : null,
   }));
 
-  const velocityValues = chartData.map((d) => d.velocity).filter((v): v is number => v !== null);
-  const romValues      = chartData.map((d) => d.rom).filter((v): v is number => v !== null);
-  const velocityMax    = velocityValues.length > 0 ? Math.max(...velocityValues) + 0.05 : 1;
-  const romMax         = romValues.length > 0      ? Math.max(...romValues) + 50         : 0;
-  // Only show ROM chart when the selected set actually has ROM readings.
-  const hasRomData     = romValues.length > 0;
+  const velocityValues  = chartData.map((d) => d.velocity).filter((v): v is number => v !== null);
+  const romValues       = chartData.map((d) => d.rom).filter((v): v is number => v !== null);
+  const tempoValues     = chartData.map((d) => d.tempo).filter((v): v is number => v !== null);
+  const eccentricValues = chartData.map((d) => d.eccentric).filter((v): v is number => v !== null);
+  const velocityMax     = velocityValues.length > 0 ? Math.max(...velocityValues) + 0.05 : 1;
+  const romMax          = romValues.length > 0      ? Math.max(...romValues) + 50         : 0;
+  const hasRomData      = romValues.length > 0;
+  const hasTempoData    = tempoValues.length > 0 || eccentricValues.length > 0;
+  const tempoMax        = Math.max(...tempoValues, ...eccentricValues, 0) + 0.2;
 
   return (
     <div className="rounded-xl border bg-white overflow-hidden">
@@ -557,6 +567,54 @@ function ExerciseSection({ exercise }: { exercise: ExerciseData }) {
           </div>
         )}
 
+        {/* Concentric + Eccentric tempo chart — shown when either has data in this set */}
+        {hasTempoData && (
+          <div className="space-y-1 pt-4 border-t border-border/50">
+            <span className="text-xs text-muted-foreground flex items-center gap-1">
+              <Clock className="h-3 w-3" /> Tempo (s)
+              <span className="ml-2 flex items-center gap-3">
+                <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-0.5 rounded" style={{ backgroundColor: 'hsl(217, 91%, 60%)' }} /> Concentric</span>
+                <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-0.5 rounded" style={{ backgroundColor: 'hsl(280, 70%, 60%)' }} /> Eccentric</span>
+              </span>
+            </span>
+            <ResponsiveContainer width="100%" height={120}>
+              <LineChart data={chartData} margin={{ top: 6, right: 6, left: 0, bottom: 2 }}>
+                <XAxis dataKey="label" fontSize={9} tickLine={false} axisLine={false} />
+                <YAxis
+                  fontSize={9}
+                  width={30}
+                  domain={[0, tempoMax]}
+                  ticks={buildYAxisTicks(tempoMax, 1)}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <Tooltip
+                  contentStyle={{ backgroundColor: "hsl(var(--card))", borderRadius: "8px", fontSize: 11, border: "1px solid hsl(var(--border))" }}
+                  formatter={(v: number, name: string) => [`${Number(v).toFixed(2)}s`, name === "tempo" ? "Concentric" : "Eccentric"]}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="tempo"
+                  stroke="hsl(217, 91%, 60%)"
+                  strokeWidth={2}
+                  dot={{ r: 2.5, fill: "hsl(217, 91%, 60%)" }}
+                  activeDot={{ r: 4 }}
+                  connectNulls={false}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="eccentric"
+                  stroke="hsl(280, 70%, 60%)"
+                  strokeWidth={2}
+                  dot={{ r: 2.5, fill: "hsl(280, 70%, 60%)" }}
+                  activeDot={{ r: 4 }}
+                  connectNulls={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
         {/* Peak velocity + Avg Vertical Displacement stat row */}
         <div className="flex items-center gap-6 pt-3 border-t border-border">
           <div>
@@ -584,12 +642,11 @@ function ExerciseSection({ exercise }: { exercise: ExerciseData }) {
         {/* Per-set summary table — all sets always visible.
             Selected row is highlighted and clickable to switch the chart. */}
         <div className="rounded-lg border overflow-hidden">
-          <div className="grid grid-cols-5 px-3 py-1.5 bg-muted/40 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <div className="grid grid-cols-4 px-3 py-1.5 bg-muted/40 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             <span>Set</span>
             <span>Reps</span>
             <span>Avg Vel</span>
             <span>Weight</span>
-            <span>Tempo</span>
           </div>
           {allSetNums.map((setNum) => {
             const reps        = bySet.get(setNum)!;
@@ -597,17 +654,13 @@ function ExerciseSection({ exercise }: { exercise: ExerciseData }) {
             const avgVel      = validVels.length > 0
               ? validVels.reduce((a, r) => a + r.velocity, 0) / validVels.length
               : null;
-            const validTempos = reps.filter((r) => r.tempo > 0);
-            const avgTempo    = validTempos.length > 0
-              ? validTempos.reduce((a, r) => a + r.tempo, 0) / validTempos.length
-              : null;
-            const weight      = exercise.weight > 0 ? `${exercise.weight} ${exercise.weightUnit}` : "—";
-            const isSelected  = setNum === selectedSet;
+            const weight     = exercise.weight > 0 ? `${exercise.weight} ${exercise.weightUnit}` : "—";
+            const isSelected = setNum === selectedSet;
             return (
               <div
                 key={setNum}
                 className={cn(
-                  "grid grid-cols-5 px-3 py-2 text-xs border-t items-center cursor-pointer transition-colors",
+                  "grid grid-cols-4 px-3 py-2 text-xs border-t items-center cursor-pointer transition-colors",
                   isSelected ? "bg-primary/10" : "hover:bg-muted/30",
                 )}
                 onClick={() => setSelectedSet(setNum)}
@@ -626,9 +679,6 @@ function ExerciseSection({ exercise }: { exercise: ExerciseData }) {
                   {avgVel !== null ? `${avgVel.toFixed(2)} m/s` : "—"}
                 </span>
                 <span className={isSelected ? "" : "text-muted-foreground"}>{weight}</span>
-                <span className={isSelected ? "" : "text-muted-foreground"}>
-                  {avgTempo !== null ? `${avgTempo.toFixed(2)}s` : "—"}
-                </span>
               </div>
             );
           })}
@@ -847,11 +897,10 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
   const anomalyIndicators = useMemo(() => computeAnomalyIndicators(sessions), [sessions]);
 
   const sparklineMap = useMemo<Record<string, SparklineData>>(() => ({
-    velocity:         computeSparkline(sessions, sessionAvgVelocity),
-    withinSetDropoff: computeSparkline(sessions, sessionWithinSetDropoff),
-    sessionFatigue:   computeSparkline(sessions, sessionVelocityDropoff),
-    tempo:            computeSparkline(sessions, sessionAvgTempo),
-    volume:           computeSparkline(sessions, sessionVolume),
+    velocity:            computeSparkline(sessions, sessionAvgVelocity),
+    romConsistency:      computeSparkline(sessions, sessionRomConsistency),
+    eccentricConcentric: computeSparkline(sessions, sessionEccentricConcentricRatio),
+    tut:                 computeSparkline(sessions, sessionTUT),
   }), [sessions]);
 
   const recentSessionRows = useMemo(() => computeRecentSessions(sessions), [sessions]);
@@ -1307,7 +1356,7 @@ export const AthleteDetailPanel = ({ athlete, open, onClose }: AthleteDetailPane
                                 }}
                               >
                                 <td style={{ padding: '10px 14px', fontSize: 13, fontWeight: 500, color: '#07101f' }}>
-                                  {i === 0 ? 'Latest' : `Session -${i}`}
+                                  {sessions.find(s => s.id === pt.sessionId)?.notes ?? (i === 0 ? 'Latest' : `Session -${i}`)}
                                 </td>
                                 <td style={{ padding: '10px 14px', fontFamily: 'Inter', fontSize: 11, color: '#8d95a4' }}>
                                   {pt.date}

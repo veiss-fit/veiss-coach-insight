@@ -187,6 +187,45 @@ export function sessionAvgTempo(s: SessionData): number | null {
   return vals.length > 0 ? arrayMean(vals) : null;
 }
 
+export function sessionRomConsistency(s: SessionData): number | null {
+  const vals = s.exercises
+    .filter((e) => isValidExerciseName(e.name))
+    .flatMap((e) => e.repData.map((r) => r.rom))
+    .filter((v) => v > 0);
+  if (vals.length < 2) return null;
+  const mean = arrayMean(vals);
+  if (mean === 0) return null;
+  return (sampleStdDev(vals, mean) / mean) * 100;
+}
+
+export function sessionEccentricConcentricRatio(s: SessionData): number | null {
+  const ratios: number[] = [];
+  for (const exercise of s.exercises) {
+    if (!isValidExerciseName(exercise.name)) continue;
+    for (const rep of exercise.repData) {
+      if (rep.eccentric > 0 && rep.tempo > 0) {
+        ratios.push(rep.eccentric / rep.tempo);
+      }
+    }
+  }
+  return ratios.length > 0 ? arrayMean(ratios) : null;
+}
+
+export function sessionTUT(s: SessionData): number | null {
+  let total = 0;
+  let count = 0;
+  for (const exercise of s.exercises) {
+    if (!isValidExerciseName(exercise.name)) continue;
+    for (const rep of exercise.repData) {
+      if (rep.tempo > 0 || rep.eccentric > 0) {
+        total += rep.tempo + rep.eccentric;
+        count++;
+      }
+    }
+  }
+  return count > 0 ? total : null;
+}
+
 export function sessionVolume(s: SessionData): number | null {
   let total = 0;
   for (const exercise of s.exercises) {
@@ -277,48 +316,44 @@ export function computeAnomalyIndicators(sessions: SessionData[]): DeviationIndi
     buildIndicator(
       "Avg Velocity", "velocity", sessionAvgVelocity, sorted,
       "m/s", (v) => `${v.toFixed(2)} m/s`,
-      {
-        warning: "Cross-exercise avg — reliable only if exercise selection is consistent across sessions",
-      },
+      { warning: "Cross-exercise avg — reliable only if exercise selection is consistent across sessions" },
     ),
     buildIndicator(
-      "Within-Set Fatigue", "withinSetDropoff", sessionWithinSetDropoff, sorted,
+      "ROM Consistency", "romConsistency", sessionRomConsistency, sorted,
       "%", (v) => `${v.toFixed(1)}%`,
       {
         tooltip: {
-          what: "How much velocity drops from the first to last rep within a single set.",
-          how: "Rep 1 velocity minus last rep velocity, divided by rep 1 velocity. Averaged across all qualifying sets in recent sessions.",
-          highlights: "Acute neuromuscular fatigue within a set — a rising trend suggests the athlete may benefit from shorter sets or more rest between reps.",
-          minimum: "≥3 reps per set, ≥2 qualifying sets per session.",
+          what: "Coefficient of variation of range of motion across all reps in the session.",
+          how: "Sample standard deviation divided by mean ROM, expressed as a percentage.",
+          highlights: "Low CV means consistent movement depth. A rising trend means technique is breaking down — often before velocity is affected.",
+          minimum: "≥2 reps with ROM data.",
         },
       },
     ),
     buildIndicator(
-      "Session Fatigue", "sessionFatigue", sessionVelocityDropoff, sorted,
-      "%", (v) => `${v.toFixed(1)}%`,
+      "E:C Ratio", "eccentricConcentric", sessionEccentricConcentricRatio, sorted,
+      "x", (v) => `${v.toFixed(1)}x`,
       {
         tooltip: {
-          what: "How much velocity drops from the first to last set within a session.",
-          how: "Average velocity of set 1 minus average velocity of the last set, divided by set 1 average. Computed per exercise then averaged across exercises.",
-          highlights: "Cumulative session fatigue — a rising trend suggests the athlete is accumulating more fatigue across sets than usual.",
-          minimum: "≥2 sets per session.",
+          what: "Average ratio of eccentric to concentric duration per rep.",
+          how: "eccentric_duration ÷ concentric_duration averaged across all reps with both values recorded.",
+          highlights: "A 3:1 prescription should read ~3.0. A ratio drifting toward 1.0 means the athlete is rushing the eccentric — a fatigue and injury risk flag.",
+          minimum: "≥1 rep with both eccentric and concentric duration recorded.",
         },
       },
     ),
     buildIndicator(
-      "Concentric Tempo", "tempo", sessionAvgTempo, sorted,
-      "s", (v) => `${v.toFixed(2)}s`,
+      "Time Under Tension", "tut", sessionTUT, sorted,
+      "s", (v) => `${Math.round(v)}s`,
+      {
+        tooltip: {
+          what: "Total time under load per session: sum of concentric + eccentric duration across all reps.",
+          how: "Σ (concentric_duration + eccentric_duration) for every rep in the session.",
+          highlights: "Tracks total mechanical stimulus. A declining TUT trend can indicate shorter sessions, reduced effort, or faster (potentially sloppy) reps.",
+          minimum: "≥1 rep with tempo data.",
+        },
+      },
     ),
-    (() => {
-      const hasWeight = sessions.some((s) =>
-        s.exercises.some((e) => isValidExerciseName(e.name) && (e.weight ?? 0) > 0),
-      );
-      const unit = hasWeight ? "lbs" : "reps";
-      return buildIndicator(
-        "Volume", "volume", sessionVolume, sorted,
-        unit, (v) => `${Math.round(v)} ${unit}`,
-      );
-    })(),
   ];
 }
 
@@ -352,10 +387,9 @@ export function computeSparkline(
 
 export const HIGHER_IS_BETTER: Record<string, boolean> = {
   velocity: true,
-  withinSetDropoff: false,
-  sessionFatigue: false,
-  tempo: false,
-  volume: true,
+  romConsistency: false,
+  eccentricConcentric: true,
+  tut: true,
 };
 
 export function computeTrendLabel(

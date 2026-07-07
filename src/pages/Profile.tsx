@@ -91,7 +91,7 @@ const Profile = () => {
     if (!user?.id) { toast.error("Not authenticated"); return; }
 
     try {
-      const { error } = await supabase
+      const { error: profileError } = await (supabase as any)
         .from('profiles')
         .update({
           full_name: name,
@@ -99,19 +99,31 @@ const Profile = () => {
         })
         .eq('id', user.id);
 
-      if (error) throw error;
+      if (profileError) {
+        console.error('Failed to update profile:', profileError);
+        toast.error('Failed to update profile. Please try again.');
+        return;
+      }
 
       // Sync name to coaches table (non-fatal)
-      await (supabase as any)
+      const { error: coachError } = await (supabase as any)
         .from('coaches')
         .update({ full_name: name })
         .eq('user_id', user.id);
+
+      if (coachError) {
+        console.error('Failed to sync name to coaches table:', coachError);
+      }
 
       // Refresh AuthContext so TopNav and avatar update immediately
       await refreshProfile();
 
       setIsEditing(false);
-      toast.success("Profile updated successfully");
+      if (!coachError) {
+        toast.success("Profile updated successfully");
+      } else {
+        toast.success("Profile updated");
+      }
 
     } catch (err: any) {
       console.error('Profile update error:', err);
@@ -234,7 +246,7 @@ const Profile = () => {
   const initials = getInitials(formData.fullName);
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-gray-100">
       <TopNav />
 
       <div className="container mx-auto p-6 space-y-6">

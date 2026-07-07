@@ -338,6 +338,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 					emailRedirectTo: `${window.location.origin}/auth/callback`,
 					data: {
 						full_name: fullName,
+						role: 'coach',
 					},
 				},
 			})
@@ -349,13 +350,79 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 			}
 
 			if (data.user) {
-				// When email confirmation is required, data.session is null.
-				// All DB setup (profiles upsert, coaches insert, group, coach_id link)
-				// runs in AuthCallback.tsx after the user confirms and a real session exists.
-				// It cannot run here because auth.uid() is null until confirmation.
+				// When email confirmation is required, data.session is null and
+				// auth.uid() is not yet set — DB setup runs in AuthCallback.tsx instead.
 				const needsConfirmation = data.session === null;
+				if (needsConfirmation) {
+					if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current)
+					return { success: true, needsConfirmation: true };
+				}
+
+				// Session is immediately available — perform full DB setup now.
+				const userId = data.user.id;
+
+				// Step 1: Upsert profile
+				const { error: profileError } = await supabase
+					.from('profiles')
+					.upsert({
+						id: userId,
+						full_name: fullName,
+						role: 'coach' as const,
+						email: email,
+						created_at: new Date().toISOString(),
+					} as any, { onConflict: 'id' })
+
+				if (profileError) {
+					console.error('Error creating profile:', profileError)
+					if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current)
+					return { success: false, error: 'Account created but failed to initialize profile' }
+				}
+
+				try {
+					// Step 2: Create coach record
+					const { data: coachData, error: coachError } = await supabase
+						.from('coaches')
+						.insert({
+							id: userId,
+							full_name: fullName,
+							email: email,
+							user_id: userId,
+						} as any)
+						.select()
+						.single()
+
+					if (coachError) {
+						console.error('Coach insert error:', coachError)
+						throw coachError
+					}
+
+					// Step 3: Create default group
+					const { error: groupError } = await (supabase as any)
+						.from('groups')
+						.insert({
+							name: `${fullName}'s Group`,
+							sport: '',
+							coach_id: userId,
+						})
+						.select()
+						.single()
+
+					if (groupError) console.error('Group insert error:', groupError)
+
+					// Step 4: Link profile → coach record
+					await supabase
+						.from('profiles')
+						.update({ coach_id: userId } as any)
+						.eq('id', userId)
+
+				} catch (error: any) {
+					console.error('[signup] DB setup failed:', error)
+					if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current)
+					throw error
+				}
+
 				if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current)
-				return { success: true, needsConfirmation };
+				return { success: true }
 			}
 
 			if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current)
@@ -398,7 +465,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 			.select('*')
 			.eq('id', uid)
 			.single()
-		if (data) setProfile(data as CoachProfile)
+		if (data) {
+			if (data.role !== 'coach') {
+				console.error('[refreshProfile] Role changed to non-coach, signing out')
+				await logout()
+				return
+			}
+			setProfile(data as CoachProfile)
+		}
 	}
 
 	const resetPassword = async (email: string) => {

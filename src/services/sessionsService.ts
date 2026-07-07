@@ -17,10 +17,11 @@ type Rep = Database['public']['Tables']['reps']['Row'];
 
 export interface RepData {
   repNumber: number;
-  setNumber: number; // Added to distinguish sets
+  setNumber: number;
   velocity: number;
-  rom: number;       // NEW: rom_mm
-  tempo: number;     // NEW: concentric_duration_s
+  rom: number;       // rom_mm
+  tempo: number;     // concentric_duration_s
+  eccentric: number; // eccentric_duration_s
 }
 
 export interface ExerciseData {
@@ -202,6 +203,7 @@ export const getSessionExercises = async (sessionId: string): Promise<ExerciseDa
         velocity: Number(rep.average_rep_speed) || 0,
         rom: Number(rep.rom_mm) || 0,
         tempo: Number(rep.concentric_duration_s) || 0,
+        eccentric: Number(rep.eccentric_duration_s) || 0,
       }));
 
       exercises.push({

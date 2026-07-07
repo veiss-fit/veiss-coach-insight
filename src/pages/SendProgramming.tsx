@@ -546,7 +546,7 @@ const SendProgramming = () => {
             <div style={{ ...CARD_STYLE, overflow: 'hidden' }}>
 
               {/* Load from Templates */}
-              <div className="p-6 border-b space-y-3" style={{ backgroundColor: '#eef1f6' }}>
+              <div className="p-6 border-b space-y-3" style={{ backgroundColor: '#f8f9fb' }}>
                 <span style={SECTION_HEADER_STYLE}>Load from Templates</span>
                 <Popover open={templateDropdownOpen} onOpenChange={setTemplateDropdownOpen}>
                   <PopoverTrigger asChild>
@@ -701,7 +701,7 @@ const SendProgramming = () => {
             <div style={{ ...CARD_STYLE, overflow: 'hidden' }}>
 
               {/* Filter header */}
-              <div className="px-6 py-5 border-b space-y-3" style={{ backgroundColor: '#eef1f6' }}>
+              <div className="px-6 py-5 border-b space-y-3" style={{ backgroundColor: '#f8f9fb' }}>
                 <span style={SECTION_HEADER_STYLE}>Filter Groups</span>
                 <Select value={filterGroup} onValueChange={setFilterGroup}>
                   <SelectTrigger className="h-10">
@@ -718,12 +718,12 @@ const SendProgramming = () => {
                   <button
                     type="button"
                     style={{
-                      flex: 1, backgroundColor: '#f1f2f5', border: '1px solid rgba(7,16,31,0.06)',
+                      flex: 1, backgroundColor: '#ffffff', border: '1px solid rgba(7,16,31,0.15)',
                       borderRadius: 8, color: '#07101f', fontWeight: 500, fontSize: 13,
                       padding: '6px 12px', cursor: 'pointer',
                     }}
-                    onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#e4e6ea'; e.currentTarget.style.borderColor = '#205783' }}
-                    onMouseLeave={e => { e.currentTarget.style.backgroundColor = '#f1f2f5'; e.currentTarget.style.borderColor = 'rgba(7,16,31,0.06)' }}
+                    onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#f1f2f5'; e.currentTarget.style.borderColor = '#205783'; }}
+                    onMouseLeave={e => { e.currentTarget.style.backgroundColor = '#ffffff'; e.currentTarget.style.borderColor = 'rgba(7,16,31,0.15)'; }}
                     onClick={() => setSelectedAthletes(filteredAthletes.map(a => a.id))}
                   >
                     Select All ({filteredAthletes.length})
@@ -731,12 +731,12 @@ const SendProgramming = () => {
                   <button
                     type="button"
                     style={{
-                      flex: 1, backgroundColor: '#f1f2f5', border: '1px solid rgba(7,16,31,0.06)',
+                      flex: 1, backgroundColor: '#ffffff', border: '1px solid rgba(7,16,31,0.15)',
                       borderRadius: 8, color: '#07101f', fontWeight: 500, fontSize: 13,
                       padding: '6px 12px', cursor: 'pointer',
                     }}
-                    onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#e4e6ea'; e.currentTarget.style.borderColor = '#205783' }}
-                    onMouseLeave={e => { e.currentTarget.style.backgroundColor = '#f1f2f5'; e.currentTarget.style.borderColor = 'rgba(7,16,31,0.06)' }}
+                    onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#f1f2f5'; e.currentTarget.style.borderColor = '#205783'; }}
+                    onMouseLeave={e => { e.currentTarget.style.backgroundColor = '#ffffff'; e.currentTarget.style.borderColor = 'rgba(7,16,31,0.15)'; }}
                     onClick={() => setSelectedAthletes([])}
                   >
                     Clear
@@ -745,53 +745,66 @@ const SendProgramming = () => {
               </div>
 
               {/* Athlete list */}
-              <div>
-                {loading ? (
-                  <p className="text-center text-sm text-muted-foreground py-10">
-                    Loading athletes...
-                  </p>
-                ) : filteredAthletes.length === 0 ? (
-                  <p className="text-center text-sm text-muted-foreground py-10">
-                    No athletes found
-                  </p>
-                ) : (
-                  filteredAthletes.map(athlete => (
-                    <label
-                      key={athlete.id}
-                      className="flex items-center gap-3 cursor-pointer transition-colors hover:bg-[#eef1f6]"
-                      style={{
-                        padding: '12px 16px',
-                        borderBottom: '1px solid rgba(7,16,31,0.06)',
-                        backgroundColor: selectedAthletes.includes(athlete.id) ? '#fff4cc' : undefined,
-                      }}
-                    >
-                      <Checkbox
-                        checked={selectedAthletes.includes(athlete.id)}
-                        onCheckedChange={() =>
-                          setSelectedAthletes(prev =>
-                            prev.includes(athlete.id)
-                              ? prev.filter(id => id !== athlete.id)
-                              : [...prev, athlete.id]
-                          )
-                        }
-                      />
-                      <div className="flex-1">
-                        <p style={{ fontWeight: 500, color: '#07101f', fontSize: 13 }}>
-                          {athlete.name}
-                        </p>
-                        {athlete.group && (
-                          <p style={{ fontFamily: 'JetBrains Mono', fontSize: 11, color: '#205783', marginTop: 2 }}>
-                            {athlete.group}
-                          </p>
-                        )}
-                      </div>
-                    </label>
-                  ))
-                )}
+              <div className="overflow-y-auto" style={{ maxHeight: 400 }}>
+                <table className="w-full" style={{ borderCollapse: 'collapse' }}>
+                  <thead className="sticky top-0 z-10">
+                    <tr style={{ backgroundColor: '#fbfbfc', borderBottom: '1px solid rgba(7,16,31,0.06)' }}>
+                      <th style={{ width: 44, padding: '10px 14px' }} />
+                      <th style={{ fontFamily: 'Inter', fontSize: 10.5, fontWeight: 600, color: '#8d95a4', letterSpacing: '0.07em', textTransform: 'uppercase', padding: '10px 14px', textAlign: 'left' }}>Athlete</th>
+                      <th style={{ fontFamily: 'Inter', fontSize: 10.5, fontWeight: 600, color: '#8d95a4', letterSpacing: '0.07em', textTransform: 'uppercase', padding: '10px 14px', textAlign: 'left' }}>Group</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loading ? (
+                      <tr>
+                        <td colSpan={3} style={{ textAlign: 'center', padding: '40px 0', color: '#8d95a4', fontSize: 13 }}>Loading athletes...</td>
+                      </tr>
+                    ) : filteredAthletes.length === 0 ? (
+                      <tr>
+                        <td colSpan={3} style={{ textAlign: 'center', padding: '40px 0', color: '#8d95a4', fontSize: 13 }}>No athletes found</td>
+                      </tr>
+                    ) : (
+                      filteredAthletes.map(athlete => {
+                        const isSelected = selectedAthletes.includes(athlete.id);
+                        const initials = athlete.name.split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase();
+                        const toggle = () => setSelectedAthletes(prev =>
+                          prev.includes(athlete.id) ? prev.filter(id => id !== athlete.id) : [...prev, athlete.id]
+                        );
+                        return (
+                          <tr
+                            key={athlete.id}
+                            style={{ height: 44, borderBottom: '1px solid rgba(7,16,31,0.06)', cursor: 'pointer', backgroundColor: isSelected ? '#fffdf0' : '#ffffff' }}
+                            onMouseEnter={e => { if (!isSelected) e.currentTarget.style.backgroundColor = '#fbfbfc'; }}
+                            onMouseLeave={e => { e.currentTarget.style.backgroundColor = isSelected ? '#fffdf0' : '#ffffff'; }}
+                            onClick={toggle}
+                          >
+                            <td style={{ width: 44, padding: '0 14px' }} onClick={e => e.stopPropagation()}>
+                              <Checkbox checked={isSelected} onCheckedChange={toggle} />
+                            </td>
+                            <td style={{ padding: '0 14px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                <div style={{ width: 28, height: 28, borderRadius: '50%', backgroundColor: '#eef1f6', color: '#07101f', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600, letterSpacing: '0.01em', flexShrink: 0 }}>
+                                  {initials}
+                                </div>
+                                <span style={{ fontFamily: 'Inter', fontSize: 13, fontWeight: 500, color: '#07101f' }}>{athlete.name}</span>
+                              </div>
+                            </td>
+                            <td style={{ padding: '0 14px' }}>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, height: 20, padding: '0 7px', borderRadius: 999, backgroundColor: '#f1f2f5', border: '1px solid rgba(7,16,31,0.06)', fontSize: 11, fontWeight: 500, color: '#28344a', letterSpacing: '0.01em' }}>
+                                <span style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: '#8d95a4', flexShrink: 0 }} />
+                                {(athlete as any).group || '—'}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
               </div>
 
               {selectedAthletes.length > 0 && (
-                <div className="px-6 py-3 border-t text-xs text-muted-foreground" style={{ backgroundColor: '#fff4cc', color: '#6b4d00' }}>
+                <div className="px-6 py-3 border-t text-xs" style={{ backgroundColor: '#fffdf0', color: '#6b4d00' }}>
                   {selectedAthletes.length} athlete{selectedAthletes.length !== 1 ? 's' : ''} selected
                 </div>
               )}
