@@ -1,32 +1,145 @@
-import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom"; // 1. Import hook
-import { TopNav } from "@/components/TopNav";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Button } from "@/components/ui/button";
+import { useState, useEffect, useCallback } from "react";
+import { Link } from "react-router-dom";
 import { format } from "date-fns";
-import { CalendarDays, Megaphone, Users, Clock, ArrowLeft, CalendarClock } from "lucide-react"; // 2. Import ArrowLeft
+import { ArrowLeft, Dumbbell, Megaphone, Clock, Calendar, CalendarClock, Users } from "lucide-react";
+import { TopNav } from "@/components/TopNav";
+import { PageHeader } from "@/components/pulse/PageHeader";
+import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { useAuth } from "@/contexts/AuthContext";
 import { getCoachWorkoutHistory } from "@/services/workoutPlansService";
 import { getCoachMessageHistory } from "@/services/messagesService";
-import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
+
+interface WorkoutBatch {
+  id: string;
+  workoutName: string;
+  sentAt: string;
+  scheduledDates: string[];
+  recipients: string[];
+  exercises: unknown[] | null;
+}
+
+interface AnnouncementBatch {
+  id: string;
+  title: string;
+  content: string;
+  sentAt: string;
+  scheduledAt: string | null;
+  isDelivered: boolean;
+  priority: string;
+  recipientCount: number;
+}
+
+function StatTile({ label, value, sub }: { label: string; value: number; sub?: string }) {
+  return (
+    <div className="v-card padded" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <div className="v-label">{label}</div>
+      <div className="num" style={{ fontSize: 26, fontWeight: 600, letterSpacing: "-0.02em" }}>{value}</div>
+      {sub && <div className="v-meta" style={{ fontSize: 11, color: "var(--ink-3)" }}>{sub}</div>}
+    </div>
+  );
+}
+
+function WorkoutRow({ w }: { w: WorkoutBatch }) {
+  const exerciseCount = Array.isArray(w.exercises) ? w.exercises.length : 0;
+  const scheduled = w.scheduledDates
+    .slice()
+    .sort()
+    .map((d) => format(new Date(d + "T12:00:00"), "EEE MMM d"))
+    .join(" · ");
+  return (
+    <div className="v-card padded" style={{ display: "flex", alignItems: "center", gap: 16 }}>
+      <span className="v-avatar lg" style={{ background: "var(--brand-soft)", color: "var(--brand-ink)", borderRadius: 10 }}>
+        <Dumbbell size={16} strokeWidth={1.5} />
+      </span>
+      <div className="grow" style={{ minWidth: 0 }}>
+        <div className="row" style={{ gap: 8 }}>
+          <span style={{ fontWeight: 600, fontSize: 14 }}>{w.workoutName}</span>
+          {exerciseCount > 0 && (
+            <span className="v-chip" data-tone="neutral">{exerciseCount} exercise{exerciseCount !== 1 ? "s" : ""}</span>
+          )}
+        </div>
+        <div className="row" style={{ gap: 14, marginTop: 5, flexWrap: "wrap" }}>
+          <span className="v-meta mono row" style={{ fontSize: 11, gap: 4, color: "var(--ink-3)" }}>
+            <Clock size={12} strokeWidth={1.5} />
+            Sent {format(new Date(w.sentAt), "MMM d, h:mm a")}
+          </span>
+          {scheduled && (
+            <span className="v-meta mono row" style={{ fontSize: 11, gap: 4, color: "var(--ink-3)" }}>
+              <Calendar size={12} strokeWidth={1.5} />
+              For {scheduled}
+            </span>
+          )}
+        </div>
+      </div>
+      <div style={{ textAlign: "right", flexShrink: 0 }}>
+        <span className="v-chip" data-tone="brand" style={{ marginBottom: 6 }}>
+          <Users size={12} strokeWidth={1.5} />
+          {w.recipients.length} recipient{w.recipients.length !== 1 ? "s" : ""}
+        </span>
+        <div className="v-meta ellipsis" style={{ fontSize: 11, color: "var(--ink-3)", maxWidth: 240 }}>
+          {w.recipients.slice(0, 3).join(", ")}
+          {w.recipients.length > 3 ? ` +${w.recipients.length - 3} more` : ""}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AnnouncementRow({ m }: { m: AnnouncementBatch }) {
+  const urgent = m.priority === "urgent";
+  const pendingScheduled = m.isDelivered === false && m.scheduledAt;
+  return (
+    <div className="v-card padded" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+        <div className="row" style={{ gap: 12, minWidth: 0 }}>
+          <span
+            className="v-avatar lg"
+            style={{
+              background: urgent ? "var(--bad-soft)" : "var(--navy-tint)",
+              color: urgent ? "var(--bad)" : "var(--navy)",
+              borderRadius: 10,
+            }}
+          >
+            <Megaphone size={16} strokeWidth={1.5} />
+          </span>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontWeight: 600, fontSize: 14 }}>{m.title}</div>
+            <div className="v-meta mono row" style={{ fontSize: 11, color: "var(--ink-3)", marginTop: 2, gap: 4 }}>
+              {pendingScheduled ? (
+                <>
+                  <CalendarClock size={12} strokeWidth={1.5} />
+                  Scheduled for {format(new Date(m.scheduledAt!), "MMM d, h:mm a")}
+                </>
+              ) : (
+                <>Sent {format(new Date(m.sentAt), "MMM d, h:mm a")}</>
+              )}
+            </div>
+          </div>
+        </div>
+        <div className="row" style={{ gap: 6, flexShrink: 0 }}>
+          {pendingScheduled && <span className="v-chip" data-tone="info">Scheduled</span>}
+          {urgent && <span className="v-chip" data-tone="bad">Urgent</span>}
+        </div>
+      </div>
+      <div style={{ fontSize: 12.5, color: "var(--ink-2)", lineHeight: 1.5, paddingLeft: 56 }}>{m.content}</div>
+      <div className="row" style={{ justifyContent: "flex-end", paddingLeft: 56 }}>
+        <span className="v-meta mono row" style={{ fontSize: 10.5, color: "var(--ink-3)", gap: 4 }}>
+          <Users size={12} strokeWidth={1.5} />
+          {m.recipientCount} recipient{m.recipientCount !== 1 ? "s" : ""}
+        </span>
+      </div>
+    </div>
+  );
+}
 
 export default function History() {
-  const { profile, user } = useAuth();
-  const navigate = useNavigate(); // 3. Initialize hook
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
-  const [workouts, setWorkouts] = useState<any[]>([]);
-  const [announcements, setAnnouncements] = useState<any[]>([]);
+  const [tab, setTab] = useState<"workouts" | "announcements">("workouts");
+  const [workouts, setWorkouts] = useState<WorkoutBatch[]>([]);
+  const [announcements, setAnnouncements] = useState<AnnouncementBatch[]>([]);
 
-  useEffect(() => {
-    if (user?.id) {
-      loadHistory();
-    }
-  }, [user?.id]);
-
-  const loadHistory = async () => {
+  const loadHistory = useCallback(async () => {
     if (!user?.id) return;
     setLoading(true);
     try {
@@ -34,7 +147,6 @@ export default function History() {
         getCoachWorkoutHistory(user.id),
         getCoachMessageHistory(user.id),
       ]);
-      
       setWorkouts(workoutsData);
       setAnnouncements(messagesData);
     } catch (error) {
@@ -42,166 +154,74 @@ export default function History() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user?.id]);
+
+  useEffect(() => {
+    loadHistory();
+  }, [loadHistory]);
+
+  const reach =
+    workouts.reduce((s, w) => s + w.recipients.length, 0) +
+    announcements.reduce((s, m) => s + m.recipientCount, 0);
+
+  const emptyMessage =
+    tab === "workouts"
+      ? "No workouts sent yet. Use Programming to send your first plan."
+      : "No announcements sent yet.";
+  const rows = tab === "workouts" ? workouts : announcements;
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="v-app">
       <TopNav />
-      <main className="container mx-auto p-6 max-w-5xl">
+      <main style={{ padding: "20px 28px 40px", maxWidth: 1060, margin: "0 auto", width: "100%" }}>
         <LoadingOverlay isLoading={loading} fullScreen message="Loading history..." />
-        
-        {/* 4. Back Button Section */}
-        <div className="mb-2">
-          <Button 
-            variant="ghost" 
-            className="pl-0 hover:bg-transparent hover:text-primary" 
-            onClick={() => navigate('/')}
-          >
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to Dashboard
-          </Button>
+
+        <Link to="/" className="v-btn ghost" style={{ marginBottom: 6, paddingLeft: 6, width: "fit-content" }}>
+          <ArrowLeft size={12} strokeWidth={1.5} />
+          Back to dashboard
+        </Link>
+        <PageHeader eyebrow="Coach" title="History" subtitle="Everything you've sent to your athletes, newest first." />
+
+        <section style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 24 }}>
+          <StatTile label="Workouts sent" value={workouts.length} sub="workout batches" />
+          <StatTile label="Announcements" value={announcements.length} sub="sent to your athletes" />
+          <StatTile label="Total reach" value={reach} sub="athlete deliveries" />
+        </section>
+
+        <div className="row" style={{ gap: 4, background: "var(--surface-sunk)", padding: 3, borderRadius: 9, width: "fit-content", marginBottom: 18 }}>
+          {([
+            ["workouts", `Workouts · ${workouts.length}`],
+            ["announcements", `Announcements · ${announcements.length}`],
+          ] as const).map(([id, label]) => (
+            <button
+              key={id}
+              onClick={() => setTab(id)}
+              className="v-btn"
+              style={{
+                height: 32,
+                fontSize: 12.5,
+                border: "none",
+                background: tab === id ? "var(--surface-1)" : "transparent",
+                color: tab === id ? "var(--ink-0)" : "var(--ink-2)",
+                boxShadow: tab === id ? "0 1px 2px rgba(7,16,31,0.08)" : "none",
+              }}
+            >
+              {label}
+            </button>
+          ))}
         </div>
 
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold">Communication History</h1>
-          <p className="text-muted-foreground">View past workouts and announcements sent to your team.</p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {!loading && rows.length === 0 ? (
+            <div className="v-card padded" style={{ textAlign: "center", color: "var(--ink-3)", fontSize: 12.5, padding: "36px 16px" }}>
+              {emptyMessage}
+            </div>
+          ) : tab === "workouts" ? (
+            workouts.map((w) => <WorkoutRow key={w.id} w={w} />)
+          ) : (
+            announcements.map((m) => <AnnouncementRow key={m.id} m={m} />)
+          )}
         </div>
-
-        <Tabs defaultValue="workouts" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 mb-4">
-            <TabsTrigger value="workouts">Workouts Sent</TabsTrigger>
-            <TabsTrigger value="announcements">Announcements Sent</TabsTrigger>
-          </TabsList>
-
-          {/* --- WORKOUTS TAB --- */}
-          <TabsContent value="workouts">
-            <Card>
-              <CardHeader>
-                <CardTitle>Workout History</CardTitle>
-                <CardDescription>
-                  {workouts.length} workout batches sent
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ScrollArea className="h-[600px] pr-4">
-                  {loading ? (
-                    <div className="text-center py-10 text-muted-foreground">Loading history...</div>
-                  ) : workouts.length === 0 ? (
-                    <div className="text-center py-10 text-muted-foreground">No communication history yet. Create a group and add athletes to get started.</div>
-                  ) : (
-                    <div className="space-y-4">
-                      {workouts.map((batch) => (
-                        <div key={batch.id} className="flex items-center justify-between p-4 border rounded-lg bg-card hover:bg-muted/50 transition-colors">
-                          <div className="flex items-start gap-4">
-                            <div className="p-2 bg-primary/10 rounded-full mt-1">
-                              <CalendarDays className="h-5 w-5 text-primary" />
-                            </div>
-                            <div>
-                              <h4 className="font-semibold text-lg">{batch.workoutName}</h4>
-                              <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
-                                <Clock className="h-3 w-3" />
-                                <span>Sent: {format(new Date(batch.sentAt), "PP p")}</span>
-                              </div>
-                              <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
-                                <span>
-                                  Scheduled for:{' '}
-                                  {(batch.scheduledDates as string[])
-                                    .slice()
-                                    .sort()
-                                    .map((d: string) => format(new Date(d + 'T12:00:00'), 'PP'))
-                                    .join(', ')}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                          
-                          <div className="text-right">
-                            <Badge variant="secondary" className="mb-2">
-                              <Users className="h-3 w-3 mr-1" />
-                              {batch.recipients.length} {batch.recipients.length === 1 ? 'Recipient' : 'Recipients'}
-                            </Badge>
-                            <p className="text-xs text-muted-foreground max-w-[200px] truncate">
-                              {batch.recipients.slice(0, 3).join(", ")}
-                              {batch.recipients.length > 3 && ` +${batch.recipients.length - 3} more`}
-                            </p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </ScrollArea>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* --- ANNOUNCEMENTS TAB --- */}
-          <TabsContent value="announcements">
-            <Card>
-              <CardHeader>
-                <CardTitle>Announcement History</CardTitle>
-                <CardDescription>
-                  {announcements.length} announcements sent
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ScrollArea className="h-[600px] pr-4">
-                  {loading ? (
-                    <div className="text-center py-10 text-muted-foreground">Loading history...</div>
-                  ) : announcements.length === 0 ? (
-                    <div className="text-center py-10 text-muted-foreground">No communication history yet. Create a group and add athletes to get started.</div>
-                  ) : (
-                    <div className="space-y-4">
-                      {announcements.map((msg) => (
-                        <div key={msg.id} className="flex flex-col p-4 border rounded-lg bg-card hover:bg-muted/50 transition-colors">
-                          <div className="flex items-start justify-between mb-2">
-                            <div className="flex items-center gap-3">
-                              <div className="p-2 bg-secondary/20 rounded-full">
-                                <Megaphone className="h-5 w-5 text-secondary-foreground" />
-                              </div>
-                              <div>
-                                <h4 className="font-semibold text-lg">{msg.title}</h4>
-                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                  {msg.isDelivered === false && msg.scheduledAt ? (
-                                    <span className="flex items-center gap-1">
-                                      <CalendarClock className="h-3 w-3" />
-                                      Scheduled for {format(new Date(msg.scheduledAt), "PPP p")}
-                                    </span>
-                                  ) : (
-                                    <span>{format(new Date(msg.sentAt), "PPP p")}</span>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              {msg.isDelivered === false && (
-                                <Badge variant="outline" className="text-amber-600 border-amber-300 bg-amber-50">
-                                  Scheduled
-                                </Badge>
-                              )}
-                              {msg.priority === 'urgent' && (
-                                <Badge variant="destructive">Urgent</Badge>
-                              )}
-                            </div>
-                          </div>
-                          
-                          <div className="pl-12">
-                            <p className="text-sm text-foreground/80 bg-muted/30 p-3 rounded-md mb-2">
-                              {msg.content}
-                            </p>
-                            <div className="flex items-center justify-end text-xs text-muted-foreground">
-                              <Users className="h-3 w-3 mr-1" />
-                              Sent to {msg.recipientCount} athletes
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </ScrollArea>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
       </main>
     </div>
   );
