@@ -64,6 +64,45 @@ export default {
         },
         mint: "hsl(var(--mint))",
         gold: "hsl(var(--gold))",
+        surface: {
+          0: "var(--surface-0)",
+          1: "var(--surface-1)",
+          2: "var(--surface-2)",
+          sunk: "var(--surface-sunk)",
+        },
+        ink: {
+          0: "var(--ink-0)",
+          1: "var(--ink-1)",
+          2: "var(--ink-2)",
+          3: "var(--ink-3)",
+          4: "var(--ink-4)",
+        },
+        line: {
+          0: "var(--line-0)",
+          1: "var(--line-1)",
+          2: "var(--line-2)",
+        },
+        brand: {
+          DEFAULT: "var(--brand)",
+          soft: "var(--brand-soft)",
+          ink: "var(--brand-ink)",
+        },
+        good: {
+          DEFAULT: "var(--good)",
+          soft: "var(--good-soft)",
+        },
+        warn: {
+          DEFAULT: "var(--warn)",
+          soft: "var(--warn-soft)",
+        },
+        bad: {
+          DEFAULT: "var(--bad)",
+          soft: "var(--bad-soft)",
+        },
+        info: {
+          DEFAULT: "var(--info)",
+          soft: "var(--info-soft)",
+        },
         chart: {
           "1": "hsl(var(--chart-1))",
           "2": "hsl(var(--chart-2))",
@@ -76,6 +115,10 @@ export default {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+      },
+      fontFamily: {
+        sans: ["Inter", "ui-sans-serif", "system-ui", "-apple-system", "sans-serif"],
+        mono: ["JetBrains Mono", "ui-monospace", "SF Mono", "Menlo", "monospace"],
       },
       keyframes: {
         "accordion-down": {
