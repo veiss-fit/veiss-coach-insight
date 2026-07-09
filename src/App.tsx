@@ -14,6 +14,7 @@ import ResetPassword from "./pages/ResetPassword";
 import Profile from "./pages/Profile";
 import NotFound from "./pages/NotFound";
 import History from "./pages/History";
+import Messages from "./pages/Messages";
 import SendProgramming from "./pages/SendProgramming";
 import AuthCallback from "./pages/AuthCallback";
 
@@ -38,6 +39,14 @@ const App = () => (
               element={
                 <ProtectedRoute allowedRoles={['coach']}>
                   <History />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/messages"
+              element={
+                <ProtectedRoute allowedRoles={['coach']}>
+                  <Messages />
                 </ProtectedRoute>
               }
             />

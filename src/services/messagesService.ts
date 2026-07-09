@@ -11,7 +11,7 @@ type MessageInsert = Database['public']['Tables']['messages']['Insert'];
  * @param title - Message subject
  * @param message - Message content
  * @param type - Message type (not stored in DB, for API compatibility)
- * @param priority - Priority level (not stored in DB, for API compatibility)
+ * @param priority - Priority level, persisted on each message row
  */
 export const sendMessage = async (
   senderId: string,
@@ -45,8 +45,7 @@ export const sendMessage = async (
     const receiverUserIds = profiles.map(p => p.id);
 
     // Create message records for each recipient
-    // Note: type and priority are not stored in DB, but kept for API compatibility
-    // The mobile app determines type dynamically from subject/message content
+    // Note: type is not stored in DB (the mobile app derives it from content)
     const messages: MessageInsert[] = receiverUserIds.map((receiverUserId) => ({
       sender_id: senderId,
       receiver_id: receiverUserId,
@@ -56,6 +55,7 @@ export const sendMessage = async (
       is_archived: false,
       scheduled_at: isScheduled ? scheduledAt!.toISOString() : null,
       is_delivered: !isScheduled,
+      priority,
     }));
 
     const { data, error } = await supabase
@@ -309,12 +309,16 @@ export const getCoachMessageStats = async (
       .eq('sender_id', senderId)
       .eq('is_read', false);
 
-    // Note: priority column doesn't exist, so we can't filter by urgent
-    // Return 0 for urgent count since priority is not stored
+    const { count: urgent } = await supabase
+      .from('messages')
+      .select('*', { count: 'exact', head: true })
+      .eq('sender_id', senderId)
+      .eq('priority', 'urgent');
+
     return {
       total: total || 0,
       unread: unread || 0,
-      urgent: 0, // Priority not stored in database
+      urgent: urgent || 0,
     };
   } catch (error) {
     console.error('Error in getCoachMessageStats:', error);
@@ -348,7 +352,7 @@ export const getCoachMessageHistory = async (userId: string) => {
           sentAt: msg.created_at,
           scheduledAt: msg.scheduled_at ?? null,
           isDelivered: msg.is_delivered,
-          priority: 'normal',
+          priority: msg.priority ?? 'normal',
           recipientCount: 0,
         });
       }

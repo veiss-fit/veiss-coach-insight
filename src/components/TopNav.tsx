@@ -14,6 +14,7 @@ interface TopNavProps {
 const NAV_LINKS = [
   { label: "Athletes", to: "/", end: true },
   { label: "Programming", to: "/send-programming", end: false },
+  { label: "Messages", to: "/messages", end: false },
   { label: "History", to: "/history", end: false },
 ];
 

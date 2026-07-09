@@ -5,7 +5,6 @@ import { StatCard } from "@/components/StatCard";
 import { AthleteTable } from "@/components/AthleteTable";
 import { AthleteDetailPanel } from "@/components/AthleteDetailPanel";
 import { FilterSidebar } from "@/components/FilterSidebar";
-import { AnnouncementBuilder } from "@/components/AnnouncementBuilder";
 import { Users, UserCheck, Layers, CalendarDays } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { getPlayersWithStatsByCoach, getCoachTeamIds, PlayerWithStats } from "@/services/playersService";
@@ -18,7 +17,6 @@ import { LoadingOverlay } from '@/components/ui/LoadingOverlay';
 const Index = () => {
   const { profile, user, loading: authLoading } = useAuth();
   const [selectedAthlete, setSelectedAthlete] = useState<PlayerWithStats | null>(null);
-  const [announcementBuilderOpen, setAnnouncementBuilderOpen] = useState(false);
   const [teamFilter, setTeamFilter] = useState("all");
   const [refreshKey, setRefreshKey] = useState(0);
   const [isTemplateBuilderOpen, setIsTemplateBuilderOpen] = useState(false);
@@ -177,9 +175,7 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-gray-100 grid grid-rows-[auto_1fr_auto]">
       <TopNav
-        onAnnouncementsClick={() => setAnnouncementBuilderOpen(true)}
         onCreateTemplateClick={() => setIsTemplateBuilderOpen(true)}
-        announcementsOpen={announcementBuilderOpen}
       />
 
       <div className="flex min-h-0">
@@ -255,12 +251,6 @@ const Index = () => {
         athlete={selectedAthlete}
         open={!!selectedAthlete}
         onClose={() => setSelectedAthlete(null)}
-      />
-
-      {/* Announcement Builder */}
-      <AnnouncementBuilder
-        open={announcementBuilderOpen}
-        onClose={() => setAnnouncementBuilderOpen(false)}
       />
 
       <TemplateManager

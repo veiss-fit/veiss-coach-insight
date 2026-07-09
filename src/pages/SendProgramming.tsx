@@ -448,10 +448,7 @@ const SendProgramming = () => {
 
   return (
     <div className="min-h-screen bg-[#f6f7f9] flex flex-col">
-      <TopNav
-        onAnnouncementsClick={() => {}}
-        onCreateTemplateClick={() => {}}
-      />
+      <TopNav />
       <LoadingOverlay isLoading={loading} fullScreen message="Loading data..." />
       <LoadingOverlay isLoading={sending} fullScreen message="Sending programming..." />
 

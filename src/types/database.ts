@@ -304,6 +304,7 @@ export interface Database {
           is_archived: boolean;
           scheduled_at: string | null;
           is_delivered: boolean;
+          priority: 'normal' | 'urgent';
           created_at: string;
           updated_at: string;
         };
@@ -317,6 +318,7 @@ export interface Database {
           is_archived?: boolean;
           scheduled_at?: string | null;
           is_delivered?: boolean;
+          priority?: 'normal' | 'urgent';
           created_at?: string;
           updated_at?: string;
         };
@@ -330,6 +332,7 @@ export interface Database {
           is_archived?: boolean;
           scheduled_at?: string | null;
           is_delivered?: boolean;
+          priority?: 'normal' | 'urgent';
           created_at?: string;
           updated_at?: string;
         };
