@@ -16,6 +16,7 @@ import NotFound from "./pages/NotFound";
 import History from "./pages/History";
 import Messages from "./pages/Messages";
 import SendProgramming from "./pages/SendProgramming";
+import AthleteDashboard from "./pages/AthleteDashboard";
 import AuthCallback from "./pages/AuthCallback";
 
 const queryClient = new QueryClient();
@@ -39,6 +40,14 @@ const App = () => (
               element={
                 <ProtectedRoute allowedRoles={['coach']}>
                   <History />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/athlete/:id"
+              element={
+                <ProtectedRoute allowedRoles={['coach']}>
+                  <AthleteDashboard />
                 </ProtectedRoute>
               }
             />

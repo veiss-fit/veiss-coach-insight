@@ -1,11 +1,10 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { Send, Plus, Megaphone, Clock, LayoutTemplate, Filter, Check, ChevronDown } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { TopNav } from "@/components/TopNav";
-import { AthleteDetailPanel } from "@/components/AthleteDetailPanel";
 import { PageHeader } from "@/components/pulse/PageHeader";
 import { KpiTile } from "@/components/pulse/KpiTile";
 import { Donut } from "@/components/pulse/Donut";
@@ -64,7 +63,11 @@ function CheckRow({ label, on, onClick }: { label: string; on: boolean; onClick:
 
 const Index = () => {
   const { profile, user, loading: authLoading } = useAuth();
-  const [selectedAthlete, setSelectedAthlete] = useState<PlayerWithStats | null>(null);
+  const navigate = useNavigate();
+  const openAthlete = useCallback(
+    (athlete: PlayerWithStats) => navigate(`/athlete/${athlete.id}`),
+    [navigate]
+  );
 
   const [athletes, setAthletes] = useState<PlayerWithStats[]>([]);
   const [loading, setLoading] = useState(true);
@@ -416,7 +419,7 @@ const Index = () => {
                   athlete={a}
                   metrics={metricsByPlayer.get(a.id)}
                   nextPlan={nextPlans.get(a.id)}
-                  onSelect={setSelectedAthlete}
+                  onSelect={openAthlete}
                 />
               ))}
             </div>
@@ -464,7 +467,7 @@ const Index = () => {
               metricsByPlayer={metricsByPlayer}
               nextPlanByPlayer={nextPlans}
               showAdvanced={showAdvanced}
-              onSelect={setSelectedAthlete}
+              onSelect={openAthlete}
             />
           </div>
         </section>
@@ -473,12 +476,6 @@ const Index = () => {
       <footer style={{ padding: "16px 28px", textAlign: "center" }} className="v-meta">
         © {new Date().getFullYear()} Veiss. All rights reserved.
       </footer>
-
-      <AthleteDetailPanel
-        athlete={selectedAthlete}
-        open={!!selectedAthlete}
-        onClose={() => setSelectedAthlete(null)}
-      />
     </div>
   );
 };
