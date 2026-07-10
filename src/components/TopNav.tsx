@@ -1,15 +1,6 @@
 import { NavLink } from "react-router-dom";
-import { Megaphone, LayoutTemplate } from "lucide-react";
 import veissLogo from "@/assets/veiss-logo.png";
 import { ProfileMenu } from "./ProfileMenu";
-
-interface TopNavProps {
-  /** Legacy dialog triggers — rendered as extra actions until the Messages (Stage 2)
-      and Programming-templates (Stage 3) pages replace them. */
-  onAnnouncementsClick?: () => void;
-  onCreateTemplateClick?: () => void;
-  announcementsOpen?: boolean;
-}
 
 const NAV_LINKS = [
   { label: "Athletes", to: "/", end: true },
@@ -18,7 +9,7 @@ const NAV_LINKS = [
   { label: "History", to: "/history", end: false },
 ];
 
-export const TopNav = ({ onAnnouncementsClick, onCreateTemplateClick }: TopNavProps) => {
+export const TopNav = () => {
   return (
     <header className="v-topnav">
       <div className="brand">
@@ -35,18 +26,6 @@ export const TopNav = ({ onAnnouncementsClick, onCreateTemplateClick }: TopNavPr
       </nav>
 
       <div className="right">
-        {onAnnouncementsClick && (
-          <button type="button" className="v-btn ghost" onClick={onAnnouncementsClick}>
-            <Megaphone size={12} strokeWidth={1.5} />
-            Announcements
-          </button>
-        )}
-        {onCreateTemplateClick && (
-          <button type="button" className="v-btn ghost" onClick={onCreateTemplateClick}>
-            <LayoutTemplate size={12} strokeWidth={1.5} />
-            Templates
-          </button>
-        )}
         <span className="v-meta mono nowrap" style={{ fontSize: 11.5 }}>
           {new Date().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
         </span>

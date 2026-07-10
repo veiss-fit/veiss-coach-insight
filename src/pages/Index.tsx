@@ -11,7 +11,6 @@ import { getPlayersWithStatsByCoach, getCoachTeamIds, PlayerWithStats } from "@/
 import { getCoachDashboardStats, DashboardStats } from "@/services/statsService";
 import { deliverScheduledMessages } from "@/services/messagesService";
 // import { useDashboardSubscription } from "@/hooks/useRealtimeSubscriptions"; // Disabled for free tier
-import { TemplateManager } from '@/components/TemplateManager';
 import { LoadingOverlay } from '@/components/ui/LoadingOverlay';
 
 const Index = () => {
@@ -19,7 +18,6 @@ const Index = () => {
   const [selectedAthlete, setSelectedAthlete] = useState<PlayerWithStats | null>(null);
   const [teamFilter, setTeamFilter] = useState("all");
   const [refreshKey, setRefreshKey] = useState(0);
-  const [isTemplateBuilderOpen, setIsTemplateBuilderOpen] = useState(false);
   
   // Real data from Supabase
   const [athletes, setAthletes] = useState<PlayerWithStats[]>([]);
@@ -174,9 +172,7 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-gray-100 grid grid-rows-[auto_1fr_auto]">
-      <TopNav
-        onCreateTemplateClick={() => setIsTemplateBuilderOpen(true)}
-      />
+      <TopNav />
 
       <div className="flex min-h-0">
         {/* Sidebar */}
@@ -253,10 +249,6 @@ const Index = () => {
         onClose={() => setSelectedAthlete(null)}
       />
 
-      <TemplateManager
-        open={isTemplateBuilderOpen} 
-        onClose={() => setIsTemplateBuilderOpen(false)} 
-      />
       {/* ---------------------------- */}
     </div>
   );
