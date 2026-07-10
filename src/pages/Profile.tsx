@@ -246,18 +246,19 @@ const Profile = () => {
   const initials = getInitials(formData.fullName);
 
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className="v-app">
       <TopNav />
 
-      <div className="container mx-auto p-6 space-y-6">
-        <div className="flex items-center justify-between">
+      <div style={{ padding: "20px 28px 40px", maxWidth: 1060, margin: "0 auto", width: "100%" }} className="space-y-6">
+        <div className="flex items-end justify-between" style={{ paddingBottom: 4 }}>
           <div>
-            <h1 className="text-3xl font-bold text-foreground">Profile</h1>
-            <p className="text-muted-foreground">Manage your account information</p>
+            <div className="v-label" style={{ marginBottom: 4 }}>Coach</div>
+            <h1 className="v-h1">Profile</h1>
+            <p className="v-meta" style={{ marginTop: 4, fontSize: 13 }}>Manage your account information.</p>
           </div>
-          <Button onClick={() => navigate("/")} variant="outline">
-            Back to Dashboard
-          </Button>
+          <button className="v-btn" onClick={() => navigate("/")}>
+            Back to dashboard
+          </button>
         </div>
 
         <div className="grid gap-6 md:grid-cols-3">

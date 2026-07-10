@@ -34,8 +34,10 @@ VITE_SUPABASE_ANON_KEY=...
 
 | Path | Component | Guard |
 |------|-----------|-------|
-| `/` | `Index` | coach |
-| `/send-programming` | `SendProgramming` | coach |
+| `/` | `Index` (Team pulse dashboard) | coach |
+| `/athlete/:id` | `AthleteDashboard` | coach |
+| `/send-programming` | `SendProgramming` (Build + Templates tabs, `?tab=templates`) | coach |
+| `/messages` | `Messages` | coach |
 | `/history` | `History` | coach |
 | `/profile` | `Profile` | any auth |
 | `/login`, `/signup` | public | — |
@@ -46,8 +48,10 @@ All Supabase access goes through `src/lib/supabase.ts` (typed client via `src/ty
 
 - `playersService.ts` — primary service; exports `PlayerWithStats` (player row + computed `avgVelocity`, `attendance`, `loadRec`, `avgROM`, `avgTempo`). Entry point is `getPlayersWithStatsByCoach(coachUserId)`.
 - `statsService.ts` — dashboard-level aggregate stats (`DashboardStats`).
-- `workoutPlansService.ts` — sending/reading workout plans per player.
-- `sessionsService.ts`, `messagesService.ts` — session and messaging data.
+- `rosterMetricsService.ts` — 8-week per-athlete + team series (weekly velocity, sessions, plan-completion %, drop-off) via a fixed number of batched queries; feeds the dashboard KPIs, focus cards, and roster deltas. Never fetch these per-player.
+- `workoutPlansService.ts` — sending/reading workout plans per player. Templates are `workout_plans` rows with `is_template = true`.
+- `sessionsService.ts`, `messagesService.ts` — session and messaging data. `messages.priority` (`normal`/`urgent`) is persisted (migration 004).
+- `coachFeedbackService.ts` — coach notes (`coach_feedback` rows with `feedback_type = 'note'`), shown on the athlete page.
 
 **Data scoping**: All queries filter by `teams.coach_user_id = auth.uid()`. Because `coach_user_id` was added in a later migration, queries fall back to returning all teams if the column is missing (see `getCoachTeamIds` in `playersService.ts`).
 
@@ -56,12 +60,17 @@ All Supabase access goes through `src/lib/supabase.ts` (typed client via `src/ty
 ### State Management
 
 - `AuthContext` — global auth state.
-- `TemplatesContext` (`src/contexts/TemplatesContext.tsx`) — in-memory workout templates (not persisted to DB; state resets on page reload).
+- `TemplatesContext` (`src/contexts/TemplatesContext.tsx`) — workout templates, persisted as `workout_plans` rows with `is_template = true`.
 - TanStack Query is available but not yet used; data fetching is currently done in `useEffect` + local `useState`.
 
-### UI
+### UI / Design System ("Pulse")
 
-`src/components/ui/` contains shadcn/ui primitives — do not modify these directly. App-specific components are in `src/components/`. Path alias `@/` resolves to `src/`.
+- Design tokens live in `src/index.css`: shadcn HSL triplets (consumed by `tailwind.config.ts`) plus literal Pulse tokens (`--surface-*`, `--ink-*`, `--line-*`, status colors, `--d-*` density vars). The brand accent family is `--brand`/`--brand-soft`/`--brand-ink` (gold `#FFC300`) — the names `--accent`/`--gold` are reserved for the shadcn HSL triplets; don't mix them up.
+- `v-*` CSS primitives (`v-card`, `v-chip[data-tone]`, `v-btn`, `v-table`, `v-topnav`, `v-label`, …) are defined in `index.css` under `@layer components` and used by all redesigned pages.
+- `src/components/pulse/` holds the design-system React components (KpiTile, Sparkline, Delta, Donut, chips, Avatar, AttBar, PageHeader, FilterBar, UnderlineTabs, DragCalendar, VelocityZoneSlider, AthleteCard, PulseAthleteTable, and the SVG charts in `charts.tsx`). Charts are hand-rolled SVG on purpose — do not swap them for a chart library. Recharts remains a dependency only via `src/components/ui/chart.tsx`.
+- `src/components/ui/` contains shadcn/ui primitives — do not modify these directly. Path alias `@/` resolves to `src/`.
+- Analytics/heuristics live in `src/lib/`: `athleteSummaryUtils.ts` (per-session metrics + z-score deviation indicators), `rosterFlags.ts` (attention flags + priority score), `vbtZones.ts` (VBT zone model + `SESSIONS_TARGET`), `workoutAttendance.ts`.
+- Dark mode is out of scope; the `.dark` token block exists but is unused.
 
 ### Key Domain Concepts
 

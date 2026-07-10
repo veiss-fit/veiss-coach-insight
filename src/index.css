@@ -442,3 +442,14 @@
   from { opacity: 0; transform: translateY(-4px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+/* Route-change transition (skipped for reduced-motion users) */
+@media (prefers-reduced-motion: no-preference) {
+  .route-fade {
+    animation: routeFade 0.22s ease-out;
+  }
+}
+@keyframes routeFade {
+  from { transform: translateY(6px); }
+  to   { transform: none; }
+}

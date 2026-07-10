@@ -50,8 +50,8 @@ export default function Messages() {
     setLoading(true);
     try {
       // The generated client generics collapse to `never` on filtered queries
-      // (pre-existing, see AnnouncementBuilder/TemplatesContext) — cast like the
-      // rest of the codebase until the client is typed at the source.
+      // (pre-existing, see TemplatesContext) — cast like the rest of the
+      // codebase until the client is typed at the source.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data: coachRow } = await (supabase as any)
         .from("coaches")

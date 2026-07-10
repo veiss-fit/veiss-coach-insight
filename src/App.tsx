@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { TemplatesProvider } from "@/contexts/TemplatesContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
@@ -21,15 +21,12 @@ import AuthCallback from "./pages/AuthCallback";
 
 const queryClient = new QueryClient();
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <AuthProvider>
-        <TemplatesProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Routes>
+/** Keyed by pathname so each route change replays the subtle entrance animation. */
+const AppRoutes = () => {
+  const location = useLocation();
+  return (
+    <div className="route-fade" key={location.pathname}>
+      <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<Signup />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
@@ -86,7 +83,20 @@ const App = () => (
             <Route path="/auth/callback" element={<AuthCallback />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
-          </Routes>
+      </Routes>
+    </div>
+  );
+};
+
+const App = () => (
+  <QueryClientProvider client={queryClient}>
+    <TooltipProvider>
+      <AuthProvider>
+        <TemplatesProvider>
+        <Toaster />
+        <Sonner />
+        <BrowserRouter>
+          <AppRoutes />
         </BrowserRouter>
         </TemplatesProvider>
       </AuthProvider>
