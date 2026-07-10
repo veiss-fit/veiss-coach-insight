@@ -1,60 +1,151 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
+import { format } from "date-fns";
+import { Send, Plus, Megaphone, Clock, LayoutTemplate, Filter, Check, ChevronDown } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { TopNav } from "@/components/TopNav";
-import { StatCard } from "@/components/StatCard";
-import { AthleteTable } from "@/components/AthleteTable";
 import { AthleteDetailPanel } from "@/components/AthleteDetailPanel";
-import { FilterSidebar } from "@/components/FilterSidebar";
-import { Users, UserCheck, Layers, CalendarDays } from "lucide-react";
+import { PageHeader } from "@/components/pulse/PageHeader";
+import { KpiTile } from "@/components/pulse/KpiTile";
+import { Donut } from "@/components/pulse/Donut";
+import { FilterBar, FilterGroup } from "@/components/pulse/FilterBar";
+import { AthleteCard, NextPlanInfo } from "@/components/pulse/AthleteCard";
+import { PulseAthleteTable } from "@/components/pulse/AthleteTable";
+import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { useAuth } from "@/contexts/AuthContext";
 import { getPlayersWithStatsByCoach, getCoachTeamIds, PlayerWithStats } from "@/services/playersService";
 import { getCoachDashboardStats, DashboardStats } from "@/services/statsService";
+import { getRosterMetrics, RosterMetricsResult } from "@/services/rosterMetricsService";
+import { getUpcomingWorkoutPlans } from "@/services/workoutPlansService";
 import { deliverScheduledMessages } from "@/services/messagesService";
-// import { useDashboardSubscription } from "@/hooks/useRealtimeSubscriptions"; // Disabled for free tier
-import { LoadingOverlay } from '@/components/ui/LoadingOverlay';
+import { flagsFor, priorityScore, isFlagged } from "@/lib/rosterFlags";
+
+const EMPTY_STATS: DashboardStats = {
+  totalSessions: 0,
+  activeAthletes: 0,
+  avgAttendance: 0,
+  totalTeams: 0,
+  avgTeamLoad: 0,
+  topPerformer: "N/A",
+  lowestAttendance: 0,
+};
+
+type SortMode = "priority" | "name" | "velocity";
+const SORT_LABELS: Record<SortMode, string> = { priority: "Priority", name: "Name", velocity: "Velocity" };
+
+interface RosterFilters {
+  flaggedOnly: boolean;
+  engagement: string[];
+  load: string[];
+}
+
+const EMPTY_FILTERS: RosterFilters = { flaggedOnly: false, engagement: [], load: [] };
+
+/** Checkbox-style row for the filter/columns dropdowns. */
+function CheckRow({ label, on, onClick }: { label: string; on: boolean; onClick: () => void }) {
+  return (
+    <div className="v-menuitem row" style={{ gap: 9, padding: "7px 8px" }} onClick={onClick}>
+      <span
+        style={{
+          width: 16, height: 16, borderRadius: 5, flexShrink: 0,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          border: "1.5px solid " + (on ? "var(--brand)" : "var(--line-2)"),
+          background: on ? "var(--brand)" : "var(--surface-1)",
+          color: "var(--brand-ink)",
+        }}
+      >
+        {on && <Check size={12} strokeWidth={2} />}
+      </span>
+      <span style={{ fontSize: 12.5 }}>{label}</span>
+    </div>
+  );
+}
 
 const Index = () => {
   const { profile, user, loading: authLoading } = useAuth();
   const [selectedAthlete, setSelectedAthlete] = useState<PlayerWithStats | null>(null);
-  const [teamFilter, setTeamFilter] = useState("all");
-  const [refreshKey, setRefreshKey] = useState(0);
-  
-  // Real data from Supabase
+
   const [athletes, setAthletes] = useState<PlayerWithStats[]>([]);
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState<DashboardStats>({
-    totalSessions: 0,
-    activeAthletes: 0,
-    avgAttendance: 0,
-    totalTeams: 0,
-    avgTeamLoad: 0,
-    topPerformer: 'N/A',
-    lowestAttendance: 0,
-  });
+  const [stats, setStats] = useState<DashboardStats>(EMPTY_STATS);
+  const [roster, setRoster] = useState<RosterMetricsResult | null>(null);
+  const [nextPlans, setNextPlans] = useState<Map<string, NextPlanInfo>>(new Map());
 
-  // Load players and stats from database
-  // Only load when auth is done loading AND profile is available
+  const [groupFilter, setGroupFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const [sortMode, setSortMode] = useState<SortMode>("priority");
+  const [filters, setFilters] = useState<RosterFilters>(EMPTY_FILTERS);
+  const [showAllFocus, setShowAllFocus] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  const loadData = useCallback(async () => {
+    if (!profile) {
+      setLoading(false);
+      return;
+    }
+    const timeoutId = setTimeout(() => {
+      setLoading(false);
+      toast.error("Loading is taking longer than expected. Please refresh the page.");
+    }, 30000);
+
+    try {
+      setLoading(true);
+      const coachUserId = user?.id ?? "";
+      const teamIds = coachUserId ? await getCoachTeamIds(coachUserId) : [];
+      const [players, dashboardStats] = await Promise.all([
+        getPlayersWithStatsByCoach(coachUserId),
+        getCoachDashboardStats(teamIds),
+      ]);
+      setAthletes(players);
+      setStats(dashboardStats);
+
+      // Batched roster series + upcoming plans (fixed query count, not per-player).
+      // Non-fatal: the core roster is already rendered if these fail.
+      try {
+        const [metrics, upcoming] = await Promise.all([
+          getRosterMetrics(players.map((p) => ({ id: p.id, user_id: p.user_id }))),
+          players.length ? getUpcomingWorkoutPlans(players.map((p) => p.id), 7) : Promise.resolve([]),
+        ]);
+        setRoster(metrics);
+
+        const planMap = new Map<string, NextPlanInfo>();
+        for (const plan of upcoming ?? []) {
+          if (plan.player_id && !planMap.has(plan.player_id)) {
+            planMap.set(plan.player_id, {
+              day: format(new Date(plan.date + "T12:00:00"), "EEE"),
+              label: plan.title ?? "Workout",
+            });
+          }
+        }
+        setNextPlans(planMap);
+      } catch (seriesError) {
+        console.error("Roster series/upcoming plans failed:", seriesError);
+        setRoster(null);
+        setNextPlans(new Map());
+      }
+
+      clearTimeout(timeoutId);
+    } catch (error) {
+      clearTimeout(timeoutId);
+      console.error("Error loading data:", error);
+      toast.error(`Failed to load dashboard data: ${error instanceof Error ? error.message : "Unknown error"}`);
+      setAthletes([]);
+      setStats(EMPTY_STATS);
+      setRoster(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [profile, user?.id]);
+
   useEffect(() => {
-    console.log('Index useEffect triggered:', { authLoading, profile: !!profile, profileId: profile?.id });
-    
-    // Wait for auth to finish loading
     if (authLoading) {
-      console.log('Auth still loading, waiting...');
       setLoading(true);
       return;
     }
-    
-    // Only load data if profile is available (user is authenticated)
-    if (profile) {
-      console.log('Profile available, loading data...');
-      loadData();
-    } else {
-      // If no profile after auth loads, user is not authenticated
-      // Set loading to false so UI can show appropriate state
-      console.log('No profile after auth loaded, setting loading to false');
-      setLoading(false);
-    }
-  }, [profile, refreshKey, authLoading]);
+    if (profile) loadData();
+    else setLoading(false);
+  }, [profile, authLoading, loadData]);
 
   // Deliver any scheduled messages whose time has passed, checked every 60 seconds.
   useEffect(() => {
@@ -64,192 +155,330 @@ const Index = () => {
     return () => clearInterval(interval);
   }, [user?.id]);
 
-  const loadData = async () => {
-    // Safety check: don't load if profile is not available
-    if (!profile) {
-      console.warn('loadData called but profile is not available');
-      setLoading(false);
-      return;
+  const metricsByPlayer = useMemo(() => roster?.perPlayer ?? new Map(), [roster]);
+  const team = roster?.team ?? null;
+
+  // ── Derived: groups, filters, sort ─────────────────────────────────────────
+  const groups = useMemo<FilterGroup[]>(() => {
+    const map = new Map<string, FilterGroup>();
+    for (const a of athletes) {
+      if (!a.team_id) continue;
+      const existing = map.get(a.team_id);
+      if (existing) existing.size = (existing.size ?? 0) + 1;
+      else map.set(a.team_id, { id: a.team_id, name: a.group || "Unnamed group", size: 1 });
     }
+    const list = [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+    const unassigned = athletes.filter((a) => !a.team_id).length;
+    if (unassigned > 0) list.push({ id: "unassigned", name: "Unassigned", size: unassigned });
+    return list;
+  }, [athletes]);
 
-    // Set a timeout to prevent infinite loading (30 seconds max)
-    const timeoutId = setTimeout(() => {
-      console.error('loadData timeout - taking too long, stopping loading');
-      setLoading(false);
-      toast.error('Loading is taking longer than expected. Please refresh the page.');
-    }, 30000);
+  const activeFilterCount =
+    (filters.flaggedOnly ? 1 : 0) + filters.engagement.length + filters.load.length;
 
-    try {
-      setLoading(true);
-
-      // Load players and coach-level stats together so attendance stays in sync across the dashboard and table.
-      console.log('Loading players and stats...');
-      const coachUserId = user?.id ?? '';
-      const teamIds = coachUserId ? await getCoachTeamIds(coachUserId) : [];
-      const [players, dashboardStats] = await Promise.all([
-        getPlayersWithStatsByCoach(coachUserId),
-        getCoachDashboardStats(teamIds),
-      ]);
-
-      console.log(`Loaded ${players.length} players`);
-      setAthletes(players);
-
-      console.log('Stats loaded:', dashboardStats);
-      setStats(dashboardStats);
-      
-      clearTimeout(timeoutId);
-    } catch (error) {
-      clearTimeout(timeoutId);
-      console.error('Error loading data:', error);
-      toast.error(`Failed to load dashboard data: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      // Set empty data so UI doesn't get stuck
-      setAthletes([]);
-      setStats({
-        totalSessions: 0,
-        activeAthletes: 0,
-        avgAttendance: 0,
-        totalTeams: 0,
-        avgTeamLoad: 0,
-        topPerformer: 'N/A',
-        lowestAttendance: 0,
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
+  const toggleFilter = (key: "engagement" | "load", val: string) =>
+    setFilters((f) => ({
+      ...f,
+      [key]: f[key].includes(val) ? f[key].filter((x) => x !== val) : [...f[key], val],
+    }));
 
   const filteredAthletes = useMemo(() => {
-    return athletes.filter((athlete) => {
-      // TEAM FILTER LOGIC
-      if (teamFilter === "unassigned") {
-        // Explicitly show ONLY unassigned players
-        if (athlete.team_id !== null) return false;
-      } else if (teamFilter === "all") {
-        // show everyone
-      } else {
-        // Specific team selected (e.g., "Varsity Basketball")
-        if (athlete.team_id !== teamFilter) return false;
+    const list = athletes.filter((a) => {
+      if (groupFilter === "unassigned") {
+        if (a.team_id !== null) return false;
+      } else if (groupFilter !== "all" && a.team_id !== groupFilter) {
+        return false;
       }
-      
+      if (search && !a.name.toLowerCase().includes(search.toLowerCase())) return false;
+      if (filters.flaggedOnly && !isFlagged(a, metricsByPlayer.get(a.id))) return false;
+      if (filters.engagement.length && !filters.engagement.includes(a.engagement)) return false;
+      if (filters.load.length && !filters.load.includes(a.loadRec)) return false;
       return true;
     });
-  }, [athletes, teamFilter]);
+    return [...list].sort((a, b) => {
+      if (sortMode === "name") return a.name.localeCompare(b.name);
+      if (sortMode === "velocity") {
+        const va = metricsByPlayer.get(a.id)?.recentVel ?? a.avgVelocity;
+        const vb = metricsByPlayer.get(b.id)?.recentVel ?? b.avgVelocity;
+        return vb - va;
+      }
+      return priorityScore(b, metricsByPlayer.get(b.id)) - priorityScore(a, metricsByPlayer.get(a.id));
+    });
+  }, [athletes, groupFilter, search, filters, sortMode, metricsByPlayer]);
 
-  /* Real-time subscription disabled (requires Supabase Pro plan)
-  // Subscribe to real-time updates
-  useDashboardSubscription(
-    {
-      onNewPlayer: (player) => {
-        console.log('Real-time: New player added', player);
-        // Refresh data when new player is added
-        if (profile?.coach?.team_id && player.team_id === profile.coach.team_id) {
-          toast.success(`New player added: ${player.full_name}`);
-          loadData();
-        }
-      },
-      onNewSession: (session) => {
-        console.log('Real-time: New session completed', session);
-        // Refresh stats when new session is completed
-        toast.success('A new workout session was completed!');
-        loadData();
-      },
-      onNewMessage: (message) => {
-        console.log('Real-time: New message sent', message);
-        // Could show a notification that message was delivered
-      },
-      onPlanUpdate: (plan) => {
-        console.log('Real-time: Workout plan updated', plan);
-        // Refresh when workout plan status changes (e.g., completed)
-        if (plan.is_completed) {
-          toast.success('A workout plan was completed!');
-          loadData();
-        }
-      },
-    },
-    !!profile // Only subscribe when user is logged in
+  const focusAthletes = useMemo(
+    () =>
+      [...athletes]
+        .sort((a, b) => priorityScore(b, metricsByPlayer.get(b.id)) - priorityScore(a, metricsByPlayer.get(a.id)))
+        .slice(0, showAllFocus ? 6 : 3),
+    [athletes, metricsByPlayer, showAllFocus]
   );
-  */
+
+  // ── Derived: KPI values ────────────────────────────────────────────────────
+  const teamVelNow = team && team.velSeries.length ? team.velSeries[team.velSeries.length - 1] : null;
+  const teamVelPrev = team && team.velSeries.length > 1 ? team.velSeries[team.velSeries.length - 2] : null;
+  const attNow = team && team.attSeries.length ? team.attSeries[team.attSeries.length - 1] : null;
+  const attPrev = team && team.attSeries.length > 1 ? team.attSeries[team.attSeries.length - 2] : null;
+
+  const loadMix = useMemo(() => {
+    const mix = { Increase: 0, Maintain: 0, Decrease: 0 };
+    for (const a of athletes) {
+      if (a.loadRec === "Increase") mix.Increase++;
+      else if (a.loadRec === "Decrease") mix.Decrease++;
+      else mix.Maintain++;
+    }
+    return mix;
+  }, [athletes]);
+
+  const flaggedCount = useMemo(
+    () => athletes.filter((a) => isFlagged(a, metricsByPlayer.get(a.id))).length,
+    [athletes, metricsByPlayer]
+  );
+
+  // ───────────────────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-gray-100 grid grid-rows-[auto_1fr_auto]">
+    <div className="v-app">
       <TopNav />
+      <LoadingOverlay isLoading={loading} fullScreen message="Loading dashboard..." />
 
-      <div className="flex min-h-0">
-        {/* Sidebar */}
-        <aside className="w-80 p-6 bg-gray-100">
-          <FilterSidebar
-            teamFilter={teamFilter}
-            onTeamChange={setTeamFilter}
-            onPlayersChanged={() => setTimeout(() => setRefreshKey(prev => prev + 1), 300)}
+      <main style={{ padding: "20px 28px 28px", maxWidth: 1480, margin: "0 auto", width: "100%", flex: 1 }}>
+        <PageHeader
+          eyebrow="Coach dashboard"
+          title="Team pulse"
+          subtitle={`${athletes.length} athlete${athletes.length !== 1 ? "s" : ""} · ${groups.filter((g) => g.id !== "unassigned").length} group${groups.filter((g) => g.id !== "unassigned").length !== 1 ? "s" : ""} · week of ${format(new Date(), "MMM d")}`}
+          actions={
+            <>
+              <Link className="v-btn ghost" to="/messages"><Megaphone size={12} strokeWidth={1.5} />Announce</Link>
+              <Link className="v-btn" to="/send-programming?tab=templates"><Plus size={12} strokeWidth={1.5} />Template</Link>
+              <Link className="v-btn brand" to="/send-programming"><Send size={12} strokeWidth={1.5} />Send programming</Link>
+            </>
+          }
+        />
+
+        {/* Team overview strip */}
+        <section style={{ display: "grid", gridTemplateColumns: "1.1fr 1.1fr 1.1fr 1.6fr 1.2fr", gap: 12, marginBottom: 24 }}>
+          <KpiTile
+            label="Avg attendance"
+            value={stats.avgAttendance}
+            unit="%"
+            delta={attNow != null && attPrev != null ? attNow - attPrev : null}
+            deltaSuffix="pt"
+            footnote="plan completion, wk over wk"
+            sparkData={team && team.attSeries.length > 1 ? team.attSeries : undefined}
+            sparkTarget={85}
+            accent="var(--brand)"
           />
-        </aside>
+          <KpiTile
+            label="Team avg velocity"
+            value={teamVelNow != null ? teamVelNow.toFixed(2) : "—"}
+            unit="m/s"
+            delta={teamVelNow != null && teamVelPrev != null ? +(teamVelNow - teamVelPrev).toFixed(2) : null}
+            footnote="roster average · weekly"
+            sparkData={team && team.velSeries.length > 1 ? team.velSeries : undefined}
+            accent="var(--brand)"
+          />
+          <KpiTile
+            label="Sessions this wk"
+            value={team?.sessionsThisWeek ?? 0}
+            delta={team ? team.sessionsThisWeek - team.sessionsLastWeek : null}
+            footnote="vs last week"
+            sparkData={team ? team.sessionsByDay : undefined}
+            accent="var(--brand)"
+          />
 
-        {/* Main Content */}
-        <main className="flex-1 p-6 space-y-6 min-h-0">
-          <LoadingOverlay isLoading={loading} fullScreen message="Loading dashboard..." />
-
-          {/* Overview Stats */}
-          <div>
-            <h2 className="text-2xl font-bold mb-4">Group Overview</h2>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <StatCard
-                title="Workout Sessions"
-                value={loading ? "..." : stats.totalSessions}
-                icon={CalendarDays}
-              />
-              <StatCard
-                title="Active Athletes"
-                value={loading ? "..." : stats.activeAthletes}
-                icon={Users}
-                status="success"
-              />
-              <StatCard
-                title="Average Attendance"
-                value={loading ? "..." : `${stats.avgAttendance}%`}
-                icon={UserCheck}
-                status="success"
-              />
-              <StatCard
-                title="Total Groups"
-                value={loading ? "..." : stats.totalTeams}
-                icon={Layers}
-              />
+          {/* Quick actions */}
+          <div className="v-card padded" style={{ display: "flex", flexDirection: "column" }}>
+            <div className="v-label" style={{ marginBottom: 8 }}>Quick actions</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, flex: 1 }}>
+              {[
+                { icon: <Send size={12} strokeWidth={1.5} />, label: "Send programming", sub: "Assign to athletes", to: "/send-programming", primary: true },
+                { icon: <LayoutTemplate size={12} strokeWidth={1.5} />, label: "Templates", sub: "Reusable workouts", to: "/send-programming?tab=templates" },
+                { icon: <Megaphone size={12} strokeWidth={1.5} />, label: "Announcement", sub: "Message squad", to: "/messages" },
+                { icon: <Clock size={12} strokeWidth={1.5} />, label: "History", sub: "Sent log", to: "/history" },
+              ].map((act) => (
+                <Link
+                  key={act.label}
+                  to={act.to}
+                  className="v-card interactive"
+                  style={{
+                    display: "flex", alignItems: "center", gap: 8, padding: "0 11px", minWidth: 0,
+                    background: act.primary ? "var(--brand)" : "var(--surface-2)",
+                    borderColor: act.primary ? "var(--brand)" : "var(--line-0)",
+                    color: act.primary ? "var(--brand-ink)" : "var(--ink-0)",
+                  }}
+                >
+                  <span style={{ flexShrink: 0, color: act.primary ? "var(--brand-ink)" : "var(--brand)", opacity: act.primary ? 0.9 : 1, display: "inline-flex" }}>
+                    {act.icon}
+                  </span>
+                  <span style={{ minWidth: 0 }}>
+                    <span className="ellipsis" style={{ display: "block", fontWeight: 600, fontSize: 12, lineHeight: 1.25 }}>{act.label}</span>
+                    <span className="mono ellipsis" style={{ display: "block", fontSize: 10, opacity: 0.65, lineHeight: 1.25 }}>{act.sub}</span>
+                  </span>
+                </Link>
+              ))}
             </div>
           </div>
 
-          {/* Athlete Table */}
-          <div>
-            <h2 className="text-2xl font-bold mb-4">Athletes</h2>
-            {loading ? (
-              <div className="flex justify-center items-center py-12">
-                <div className="text-muted-foreground">Loading players...</div>
-              </div>
-            ) : (
-              <AthleteTable 
-                athletes={filteredAthletes} 
-                onAthleteSelect={setSelectedAthlete}
-                filtersActive={teamFilter !== "all"}
+          {/* Load recommendation mix */}
+          <div className="v-card padded" style={{ display: "flex", flexDirection: "column" }}>
+            <div className="row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
+              <div className="v-label">Load recommendation mix</div>
+              <span className="v-meta mono" style={{ fontSize: 11 }}>{athletes.length} athletes</span>
+            </div>
+            <div className="row" style={{ gap: 14, flex: 1 }}>
+              <Donut
+                size={80}
+                thickness={11}
+                segments={[
+                  { value: loadMix.Increase, color: "var(--good)" },
+                  { value: loadMix.Maintain, color: "var(--ink-3)" },
+                  { value: loadMix.Decrease, color: "var(--warn)" },
+                ]}
+                centerValue={loadMix.Maintain}
+                centerLabel="on plan"
               />
-            )}
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 11.5 }}>
+                {[
+                  { c: "var(--good)", l: "Increase", v: loadMix.Increase },
+                  { c: "var(--ink-3)", l: "Maintain", v: loadMix.Maintain },
+                  { c: "var(--warn)", l: "Reduce", v: loadMix.Decrease },
+                ].map((s) => (
+                  <div key={s.l} className="row" style={{ gap: 6 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 2, background: s.c }} />
+                    <span style={{ color: "var(--ink-1)" }}>{s.l}</span>
+                    <span className="mono" style={{ marginLeft: "auto", color: "var(--ink-2)" }}>{s.v}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
-        </main>
-      </div>
+        </section>
 
-      {/* Footer */}
-      <footer className="bg-navy-dark border-t border-navy-light py-4">
-        <div className="container mx-auto px-6 flex items-center justify-center">
-          <p className="text-sm text-white/70">© {new Date().getFullYear()} Veiss. All rights reserved.</p>
-        </div>
+        {/* Filter bar */}
+        <FilterBar
+          groups={groups}
+          value={groupFilter}
+          onChange={setGroupFilter}
+          search={search}
+          onSearch={setSearch}
+          right={
+            <Popover>
+              <PopoverTrigger asChild>
+                <button className="v-btn ghost">
+                  <Filter size={12} strokeWidth={1.5} />
+                  Filters
+                  {activeFilterCount > 0 && (
+                    <span className="v-chip" data-tone="brand" style={{ height: 16, padding: "0 5px", marginLeft: 2 }}>{activeFilterCount}</span>
+                  )}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="v-pop" style={{ width: 236, padding: 5 }}>
+                <div className="row" style={{ justifyContent: "space-between", padding: "4px 8px 6px" }}>
+                  <span className="v-label">Filters</span>
+                  <button className="v-btn ghost" style={{ height: 22, fontSize: 11 }} onClick={() => setFilters(EMPTY_FILTERS)}>Clear</button>
+                </div>
+                <CheckRow label="Flagged only" on={filters.flaggedOnly} onClick={() => setFilters((f) => ({ ...f, flaggedOnly: !f.flaggedOnly }))} />
+                <div className="v-label" style={{ padding: "8px 8px 2px", fontSize: 9.5 }}>Engagement</div>
+                {["High", "Moderate", "Low"].map((e) => (
+                  <CheckRow key={e} label={e} on={filters.engagement.includes(e)} onClick={() => toggleFilter("engagement", e)} />
+                ))}
+                <div className="v-label" style={{ padding: "8px 8px 2px", fontSize: 9.5 }}>Load recommendation</div>
+                {([["Increase", "Increase"], ["Maintain", "Maintain"], ["Decrease", "Reduce"]] as const).map(([v, l]) => (
+                  <CheckRow key={v} label={l} on={filters.load.includes(v)} onClick={() => toggleFilter("load", v)} />
+                ))}
+              </PopoverContent>
+            </Popover>
+          }
+        />
+
+        {/* Focus cards */}
+        {athletes.length > 0 && (
+          <section style={{ marginTop: 20 }}>
+            <div className="row" style={{ justifyContent: "space-between", marginBottom: 10 }}>
+              <div>
+                <div className="v-h2">Worth a look</div>
+                <div className="v-meta" style={{ marginTop: 2 }}>
+                  Athletes whose recent data has drifted most from baseline{flaggedCount > 0 ? ` · ${flaggedCount} flagged` : ""}.
+                </div>
+              </div>
+              {athletes.length > 3 && (
+                <button className="v-btn ghost" onClick={() => setShowAllFocus((s) => !s)}>
+                  {showAllFocus ? "Show fewer" : "See all"}
+                  <ChevronDown size={12} strokeWidth={1.5} style={{ transform: showAllFocus ? "rotate(180deg)" : "none" }} />
+                </button>
+              )}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
+              {focusAthletes.map((a) => (
+                <AthleteCard
+                  key={a.id}
+                  athlete={a}
+                  metrics={metricsByPlayer.get(a.id)}
+                  nextPlan={nextPlans.get(a.id)}
+                  onSelect={setSelectedAthlete}
+                />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Roster table */}
+        <section style={{ marginTop: 28 }}>
+          <div className="row" style={{ justifyContent: "space-between", marginBottom: 10 }}>
+            <div>
+              <div className="v-h2">Roster · {filteredAthletes.length}</div>
+              <div className="v-meta" style={{ marginTop: 2 }}>Click any row to open the athlete detail.</div>
+            </div>
+            <div className="row" style={{ gap: 6 }}>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button className="v-btn ghost" style={{ fontSize: 12 }}>
+                    Sort: {SORT_LABELS[sortMode]}
+                    <ChevronDown size={12} strokeWidth={1.5} />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="v-pop" style={{ width: 170, padding: 5 }}>
+                  {(Object.entries(SORT_LABELS) as Array<[SortMode, string]>).map(([k, l]) => (
+                    <div key={k} className="v-menuitem row" style={{ gap: 8, padding: 8, justifyContent: "space-between" }} onClick={() => setSortMode(k)}>
+                      <span style={{ fontSize: 12.5 }}>{l}</span>
+                      {sortMode === k && <Check size={12} strokeWidth={1.5} style={{ color: "var(--brand)" }} />}
+                    </div>
+                  ))}
+                </PopoverContent>
+              </Popover>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button className="v-btn ghost" style={{ fontSize: 12 }}>Columns</button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="v-pop" style={{ width: 216, padding: 5 }}>
+                  <div className="v-label" style={{ padding: "4px 8px 6px" }}>Toggle columns</div>
+                  <CheckRow label="Advanced (ROM · Tempo)" on={showAdvanced} onClick={() => setShowAdvanced((v) => !v)} />
+                </PopoverContent>
+              </Popover>
+            </div>
+          </div>
+          <div className="v-card flush v-scroll" style={{ overflow: "auto" }}>
+            <PulseAthleteTable
+              athletes={filteredAthletes}
+              metricsByPlayer={metricsByPlayer}
+              nextPlanByPlayer={nextPlans}
+              showAdvanced={showAdvanced}
+              onSelect={setSelectedAthlete}
+            />
+          </div>
+        </section>
+      </main>
+
+      <footer style={{ padding: "16px 28px", textAlign: "center" }} className="v-meta">
+        © {new Date().getFullYear()} Veiss. All rights reserved.
       </footer>
 
-      {/* Athlete Detail Panel */}
       <AthleteDetailPanel
         athlete={selectedAthlete}
         open={!!selectedAthlete}
         onClose={() => setSelectedAthlete(null)}
       />
-
-      {/* ---------------------------- */}
     </div>
   );
 };

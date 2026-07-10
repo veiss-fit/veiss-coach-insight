@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -9,11 +10,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { User, LogOut, Bell } from "lucide-react";
+import { User, LogOut, Bell, Users } from "lucide-react";
+import { TeamSportManager } from "./TeamSportManager";
 
 export const ProfileMenu = () => {
   const navigate = useNavigate();
   const { profile, user, logout } = useAuth();
+  const [groupManagerOpen, setGroupManagerOpen] = useState(false);
 
   const handleLogout = async () => {
     await logout();
@@ -53,8 +56,12 @@ export const ProfileMenu = () => {
           <Bell className="mr-2 h-4 w-4" />
           <span>Notifications</span>
         </DropdownMenuItem>
+        <DropdownMenuItem className="cursor-pointer" onClick={() => setGroupManagerOpen(true)}>
+          <Users className="mr-2 h-4 w-4" />
+          <span>Manage groups</span>
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem 
+        <DropdownMenuItem
           className="cursor-pointer text-destructive focus:text-destructive"
           onClick={handleLogout}
         >
@@ -62,6 +69,8 @@ export const ProfileMenu = () => {
           <span>Log out</span>
         </DropdownMenuItem>
       </DropdownMenuContent>
+
+      <TeamSportManager open={groupManagerOpen} onClose={() => setGroupManagerOpen(false)} />
     </DropdownMenu>
   );
 };
