@@ -50,9 +50,11 @@ export function PulseAthleteTable({ athletes, metricsByPlayer, showAdvanced, onS
                     <Avatar name={a.name} />
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontWeight: 500, color: "var(--ink-0)" }}>{a.name}</div>
-                      <div className="v-meta mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>
-                        {a.jersey_number != null ? `#${a.jersey_number}` : "—"}
-                      </div>
+                      {a.jersey_number != null && (
+                        <div className="v-meta mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>
+                          #{a.jersey_number}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </td>

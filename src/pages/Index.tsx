@@ -30,8 +30,8 @@ const EMPTY_STATS: DashboardStats = {
   lowestAttendance: 0,
 };
 
-type SortMode = "priority" | "name" | "velocity";
-const SORT_LABELS: Record<SortMode, string> = { priority: "Priority", name: "Name", velocity: "Velocity" };
+type SortMode = "name" | "velocity";
+const SORT_LABELS: Record<SortMode, string> = { name: "Name (A-Z)", velocity: "Velocity" };
 
 interface RosterFilters {
   flaggedOnly: boolean;
@@ -77,7 +77,7 @@ const Index = () => {
 
   const [groupFilter, setGroupFilter] = useState("all");
   const [search, setSearch] = useState("");
-  const [sortMode, setSortMode] = useState<SortMode>("priority");
+  const [sortMode, setSortMode] = useState<SortMode>("name");
   const [filters, setFilters] = useState<RosterFilters>(EMPTY_FILTERS);
   const [showAllFocus, setShowAllFocus] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -199,13 +199,12 @@ const Index = () => {
       return true;
     });
     return [...list].sort((a, b) => {
-      if (sortMode === "name") return a.name.localeCompare(b.name);
       if (sortMode === "velocity") {
         const va = metricsByPlayer.get(a.id)?.recentVel ?? a.avgVelocity;
         const vb = metricsByPlayer.get(b.id)?.recentVel ?? b.avgVelocity;
         return vb - va;
       }
-      return priorityScore(b, metricsByPlayer.get(b.id)) - priorityScore(a, metricsByPlayer.get(a.id));
+      return a.name.localeCompare(b.name);
     });
   }, [athletes, groupFilter, search, filters, sortMode, metricsByPlayer]);
 
