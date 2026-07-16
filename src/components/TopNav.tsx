@@ -14,7 +14,7 @@ export const TopNav = () => {
     <header className="v-topnav">
       <div className="brand">
         <img src={veissLogo} alt="Veiss" style={{ height: 28 }} />
-        <span style={{ color: "var(--ink-3)", fontWeight: 400 }}>· coach</span>
+        <div style={{ width: 1, height: 24, background: "var(--line-1)" }} />
       </div>
 
       <nav className="navlinks">

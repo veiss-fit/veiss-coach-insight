@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { format } from "date-fns";
-import { Send, Plus, Megaphone, Clock, LayoutTemplate, Filter, Check, ChevronDown } from "lucide-react";
+import { Send, Plus, Megaphone, Filter, Check, ChevronDown } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { TopNav } from "@/components/TopNav";
 import { PageHeader } from "@/components/pulse/PageHeader";
@@ -248,7 +248,7 @@ const Index = () => {
       <main style={{ padding: "20px 28px 28px", maxWidth: 1480, margin: "0 auto", width: "100%", flex: 1 }}>
         <PageHeader
           eyebrow="Coach dashboard"
-          title="Team pulse"
+          title="Team Pulse"
           subtitle={`${athletes.length} athlete${athletes.length !== 1 ? "s" : ""} · ${groups.filter((g) => g.id !== "unassigned").length} group${groups.filter((g) => g.id !== "unassigned").length !== 1 ? "s" : ""} · week of ${format(new Date(), "MMM d")}`}
           actions={
             <>
@@ -260,7 +260,7 @@ const Index = () => {
         />
 
         {/* Team overview strip */}
-        <section style={{ display: "grid", gridTemplateColumns: "1.1fr 1.1fr 1.1fr 1.6fr 1.2fr", gap: 12, marginBottom: 24 }}>
+        <section style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 24 }}>
           <KpiTile
             label="Avg attendance"
             value={stats.avgAttendance}
@@ -289,39 +289,6 @@ const Index = () => {
             sparkData={team ? team.sessionsByDay : undefined}
             accent="var(--brand)"
           />
-
-          {/* Quick actions */}
-          <div className="v-card padded" style={{ display: "flex", flexDirection: "column" }}>
-            <div className="v-label" style={{ marginBottom: 8 }}>Quick actions</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, flex: 1 }}>
-              {[
-                { icon: <Send size={12} strokeWidth={1.5} />, label: "Send programming", sub: "Assign to athletes", to: "/send-programming", primary: true },
-                { icon: <LayoutTemplate size={12} strokeWidth={1.5} />, label: "Templates", sub: "Reusable workouts", to: "/send-programming?tab=templates" },
-                { icon: <Megaphone size={12} strokeWidth={1.5} />, label: "Announcement", sub: "Message squad", to: "/messages" },
-                { icon: <Clock size={12} strokeWidth={1.5} />, label: "History", sub: "Sent log", to: "/history" },
-              ].map((act) => (
-                <Link
-                  key={act.label}
-                  to={act.to}
-                  className="v-card interactive"
-                  style={{
-                    display: "flex", alignItems: "center", gap: 8, padding: "0 11px", minWidth: 0,
-                    background: act.primary ? "var(--brand)" : "var(--surface-2)",
-                    borderColor: act.primary ? "var(--brand)" : "var(--line-0)",
-                    color: act.primary ? "var(--brand-ink)" : "var(--ink-0)",
-                  }}
-                >
-                  <span style={{ flexShrink: 0, color: act.primary ? "var(--brand-ink)" : "var(--brand)", opacity: act.primary ? 0.9 : 1, display: "inline-flex" }}>
-                    {act.icon}
-                  </span>
-                  <span style={{ minWidth: 0 }}>
-                    <span className="ellipsis" style={{ display: "block", fontWeight: 600, fontSize: 12, lineHeight: 1.25 }}>{act.label}</span>
-                    <span className="mono ellipsis" style={{ display: "block", fontSize: 10, opacity: 0.65, lineHeight: 1.25 }}>{act.sub}</span>
-                  </span>
-                </Link>
-              ))}
-            </div>
-          </div>
 
           {/* Load recommendation mix */}
           <div className="v-card padded" style={{ display: "flex", flexDirection: "column" }}>
@@ -465,7 +432,6 @@ const Index = () => {
             <PulseAthleteTable
               athletes={filteredAthletes}
               metricsByPlayer={metricsByPlayer}
-              nextPlanByPlayer={nextPlans}
               showAdvanced={showAdvanced}
               onSelect={openAthlete}
             />

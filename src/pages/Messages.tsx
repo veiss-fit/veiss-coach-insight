@@ -38,7 +38,10 @@ export default function Messages() {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [priority, setPriority] = useState<"normal" | "urgent">("normal");
+  const [recipientMode, setRecipientMode] = useState<"groups" | "individuals">("groups");
   const [groups, setGroups] = useState<string[]>(["all"]);
+  const [selectedAthleteIds, setSelectedAthleteIds] = useState<string[]>([]);
+  const [athleteGroupFilter, setAthleteGroupFilter] = useState("all");
   const [scheduledDate, setScheduledDate] = useState<Date>();
 
   const [athletes, setAthletes] = useState<PlayerWithStats[]>([]);
@@ -92,9 +95,10 @@ export default function Messages() {
   }, [athletes]);
 
   const recipientIds = useMemo(() => {
+    if (recipientMode === "individuals") return selectedAthleteIds;
     if (groups.includes("all")) return athletes.map((a) => a.id);
     return athletes.filter((a) => a.team_id && groups.includes(a.team_id)).map((a) => a.id);
-  }, [groups, athletes]);
+  }, [recipientMode, selectedAthleteIds, groups, athletes]);
 
   const toggleGroup = (id: string) => {
     if (id === "all") return setGroups(["all"]);
@@ -105,11 +109,23 @@ export default function Messages() {
     });
   };
 
+  const toggleAthlete = (id: string) => {
+    setSelectedAthleteIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const filteredAthletesForPicker = useMemo(
+    () => athletes.filter((a) => athleteGroupFilter === "all" || a.team_id === athleteGroupFilter),
+    [athletes, athleteGroupFilter]
+  );
+
   const resetForm = () => {
     setTitle("");
     setBody("");
     setPriority("normal");
+    setRecipientMode("groups");
     setGroups(["all"]);
+    setSelectedAthleteIds([]);
+    setAthleteGroupFilter("all");
     setScheduledDate(undefined);
   };
 
@@ -118,7 +134,9 @@ export default function Messages() {
     if (titleError) return toast.error(titleError);
     const messageError = Validators.announcementMessage(body);
     if (messageError) return toast.error(messageError);
-    if (recipientIds.length === 0) return toast.error("No athletes in the selected groups");
+    if (recipientIds.length === 0) {
+      return toast.error(recipientMode === "individuals" ? "Select at least one athlete" : "No athletes in the selected groups");
+    }
     if (!user?.id) return toast.error("User not authenticated");
 
     setSending(true);
@@ -233,34 +251,121 @@ export default function Messages() {
             </div>
 
             <div>
-              <div className="v-label" style={{ marginBottom: 8 }}>
-                Recipients · {recipientIds.length} athlete{recipientIds.length !== 1 ? "s" : ""}
-              </div>
-              <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
-                {[{ id: "all", name: "All groups" } as GroupRow, ...groupsList].map((g) => {
-                  const on = groups.includes(g.id);
-                  const size = g.id !== "all" ? groupSizes.get(g.id) ?? 0 : null;
-                  return (
+              <div className="row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
+                <div className="v-label">
+                  Recipients · {recipientIds.length} athlete{recipientIds.length !== 1 ? "s" : ""}
+                </div>
+                <div className="row" style={{ gap: 4, background: "var(--surface-sunk)", padding: 3, borderRadius: 8 }}>
+                  {([["groups", "Groups"], ["individuals", "Individuals"]] as const).map(([id, label]) => (
                     <button
-                      key={g.id}
-                      onClick={() => toggleGroup(g.id)}
+                      key={id}
+                      onClick={() => setRecipientMode(id)}
                       className="v-btn"
                       style={{
-                        height: 30,
-                        fontSize: 12,
-                        gap: 5,
-                        background: on ? "var(--ink-0)" : "var(--surface-1)",
-                        color: on ? "#fff" : "var(--ink-1)",
-                        borderColor: on ? "var(--ink-0)" : "var(--line-1)",
+                        height: 24,
+                        fontSize: 11,
+                        border: "none",
+                        background: recipientMode === id ? "var(--surface-1)" : "transparent",
+                        color: recipientMode === id ? "var(--ink-0)" : "var(--ink-2)",
+                        boxShadow: recipientMode === id ? "0 1px 2px rgba(7,16,31,0.08)" : "none",
                       }}
                     >
-                      {g.id !== "all" && <span style={{ width: 6, height: 6, borderRadius: 999, background: "var(--ink-3)" }} />}
-                      {g.name}
-                      {size != null && <span className="mono" style={{ opacity: 0.6, fontSize: 10.5, marginLeft: 2 }}>{size}</span>}
+                      {label}
                     </button>
-                  );
-                })}
+                  ))}
+                </div>
               </div>
+
+              {recipientMode === "groups" ? (
+                <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+                  {[{ id: "all", name: "All groups" } as GroupRow, ...groupsList].map((g) => {
+                    const on = groups.includes(g.id);
+                    const size = g.id !== "all" ? groupSizes.get(g.id) ?? 0 : null;
+                    return (
+                      <button
+                        key={g.id}
+                        onClick={() => toggleGroup(g.id)}
+                        className="v-btn"
+                        style={{
+                          height: 30,
+                          fontSize: 12,
+                          gap: 5,
+                          background: on ? "var(--ink-0)" : "var(--surface-1)",
+                          color: on ? "#fff" : "var(--ink-1)",
+                          borderColor: on ? "var(--ink-0)" : "var(--line-1)",
+                        }}
+                      >
+                        {g.id !== "all" && <span style={{ width: 6, height: 6, borderRadius: 999, background: "var(--ink-3)" }} />}
+                        {g.name}
+                        {size != null && <span className="mono" style={{ opacity: 0.6, fontSize: 10.5, marginLeft: 2 }}>{size}</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="v-card flush" style={{ overflow: "hidden" }}>
+                  <div className="row" style={{ padding: 10, gap: 8, flexWrap: "wrap", borderBottom: "1px solid var(--line-0)", background: "var(--surface-2)" }}>
+                    <select
+                      className="v-input"
+                      value={athleteGroupFilter}
+                      onChange={(e) => setAthleteGroupFilter(e.target.value)}
+                      style={{ height: 30, minWidth: 130, fontSize: 12 }}
+                    >
+                      <option value="all">All groups</option>
+                      {groupsList.map((g) => (
+                        <option key={g.id} value={g.id}>{g.name}</option>
+                      ))}
+                    </select>
+                    <button
+                      className="v-btn"
+                      style={{ height: 30, fontSize: 11.5 }}
+                      onClick={() => setSelectedAthleteIds(filteredAthletesForPicker.map((a) => a.id))}
+                    >
+                      Select all ({filteredAthletesForPicker.length})
+                    </button>
+                    <button className="v-btn ghost" style={{ height: 30, fontSize: 11.5 }} onClick={() => setSelectedAthleteIds([])}>
+                      Clear
+                    </button>
+                  </div>
+                  <div className="v-scroll" style={{ maxHeight: 220, overflow: "auto" }}>
+                    {filteredAthletesForPicker.length === 0 ? (
+                      <div style={{ textAlign: "center", padding: "24px 0", color: "var(--ink-3)", fontSize: 12.5 }}>No athletes found</div>
+                    ) : (
+                      filteredAthletesForPicker.map((a) => {
+                        const on = selectedAthleteIds.includes(a.id);
+                        return (
+                          <label
+                            key={a.id}
+                            className="row"
+                            style={{
+                              gap: 10,
+                              padding: "8px 12px",
+                              borderBottom: "1px solid var(--line-0)",
+                              cursor: "pointer",
+                              background: on ? "var(--brand-soft)" : "transparent",
+                            }}
+                          >
+                            <span
+                              style={{
+                                width: 16, height: 16, borderRadius: 5, flexShrink: 0,
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                                border: "1.5px solid " + (on ? "var(--brand)" : "var(--line-2)"),
+                                background: on ? "var(--brand)" : "var(--surface-1)",
+                                color: "var(--brand-ink)",
+                              }}
+                            >
+                              {on && <Check size={11} strokeWidth={2} />}
+                            </span>
+                            <input type="checkbox" checked={on} onChange={() => toggleAthlete(a.id)} style={{ display: "none" }} />
+                            <span className="grow ellipsis" style={{ fontSize: 12.5, color: "var(--ink-0)" }}>{a.name}</span>
+                            <span className="v-meta mono" style={{ fontSize: 10.5, color: "var(--ink-3)", flexShrink: 0 }}>{a.group || "—"}</span>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div>

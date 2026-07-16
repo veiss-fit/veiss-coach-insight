@@ -314,6 +314,15 @@
     transition: border-color .12s, box-shadow .12s;
   }
   .v-input:focus { border-color: var(--ink-2); box-shadow: 0 0 0 3px rgba(7,16,31,0.06); }
+  /* Native <select> doesn't vertically center its selected value from height
+     alone the way <input> does. display:flex on the select box itself centers
+     the value against the native arrow without touching appearance. Extra
+     right padding nudges the native caret in from the edge. */
+  select.v-input {
+    display: flex;
+    align-items: center;
+    padding-right: 20px;
+  }
 
   .v-label {
     font-size: 10.5px;
@@ -392,7 +401,7 @@
     padding: 0 24px;
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 14px;
     border-bottom: 1px solid var(--line-0);
     background: var(--surface-1);
   }
@@ -404,10 +413,10 @@
     font-size: 13px;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 14px;
   }
   .v-topnav .navlinks {
-    display: flex; gap: 4px; margin-left: 20px;
+    display: flex; gap: 4px;
   }
   .v-topnav .navlinks a {
     padding: 6px 10px; border-radius: 6px; color: var(--ink-2); font-size: 12.5px; font-weight: 500;

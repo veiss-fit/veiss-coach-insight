@@ -1,22 +1,21 @@
 import { ChevronRight } from "lucide-react";
+import { format } from "date-fns";
 import type { PlayerWithStats } from "@/services/playersService";
 import type { RosterAthleteMetrics } from "@/services/rosterMetricsService";
 import { Avatar } from "./Avatar";
 import { AttBar } from "./AttBar";
 import { Delta } from "./Delta";
 import { GroupChip, LoadRecChip, EngagementChip } from "./chips";
-import type { NextPlanInfo } from "./AthleteCard";
 
 interface PulseAthleteTableProps {
   athletes: PlayerWithStats[];
   metricsByPlayer: Map<string, RosterAthleteMetrics>;
-  nextPlanByPlayer: Map<string, NextPlanInfo>;
   showAdvanced: boolean;
   onSelect?: (athlete: PlayerWithStats) => void;
 }
 
 /** Roster table in the Pulse design (replaces the legacy components/AthleteTable). */
-export function PulseAthleteTable({ athletes, metricsByPlayer, nextPlanByPlayer, showAdvanced, onSelect }: PulseAthleteTableProps) {
+export function PulseAthleteTable({ athletes, metricsByPlayer, showAdvanced, onSelect }: PulseAthleteTableProps) {
   return (
     <table className="v-table">
       <thead>
@@ -29,7 +28,7 @@ export function PulseAthleteTable({ athletes, metricsByPlayer, nextPlanByPlayer,
           <th>Engagement</th>
           {showAdvanced && <th>ROM</th>}
           {showAdvanced && <th>Tempo</th>}
-          <th>Next session</th>
+          <th>Last session</th>
           <th></th>
         </tr>
       </thead>
@@ -43,7 +42,6 @@ export function PulseAthleteTable({ athletes, metricsByPlayer, nextPlanByPlayer,
         ) : (
           athletes.map((a) => {
             const m = metricsByPlayer.get(a.id);
-            const next = nextPlanByPlayer.get(a.id);
             const vel = m?.recentVel ?? a.avgVelocity;
             return (
               <tr key={a.id} onClick={() => onSelect?.(a)}>
@@ -89,10 +87,12 @@ export function PulseAthleteTable({ athletes, metricsByPlayer, nextPlanByPlayer,
                   </td>
                 )}
                 <td>
-                  {next ? (
+                  {a.lastWorkout ? (
                     <div className="row" style={{ gap: 6 }}>
-                      <span className="mono" style={{ fontSize: 11.5, color: "var(--ink-2)" }}>{next.day}</span>
-                      <span className="v-meta ellipsis" style={{ fontSize: 11.5, maxWidth: 140 }}>{next.label}</span>
+                      <span className="mono" style={{ fontSize: 11.5, color: "var(--ink-2)" }}>
+                        {format(new Date(a.lastWorkout.date), "MMM d")}
+                      </span>
+                      <span className="v-meta ellipsis" style={{ fontSize: 11.5, maxWidth: 140 }}>{a.lastWorkout.name}</span>
                     </div>
                   ) : (
                     <span className="v-mute2 mono" style={{ fontSize: 11.5 }}>—</span>

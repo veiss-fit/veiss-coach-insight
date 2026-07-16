@@ -76,10 +76,12 @@ export function AthleteCard({ athlete, metrics, nextPlan, onSelect }: AthleteCar
 
       <div className="row" style={{ justifyContent: "space-between", borderTop: "1px solid var(--line-0)", paddingTop: 10, gap: 8 }}>
         <LoadRecChip rec={athlete.loadRec} />
-        <div className="v-meta mono ellipsis row" style={{ fontSize: 11, color: "var(--ink-2)", gap: 4 }}>
-          <Calendar size={12} strokeWidth={1.5} style={{ flexShrink: 0 }} />
-          {nextPlan ? `${nextPlan.day} · ${nextPlan.label}` : "No plan scheduled"}
-        </div>
+        {nextPlan && (
+          <div className="v-meta mono ellipsis row" style={{ fontSize: 11, color: "var(--ink-2)", gap: 4 }}>
+            <Calendar size={12} strokeWidth={1.5} style={{ flexShrink: 0 }} />
+            {nextPlan.day} · {nextPlan.label}
+          </div>
+        )}
       </div>
     </div>
   );
