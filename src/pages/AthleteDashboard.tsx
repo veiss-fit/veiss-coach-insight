@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
 import { format, differenceInCalendarWeeks, isAfter, subDays, startOfDay } from "date-fns";
-import { Bell, Send, ChevronRight, Zap, Plus } from "lucide-react";
+import { Bell, Send, ChevronRight, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { TopNav } from "@/components/TopNav";
 import { Avatar } from "@/components/pulse/Avatar";
@@ -396,11 +396,10 @@ interface GroupComparison {
 }
 
 function InsightRail({
-  athlete, recentVel, drop, sessionsThisWeek, group, notes, onAddNote,
+  athlete, recentVel, sessionsThisWeek, group, notes, onAddNote,
 }: {
   athlete: PlayerWithStats;
   recentVel: number | null;
-  drop: number | null;
   sessionsThisWeek: number;
   group: GroupComparison;
   notes: CoachNote[];
@@ -419,14 +418,6 @@ function InsightRail({
     setAdding(false);
   };
 
-  const rec = athlete.loadRec;
-  const reason =
-    rec === "Increase"
-      ? `Recent avg ${recentVel != null ? recentVel.toFixed(2) : athlete.avgVelocity.toFixed(2)} m/s sits above the 0.85 m/s increase threshold.`
-      : rec === "Decrease"
-      ? `${drop != null ? `Drop-off ${Math.round(drop)}% in the last session and recent` : "Recent"} avg ${recentVel != null ? recentVel.toFixed(2) : athlete.avgVelocity.toFixed(2)} m/s — accumulating fatigue.`
-      : "Velocity tracking inside the prescribed band; keep current programming.";
-
   const compareRows = [
     { l: "Attendance", a: athlete.attendance, t: group.attendance, unit: "%" },
     { l: "Avg velocity", a: recentVel ?? athlete.avgVelocity, t: group.avgVelocity, unit: "m/s" },
@@ -435,37 +426,6 @@ function InsightRail({
 
   return (
     <aside style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      {/* Recommendation */}
-      <div className="v-card padded">
-        <div className="row" style={{ justifyContent: "space-between" }}>
-          <div className="v-label">Recommendation</div>
-          <span className="mono v-mute2" style={{ fontSize: 10.5 }}>auto · VBT</span>
-        </div>
-        <div className="row" style={{ marginTop: 8, gap: 10, alignItems: "flex-start" }}>
-          <span
-            style={{
-              width: 28, height: 28, borderRadius: 8, flexShrink: 0,
-              background: rec === "Increase" ? "var(--good-soft)" : rec === "Decrease" ? "var(--warn-soft)" : "var(--surface-sunk)",
-              color: rec === "Increase" ? "var(--good)" : rec === "Decrease" ? "var(--warn)" : "var(--ink-2)",
-              display: "inline-flex", alignItems: "center", justifyContent: "center",
-            }}
-          >
-            <Zap size={12} strokeWidth={1.5} />
-          </span>
-          <div>
-            <div style={{ fontSize: 14, fontWeight: 600 }}>
-              {rec === "Increase" ? "Increase working load" : rec === "Decrease" ? "Pull back this week" : "Maintain current load"}
-            </div>
-            <div className="v-meta" style={{ fontSize: 12, marginTop: 2 }}>{reason}</div>
-          </div>
-        </div>
-        <div className="row" style={{ marginTop: 12 }}>
-          <Link to="/send-programming" className="v-btn brand" style={{ flex: 1, justifyContent: "center" }}>
-            Apply to next plan
-          </Link>
-        </div>
-      </div>
-
       {/* vs group average */}
       <div className="v-card padded">
         <div className="v-label">vs group average</div>
@@ -859,7 +819,7 @@ export default function AthleteDashboard() {
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 24 }}>
-            <div>
+            <div style={{ minWidth: 0 }}>
               <UnderlineTabs
                 tabs={[
                   { id: "performance", label: "Performance" },
@@ -873,8 +833,8 @@ export default function AthleteDashboard() {
 
               <div style={{ paddingTop: 20 }}>
                 {tab === "performance" && (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-                    <div className="v-card padded">
+                  <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
+                    <div className="v-card padded" style={{ minWidth: 0 }}>
                       <div style={{ marginBottom: 12 }}>
                         <div className="v-h2">12-week velocity trend</div>
                         <div className="v-meta" style={{ marginTop: 2 }}>Weekly average across all logged sets. Band shows the prescribed working range.</div>
@@ -883,14 +843,14 @@ export default function AthleteDashboard() {
                     </div>
 
                     <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 16 }}>
-                      <div className="v-card padded">
+                      <div className="v-card padded" style={{ minWidth: 0 }}>
                         <div style={{ marginBottom: 12 }}>
                           <div className="v-h2">Load–velocity profile</div>
                           <div className="v-meta" style={{ marginTop: 2 }}>Each dot is one set, last 8 weeks. Recent sets darker.</div>
                         </div>
                         <ForceVelocityChart data={fvPoints} unitLabel={fvUnit} />
                       </div>
-                      <div className="v-card padded" style={{ display: "flex", flexDirection: "column" }}>
+                      <div className="v-card padded" style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
                         <div style={{ marginBottom: 10 }}>
                           <div className="v-h2">Weekly volume</div>
                           <div className="v-meta" style={{ marginTop: 2 }}>Sessions per week vs {SESSIONS_TARGET}/wk target.</div>
@@ -915,7 +875,7 @@ export default function AthleteDashboard() {
                       </div>
                     </div>
 
-                    <div className="v-card padded">
+                    <div className="v-card padded" style={{ minWidth: 0 }}>
                       <div style={{ marginBottom: 14 }}>
                         <div className="v-h2">Per-exercise velocity range</div>
                         <div className="v-meta" style={{ marginTop: 2 }}>Min/max range with average · last 4 weeks (falls back to all time).</div>
@@ -934,7 +894,6 @@ export default function AthleteDashboard() {
             <InsightRail
               athlete={athlete}
               recentVel={recentVel}
-              drop={latestDrop}
               sessionsThisWeek={sessionsThisWeek}
               group={groupComparison}
               notes={notes}

@@ -63,7 +63,7 @@ export function VelocityTrendChart({ data, target = [0.55, 0.85], accent = "var(
   };
 
   return (
-    <div ref={ref} style={{ position: "relative", width: "100%" }}>
+    <div ref={ref} style={{ position: "relative", width: "100%", minWidth: 0, overflow: "hidden" }}>
       <svg width={w} height={h} onMouseMove={onMove} onMouseLeave={() => setHover(null)} style={{ cursor: "crosshair", display: "block" }}>
         {ticks.map((t, i) => (
           <g key={i}>
@@ -183,7 +183,7 @@ export function ForceVelocityChart({ data, unitLabel = "load", accent = "var(--b
   const xTicks = [0.2, 0.5, 0.8].map((f) => Math.round(mnX + (mxX - mnX) * f));
 
   return (
-    <div ref={ref} style={{ position: "relative", width: "100%" }}>
+    <div ref={ref} style={{ position: "relative", width: "100%", minWidth: 0, overflow: "hidden" }}>
       <svg width={w} height={h} style={{ display: "block" }}>
         {yTicks.map((y) => (
           <g key={y}>
@@ -251,65 +251,124 @@ interface RepTraceChartProps {
   reps: RepTracePoint[];
   target?: number | null;
   accent?: string;
-  height?: number;
+  /** Height of a single set's bar row (rows stack vertically, one per set). */
+  rowHeight?: number;
 }
 
-export function RepTraceChart({ reps, target, accent = "var(--brand)", height = 140 }: RepTraceChartProps) {
+/**
+ * One horizontal bar row per set, stacked top-to-bottom. All rows share a
+ * single velocity scale (with gridlines + tick labels) so bar heights stay
+ * comparable and readable across sets; hovering a bar shows its exact value.
+ */
+export function RepTraceChart({ reps, target, accent = "var(--brand)", rowHeight = 140 }: RepTraceChartProps) {
   const { ref, width: w } = useMeasuredWidth<HTMLDivElement>(400);
-
-  const PL = 30, PR = 12, PT = 12, PB = 22;
-  const h = height;
-  const cW = w - PL - PR;
-  const cH = h - PT - PB;
-  if (reps.length === 0) return <div ref={ref} style={{ height }} />;
+  const [hover, setHover] = useState<{ set: number; idx: number } | null>(null);
+  if (reps.length === 0) return <div ref={ref} style={{ height: rowHeight }} />;
 
   const vels = reps.map((r) => r.vel);
   const tgt = target ?? null;
-  const mn = Math.min(...vels, tgt != null ? tgt - 0.1 : Infinity, Math.min(...vels)) - 0.02;
-  const mx = Math.max(...vels, tgt != null ? tgt + 0.1 : -Infinity, Math.max(...vels)) + 0.02;
+  const mn = Math.min(...vels, tgt != null ? tgt - 0.1 : Infinity) - 0.03;
+  const mx = Math.max(...vels, tgt != null ? tgt + 0.1 : -Infinity) + 0.03;
   const range = mx - mn || 0.1;
 
-  const bw = (cW / reps.length) * 0.7;
-  const step = cW / reps.length;
+  const setOrder: number[] = [];
+  const bySet = new Map<number, RepTracePoint[]>();
+  for (const r of reps) {
+    if (!bySet.has(r.set)) {
+      bySet.set(r.set, []);
+      setOrder.push(r.set);
+    }
+    bySet.get(r.set)!.push(r);
+  }
 
-  const setStarts: Record<number, number> = {};
-  reps.forEach((r, i) => {
-    if (setStarts[r.set] == null) setStarts[r.set] = i;
-  });
+  const LABEL_W = 40;
+  const AXIS_W = 32;
+  const PT = 8, PB = 8;
+  const cW = Math.max(40, w - LABEL_W - AXIS_W);
+  const cH = rowHeight - PT - PB;
+  const MIN_BAR_H = 3;
+
+  const yFor = (v: number) => PT + cH - ((v - mn) / range) * cH;
+  const ticks = [mn + range * 0.15, mn + range * 0.5, mn + range * 0.85];
+  const targetY = tgt != null ? yFor(tgt) : null;
 
   return (
-    <div ref={ref} style={{ width: "100%" }}>
-      <svg width={w} height={h} style={{ display: "block" }}>
-        {tgt != null && (
-          <>
-            <line
-              x1={PL} x2={PL + cW}
-              y1={PT + cH - ((tgt - mn) / range) * cH}
-              y2={PT + cH - ((tgt - mn) / range) * cH}
-              stroke={accent} strokeWidth="0.8" strokeDasharray="3 3" opacity="0.5"
-            />
-            <text x={PL + cW - 4} y={PT + cH - ((tgt - mn) / range) * cH - 4} textAnchor="end" fontSize="9.5" fontFamily="var(--font-mono)" fill={accent}>
-              target {tgt.toFixed(2)}
-            </text>
-          </>
-        )}
-        {reps.map((r, i) => {
-          const x = PL + i * step + (step - bw) / 2;
-          const yv = PT + cH - ((r.vel - mn) / range) * cH;
-          const tone = tgt != null && r.vel < tgt - 0.05 ? "var(--warn)" : accent;
-          return <rect key={i} x={x} y={yv} width={bw} height={PT + cH - yv} fill={tone} fillOpacity="0.85" rx="1.5" />;
+    // No overflow:hidden here — the hover tooltip intentionally pops up above its row.
+    <div ref={ref} style={{ width: "100%", minWidth: 0 }}>
+      {tgt != null && (
+        <div className="row" style={{ justifyContent: "flex-end", marginBottom: 4 }}>
+          <span className="mono" style={{ fontSize: 9.5, color: accent }}>target {tgt.toFixed(2)} m/s</span>
+        </div>
+      )}
+      <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+        {setOrder.map((setNum) => {
+          const setReps = bySet.get(setNum)!;
+          const bw = (cW / setReps.length) * 0.6;
+          const step = cW / setReps.length;
+          const hoveredRep = hover?.set === setNum ? setReps[hover.idx] : null;
+          return (
+            <div key={setNum} className="row" style={{ gap: 0, alignItems: "center", position: "relative" }}>
+              <span className="mono v-mute2" style={{ width: LABEL_W, flexShrink: 0, fontSize: 9.5 }}>Set {setNum}</span>
+              <svg width={AXIS_W + cW} height={rowHeight} style={{ display: "block", flexShrink: 0, overflow: "visible" }}>
+                {ticks.map((t, i) => (
+                  <g key={i}>
+                    <line x1={AXIS_W} x2={AXIS_W + cW} y1={yFor(t)} y2={yFor(t)} stroke="var(--line-0)" strokeWidth="1" />
+                    <text x={AXIS_W - 6} y={yFor(t) + 3} textAnchor="end" fontSize="9" fontFamily="var(--font-mono)" fill="var(--ink-3)">
+                      {t.toFixed(2)}
+                    </text>
+                  </g>
+                ))}
+                {targetY != null && (
+                  <line x1={AXIS_W} x2={AXIS_W + cW} y1={targetY} y2={targetY} stroke={accent} strokeWidth="0.8" strokeDasharray="3 3" opacity="0.6" />
+                )}
+                <line x1={AXIS_W} x2={AXIS_W + cW} y1={PT + cH} y2={PT + cH} stroke="var(--line-2)" strokeWidth="1.2" />
+                {setReps.map((r, i) => {
+                  const x = AXIS_W + i * step + (step - bw) / 2;
+                  const barH = Math.max(MIN_BAR_H, ((r.vel - mn) / range) * cH);
+                  const yv = PT + cH - barH;
+                  const isHover = hover?.set === setNum && hover.idx === i;
+                  const belowTarget = tgt != null && r.vel < tgt - 0.05;
+                  const tone = belowTarget ? "var(--warn)" : accent;
+                  return (
+                    <rect
+                      key={i}
+                      x={x} y={yv} width={bw} height={barH} rx="1.5"
+                      fill={tone}
+                      fillOpacity={isHover ? 1 : 0.85}
+                      stroke={isHover ? tone : "none"}
+                      strokeWidth={isHover ? 1.5 : 0}
+                      style={{ cursor: "pointer" }}
+                      onMouseEnter={() => setHover({ set: setNum, idx: i })}
+                      onMouseLeave={() => setHover(null)}
+                    />
+                  );
+                })}
+              </svg>
+              {hoveredRep && (
+                <div
+                  style={{
+                    position: "absolute",
+                    left: LABEL_W + AXIS_W + hover!.idx * step + step / 2,
+                    top: -6,
+                    transform: "translate(-50%, -100%)",
+                    background: "var(--ink-0)", color: "white",
+                    padding: "6px 9px", borderRadius: 7, fontSize: 11, fontFamily: "var(--font-mono)",
+                    boxShadow: "0 8px 20px rgba(7,16,31,0.25)",
+                    pointerEvents: "none", whiteSpace: "nowrap", zIndex: 1,
+                  }}
+                >
+                  <div style={{ fontWeight: 600 }}>Rep {hoveredRep.rep} · {hoveredRep.vel.toFixed(2)} m/s</div>
+                  {tgt != null && (
+                    <div style={{ color: "rgba(255,255,255,0.65)", fontSize: 10 }}>
+                      {hoveredRep.vel >= tgt ? "at or above" : "below"} target
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
         })}
-        {reps.map((r, i) =>
-          i > 0 && reps[i - 1].set !== r.set ? (
-            <line key={"d" + i} x1={PL + i * step} x2={PL + i * step} y1={PT} y2={PT + cH} stroke="var(--line-1)" strokeDasharray="2 2" />
-          ) : null
-        )}
-        {Object.entries(setStarts).map(([setNum, i]) => (
-          <text key={setNum} x={PL + i * step + 4} y={h - 6} fontSize="9.5" fontFamily="var(--font-mono)" fill="var(--ink-3)">
-            Set {setNum}
-          </text>
-        ))}
-      </svg>
+      </div>
     </div>
   );
 }
@@ -341,7 +400,7 @@ export function WeeklyLoadChart({ data, target = 4, accent = "var(--brand)", hei
   const bw = step * 0.6;
 
   return (
-    <div ref={ref} style={{ width: "100%" }}>
+    <div ref={ref} style={{ width: "100%", minWidth: 0, overflow: "hidden" }}>
       <svg width={w} height={h} style={{ display: "block" }}>
         <line
           x1={PL} x2={PL + cW}
