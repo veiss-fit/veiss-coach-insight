@@ -1,0 +1,37 @@
+/* src/WorkoutDashboard.css */
+.dashboard-wrapper {
+  display: flex;
+  height: 100vh; /* Locks height to exactly the screen size */
+  overflow: hidden; /* Prevents the whole page from scrolling */
+  background-color: #f3f4f6;
+  color: #111827;
+  font-family:
+    system-ui,
+    -apple-system,
+    sans-serif;
+  text-align: left; /* Resets text alignment from the global index.css */
+}
+
+.dashboard-content-grid {
+  display: flex;
+  flex: 1;
+  gap: 24px;
+  padding: 24px;
+  box-sizing: border-box;
+  overflow: hidden; /* Passes the height limit down to the panels */
+}
+
+/* Light mode scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f3f4f6;
+}
+::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #ffb800;
+}

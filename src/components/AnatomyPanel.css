@@ -1,0 +1,195 @@
+/* src/components/AnatomyPanel.css */
+.anatomy-panel {
+  flex: 1.2;
+  background-color: #ffffff;
+  padding: 24px;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.view-toggle-tabs {
+  display: flex;
+  background-color: #f3f4f6;
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  margin-bottom: 15px;
+}
+
+.tab-btn {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: #6b7280;
+  padding: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.tab-btn:hover {
+  color: #111827;
+}
+
+.tab-btn.active-tab {
+  background-color: #ffffff;
+  color: #111827;
+  box-shadow: 0px 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.anatomy-container {
+  background-color: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 20px;
+  margin-bottom: 20px;
+  display: flex;
+  justify-content: center;
+}
+
+.anatomy-container svg path {
+  cursor: pointer;
+  transition:
+    fill 0.2s ease,
+    filter 0.2s ease !important;
+}
+
+.anatomy-container svg path:hover {
+  fill: #d1d5db !important;
+}
+
+/* Gold glow effect for selected body parts */
+.anatomy-container svg path[fill="#FFB800"] {
+  filter: drop-shadow(0px 0px 6px rgba(255, 184, 0, 0.4)) !important;
+}
+
+/* Vibrant Orange glow effect for hovered body parts */
+.anatomy-container svg path[fill="#FF5722"] {
+  filter: drop-shadow(0px 0px 8px rgba(255, 87, 34, 0.7)) !important;
+}
+
+/* --- MUSCLE INFO CARD & 2-COLUMN GRID STYLES --- */
+.muscle-info-card {
+  background-color: #f9fafb;
+  padding: 16px;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+  max-height: 250px;
+  overflow-y: auto;
+}
+
+.muscle-info-card::-webkit-scrollbar {
+  width: 4px;
+}
+.muscle-info-card::-webkit-scrollbar-track {
+  background: transparent;
+}
+.muscle-info-card::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 4px;
+}
+
+.mapping-table-header {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 16px;
+  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 10px;
+  margin-bottom: 12px;
+}
+
+.primary-label {
+  color: #ffb800;
+  font-weight: 800;
+  margin: 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.secondary-label {
+  color: #6b7280;
+  font-size: 11px;
+  font-weight: 600;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.secondary-mapping-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mapping-row {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 16px;
+  align-items: center;
+  padding: 6px 8px;
+  border-radius: 6px;
+  transition: background-color 0.15s ease;
+  cursor: pointer;
+}
+
+/* Interactive hover state for the rows */
+.mapping-row:hover,
+.mapping-row.row-hovered {
+  background-color: #f3f4f6;
+  border-color: #d1d5db;
+}
+
+.mapping-row:hover .mapping-source {
+  background-color: #ff5722;
+  color: #ffffff;
+  border-color: #ff5722;
+}
+
+.mapping-source {
+  display: inline-block;
+  width: 100%;
+  text-align: center;
+  box-sizing: border-box;
+  transition: all 0.15s ease;
+}
+
+.mapping-targets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.muscle-tag {
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.primary-tag {
+  background-color: #ffffff;
+  color: #111827;
+  border: 1px solid #d1d5db;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.secondary-tag {
+  background-color: transparent;
+  color: #6b7280;
+  border: 1px solid #e5e7eb;
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.empty-tag {
+  color: #9ca3af;
+  font-size: 13px;
+  font-style: italic;
+}

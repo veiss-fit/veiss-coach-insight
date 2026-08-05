@@ -1,121 +1,93 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* src/index.css */
+:root {
+  --text: #6b6375;
+  --text-h: #08060d;
+  --bg: #fff;
+  --border: #e5e4e7;
+  --accent: #ffb800;
+  --accent-bg: rgba(255, 184, 0, 0.1);
+  --accent-border: rgba(255, 184, 0, 0.5);
 
-/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
-All colors MUST be HSL.
-*/
+  --sans: system-ui, "Segoe UI", Roboto, sans-serif;
+  --heading: system-ui, "Segoe UI", Roboto, sans-serif;
 
-@layer base {
+  font: 18px/145% var(--sans);
+  letter-spacing: 0.18px;
+  color-scheme: light dark;
+  color: var(--text);
+  background: var(--bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@media (max-width: 1024px) {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 210 11% 4%;
-
-    --card: 0 0% 100%;
-    --card-foreground: 210 11% 4%;
-
-    --popover: 0 0% 100%;
-    --popover-foreground: 210 11% 4%;
-
-    --primary: 45 100% 50%;
-    --primary-foreground: 210 11% 4%;
-
-    --secondary: 210 100% 5%;
-    --secondary-foreground: 0 0% 100%;
-
-    --muted: 147 20% 92%;
-    --muted-foreground: 210 11% 40%;
-
-    --accent: 45 100% 50%;
-    --accent-foreground: 210 11% 4%;
-
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 100%;
-
-    --border: 210 20% 90%;
-    --input: 210 20% 90%;
-    --ring: 45 100% 50%;
-
-    --radius: 0.5rem;
-
-    --navy-dark: 210 100% 5%;
-    --navy-medium: 210 77% 11%;
-    --navy-light: 207 60% 32%;
-    --mint: 147 20% 92%;
-    --gold: 45 100% 50%;
-    
-    --chart-1: 207 60% 32%;
-    --chart-2: 45 100% 50%;
-    --chart-3: 147 60% 50%;
-    --chart-4: 210 77% 11%;
-    --chart-5: 0 84.2% 60.2%;
-
-    --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 240 5.3% 26.1%;
-    --sidebar-primary: 240 5.9% 10%;
-    --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 240 4.8% 95.9%;
-    --sidebar-accent-foreground: 240 5.9% 10%;
-    --sidebar-border: 220 13% 91%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
-  }
-
-  .dark {
-    --background: 210 100% 5%;
-    --foreground: 0 0% 100%;
-
-    --card: 210 77% 11%;
-    --card-foreground: 0 0% 100%;
-
-    --popover: 210 77% 11%;
-    --popover-foreground: 0 0% 100%;
-
-    --primary: 45 100% 50%;
-    --primary-foreground: 210 11% 4%;
-
-    --secondary: 210 77% 11%;
-    --secondary-foreground: 0 0% 100%;
-
-    --muted: 207 60% 32%;
-    --muted-foreground: 147 20% 92%;
-
-    --accent: 45 100% 50%;
-    --accent-foreground: 210 11% 4%;
-
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 100%;
-
-    --border: 207 60% 32%;
-    --input: 207 60% 32%;
-    --ring: 45 100% 50%;
-    
-    --navy-dark: 210 100% 5%;
-    --navy-medium: 210 77% 11%;
-    --navy-light: 207 60% 32%;
-    --mint: 147 20% 92%;
-    --gold: 45 100% 50%;
-
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    font-size: 16px;
   }
 }
 
-@layer base {
-  * {
-    @apply border-border;
+@media (prefers-color-scheme: dark) {
+  :root {
+    --text: #9ca3af;
+    --text-h: #f3f4f6;
+    --bg: #16171d;
+    --border: #2e303a;
+    --accent: #ffb800;
+    --accent-bg: rgba(255, 184, 0, 0.15);
+    --accent-border: rgba(255, 184, 0, 0.5);
   }
+}
 
-  body {
-    @apply bg-background text-foreground font-sans antialiased;
+body {
+  margin: 0;
+}
+
+#root {
+  width: 1126px;
+  max-width: 100%;
+  margin: 0 auto;
+  text-align: center;
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+h1,
+h2 {
+  font-family: var(--heading);
+  font-weight: 500;
+  color: var(--text-h);
+}
+
+h1 {
+  font-size: 56px;
+  letter-spacing: -1.68px;
+  margin: 32px 0;
+}
+
+@media (max-width: 1024px) {
+  h1 {
+    font-size: 36px;
+    margin: 20px 0;
   }
-  
-  h1, h2, h3, h4, h5, h6 {
-    @apply font-semibold;
+}
+
+h2 {
+  font-size: 24px;
+  line-height: 118%;
+  letter-spacing: -0.24px;
+  margin: 0 0 8px;
+}
+
+@media (max-width: 1024px) {
+  h2 {
+    font-size: 20px;
   }
+}
+
+p {
+  margin: 0;
 }

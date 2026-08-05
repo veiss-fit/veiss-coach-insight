@@ -1,0 +1,28 @@
+// src/workoutDatabase.js
+
+export const secondaryMuscleMap = {
+  Chest: "Anterior Deltoids, Triceps",
+  Core: "Obliques, Transverse Abdominis",
+  Obliques: "Core, Serratus Anterior",
+  Shoulders: "Triceps, Upper Trapezius",
+  Biceps: "Forearms, Brachialis",
+  Forearms: "Brachioradialis, Grip Dynamics",
+  Hands: "Forearms",
+  Quadriceps: "Glutes, Hamstrings",
+  Adductors: "Core, Glutes",
+  Tibialis: "Calves",
+  Knees: "Quadriceps, Connective Tissue",
+  Ankles: "Calves, Tibialis",
+  Feet: "Ankles",
+  Trapezius: "Rear Deltoids, Rhomboids",
+  Neck: "Trapezius",
+  Lats: "Biceps, Rear Deltoids",
+  "Upper Back": "Trapezius, Rhomboids, Rear Deltoids",
+  "Lower Back": "Glutes, Hamstrings",
+  Triceps: "Anterior Deltoids, Chest",
+  Glutes: "Hamstrings, Erector Spinae",
+  Hamstrings: "Glutes, Calves",
+  Calves: "Soleus, Gastrocnemius",
+  Head: "Nervous System",
+  Hair: "None",
+};
