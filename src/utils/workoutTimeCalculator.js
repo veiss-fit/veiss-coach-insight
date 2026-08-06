@@ -1,8 +1,11 @@
 // src/utils/workoutTimeCalculator.js
 
 function calculateWeight(exercise) {
-  const sets = Number(exercise.sets) || 3;
-  const reps = Number(exercise.reps) || 10;
+  // SAFETY CAP: We limit the math to a max of 5 sets and 15 reps.
+  // If the AI accidentally generates 60 reps, the math treats it as 15 so it doesn't steal all the time!
+  const sets = Math.min(Number(exercise.sets) || 3, 5);
+  const reps = Math.min(Number(exercise.reps) || 10, 15);
+
   const velocity = Number(exercise.velocity) || 1.0;
 
   // Slower velocity (e.g., 0.5) increases the weight so it gets a larger slice of the total time.
@@ -33,7 +36,7 @@ export function calculateWorkoutTime(workout, totalTime) {
       // The final exercise takes the remaining balance to guarantee 100% precision
       ex.estTime = Math.max(1, targetTime - assigned);
     } else {
-      // Assign time proportionally based on sets * reps * velocity
+      // Assign time proportionally based on the safely capped weight
       ex.estTime = Math.max(1, Math.round((targetTime * weight) / totalWeight));
       assigned += ex.estTime;
     }
