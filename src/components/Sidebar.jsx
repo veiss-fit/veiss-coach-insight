@@ -42,6 +42,9 @@ export default function Sidebar({
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef(null);
 
+  // 1. New state to control the warning pop-up
+  const [showWarning, setShowWarning] = useState(false);
+
   useEffect(() => {
     function handleClickOutside(event) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
@@ -51,6 +54,23 @@ export default function Sidebar({
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  // 2. The Interceptor Function
+  const handleGenerateClickWrapper = () => {
+    if (!selectedMuscles || selectedMuscles.length === 0) {
+      setShowWarning(true); // Show the warning
+
+      // Hide it automatically after 10 seconds (10000 ms)
+      setTimeout(() => {
+        setShowWarning(false);
+      }, 10000);
+
+      return; // Stop the code here so it doesn't trigger the AI
+    }
+
+    // If muscles are selected, proceed to trigger the original prop function
+    onGenerateClick();
+  };
 
   return (
     <div className="sidebar-container">
@@ -125,9 +145,30 @@ export default function Sidebar({
         </div>
       </div>
 
+      {/* 3. The Warning UI Block (Appears only if showWarning is true) */}
+      {showWarning && (
+        <div
+          style={{
+            backgroundColor: "#fee2e2",
+            color: "#991b1b",
+            border: "1px solid #f87171",
+            padding: "12px",
+            borderRadius: "8px",
+            marginBottom: "16px",
+            fontWeight: "bold",
+            textAlign: "center",
+            fontSize: "14px",
+            animation: "fadeIn 0.3s ease-in-out",
+          }}
+        >
+          ⚠️ Please select at least 1 Muscle Group!
+        </div>
+      )}
+
+      {/* 4. Updated Button to use the wrapper function */}
       <button
         className="ai-generate-btn"
-        onClick={onGenerateClick}
+        onClick={handleGenerateClickWrapper}
         disabled={isGenerating}
         style={{
           opacity: isGenerating ? 0.7 : 1,
