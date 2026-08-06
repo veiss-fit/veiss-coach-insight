@@ -34,7 +34,7 @@ const posteriorOptions = [
 export default function Sidebar({
   selectedMuscles,
   onMuscleToggle,
-  workoutTime,
+  workoutTime, // This remains as absolute minutes for the rest of your app!
   onTimeChange,
   onGenerateClick,
   isGenerating,
@@ -42,34 +42,70 @@ export default function Sidebar({
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef(null);
 
-  // 1. New state to control the warning pop-up
-  const [showWarning, setShowWarning] = useState(false);
+  // 1. UPDATED: Warning state now holds the exact message text!
+  const [warningMessage, setWarningMessage] = useState("");
 
+  // 2. States for the custom time unit dropdown
+  const [timeUnit, setTimeUnit] = useState("min");
+  const [isUnitDropdownOpen, setIsUnitDropdownOpen] = useState(false);
+  const unitDropdownRef = useRef(null);
+
+  // Close dropdowns if the user clicks outside of them
   useEffect(() => {
     function handleClickOutside(event) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
         setIsDropdownOpen(false);
+      }
+      if (
+        unitDropdownRef.current &&
+        !unitDropdownRef.current.contains(event.target)
+      ) {
+        setIsUnitDropdownOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // 2. The Interceptor Function
+  // 3. UPDATED: The Interceptor now checks for both muscles AND time
   const handleGenerateClickWrapper = () => {
+    // Check 1: Did they select at least one muscle?
     if (!selectedMuscles || selectedMuscles.length === 0) {
-      setShowWarning(true); // Show the warning
-
-      // Hide it automatically after 10 seconds (10000 ms)
-      setTimeout(() => {
-        setShowWarning(false);
-      }, 10000);
-
-      return; // Stop the code here so it doesn't trigger the AI
+      setWarningMessage("⚠️ Please select at least 1 Muscle Group!");
+      setTimeout(() => setWarningMessage(""), 10000);
+      return; // Stop generation
     }
 
-    // If muscles are selected, proceed to trigger the original prop function
+    // Check 2: Did they enter a valid time?
+    if (workoutTime <= 0) {
+      setWarningMessage("⚠️ Please enter a Workout Time greater than 0!");
+      setTimeout(() => setWarningMessage(""), 10000);
+      return; // Stop generation
+    }
+
+    // If both checks pass, clear any warnings and generate!
+    setWarningMessage("");
     onGenerateClick();
+  };
+
+  // Calculate what number to show in the input box based on the unit
+  const displayValue =
+    timeUnit === "sec"
+      ? workoutTime * 60
+      : timeUnit === "hr"
+        ? +(workoutTime / 60).toFixed(2)
+        : workoutTime;
+
+  // Convert the user's input back into minutes for the rest of the app
+  const handleTimeChange = (e) => {
+    let val = Number(e.target.value);
+    if (val < 0) val = 0;
+
+    let minutes = val;
+    if (timeUnit === "sec") minutes = val / 60;
+    if (timeUnit === "hr") minutes = val * 60;
+
+    onTimeChange(minutes);
   };
 
   return (
@@ -132,21 +168,102 @@ export default function Sidebar({
         <label className="step-label">
           <span className="step-number">2</span> Workout Time
         </label>
-        <div className="time-input-wrapper">
+
+        {/* Updated layout with the Custom React Dropdown */}
+        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
           <input
             type="number"
-            value={workoutTime}
-            onChange={(e) => onTimeChange(Number(e.target.value))}
+            value={displayValue}
+            onChange={handleTimeChange}
             className="modern-input"
-            min="10"
-            max="180"
+            step={timeUnit === "hr" ? "0.5" : "1"}
+            style={{ flex: 1 }}
+            min="0"
           />
-          <span className="input-unit-tag">min</span>
+
+          {/* THE CUSTOM DROPDOWN CONTAINER */}
+          <div ref={unitDropdownRef} style={{ position: "relative" }}>
+            {/* The Clickable Button */}
+            <div
+              onClick={() => setIsUnitDropdownOpen(!isUnitDropdownOpen)}
+              style={{
+                padding: "12px 16px",
+                borderRadius: "8px",
+                border: "1px solid #e5e7eb",
+                backgroundColor: "#f9fafb",
+                fontWeight: "bold",
+                color: "#374151",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                minWidth: "85px",
+                justifyContent: "space-between",
+                userSelect: "none",
+              }}
+            >
+              {timeUnit === "hr" ? "hour" : timeUnit}
+              <span style={{ fontSize: "10px", color: "#9ca3af" }}>
+                {isUnitDropdownOpen ? "▲" : "▼"}
+              </span>
+            </div>
+
+            {/* The Floating Menu */}
+            {isUnitDropdownOpen && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "calc(100% + 4px)",
+                  right: "0",
+                  width: "100%",
+                  backgroundColor: "#ffffff",
+                  border: "1px solid #e5e7eb",
+                  borderRadius: "8px",
+                  boxShadow:
+                    "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)",
+                  zIndex: 50,
+                  overflow: "hidden",
+                  display: "flex",
+                  flexDirection: "column",
+                }}
+              >
+                {["sec", "min", "hr"].map((unit) => (
+                  <div
+                    key={unit}
+                    onClick={() => {
+                      setTimeUnit(unit);
+                      setIsUnitDropdownOpen(false);
+                    }}
+                    style={{
+                      padding: "10px 16px",
+                      fontSize: "14px",
+                      fontWeight: "600",
+                      color: timeUnit === unit ? "#eab308" : "#4b5563",
+                      backgroundColor:
+                        timeUnit === unit ? "#fefce8" : "transparent",
+                      cursor: "pointer",
+                      transition: "background-color 0.15s ease",
+                    }}
+                    onMouseEnter={(e) => {
+                      if (timeUnit !== unit)
+                        e.target.style.backgroundColor = "#f3f4f6";
+                    }}
+                    onMouseLeave={(e) => {
+                      if (timeUnit !== unit)
+                        e.target.style.backgroundColor = "transparent";
+                    }}
+                  >
+                    {unit === "hr" ? "hour" : unit}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* 3. The Warning UI Block (Appears only if showWarning is true) */}
-      {showWarning && (
+      {/* 4. UPDATED: UI block now dynamically renders the custom warning message! */}
+      {warningMessage && (
         <div
           style={{
             backgroundColor: "#fee2e2",
@@ -161,11 +278,10 @@ export default function Sidebar({
             animation: "fadeIn 0.3s ease-in-out",
           }}
         >
-          ⚠️ Please select at least 1 Muscle Group!
+          {warningMessage}
         </div>
       )}
 
-      {/* 4. Updated Button to use the wrapper function */}
       <button
         className="ai-generate-btn"
         onClick={handleGenerateClickWrapper}
@@ -179,7 +295,6 @@ export default function Sidebar({
         {isGenerating ? "🧠 AI is Thinking..." : "✨ Generate Workout"}
       </button>
 
-      {/* 🤖 NEW: AI Powered Informational Badge placed at the bottom */}
       <div className="ai-badge-card">
         <h4>✨ AI Powered</h4>
         <p>
