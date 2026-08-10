@@ -53,7 +53,7 @@ All Supabase access goes through `src/lib/supabase.ts` (typed client via `src/ty
 - `sessionsService.ts`, `messagesService.ts` — session and messaging data. `messages.priority` (`normal`/`urgent`) is persisted (migration 004).
 - `coachFeedbackService.ts` — coach notes (`coach_feedback` rows with `feedback_type = 'note'`), shown on the athlete page.
 
-**Data scoping**: All queries filter by `teams.coach_user_id = auth.uid()`. Because `coach_user_id` was added in a later migration, queries fall back to returning all teams if the column is missing (see `getCoachTeamIds` in `playersService.ts`).
+**Data scoping**: `groups` has exactly 5 columns — `id, name, created_at, invite_code, coach_id` (confirmed live via `RETURNING *`; no `sport`, no `coach_user_id` — those appeared in the hand-written `database.ts` types but never existed in the DB and have been removed). All queries resolve `auth.uid() → coaches.id → groups.coach_id` (see `getCoachId`/`getCoachTeamIds` in `playersService.ts`); a coach with no `coaches` row scopes to zero groups, never "all groups."
 
 **Attendance calculation** lives in `src/lib/workoutAttendance.ts` and is shared across services.
 
@@ -74,7 +74,7 @@ All Supabase access goes through `src/lib/supabase.ts` (typed client via `src/ty
 
 ### Key Domain Concepts
 
-- **Team / Group**: a `teams` row owned by a coach via `coach_user_id`. The UI uses "group" terminology.
+- **Team / Group**: a `groups` row owned by a coach via `coach_id` (FK → `coaches.id`). The UI uses "group" terminology; there is no separate `teams` table.
 - **Player / Athlete**: a `players` row with an optional `team_id`. The terms are interchangeable in the codebase.
 - **Workout Plan**: a scheduled plan (`workout_plans` table) sent to a player for a specific date.
 - **Session / Rep**: raw hardware data uploaded by the athlete (`sessions` and `reps` tables); `reps` contains `average_rep_speed`, `rom_mm`, `concentric_duration_s` used for VBT metrics.

@@ -41,32 +41,29 @@ export interface Database {
           job_title?: string | null;
         };
       };
+      // Live schema is exactly: id, name, created_at, invite_code, coach_id.
+      // No `sport` or `coach_user_id` column exists — confirmed via `RETURNING *`
+      // in the Supabase SQL editor. Do not add them back without re-verifying live.
       groups: {
         Row: {
           id: string;
           name: string;
-          sport: string;
           created_at: string;
           invite_code: number | null;
-          coach_user_id: string | null;
           coach_id: string | null;
         };
         Insert: {
           id?: string;
           name: string;
-          sport: string;
           created_at?: string;
           invite_code?: number | null;
-          coach_user_id?: string | null;
           coach_id?: string | null;
         };
         Update: {
           id?: string;
           name?: string;
-          sport?: string;
           created_at?: string;
           invite_code?: number | null;
-          coach_user_id?: string | null;
           coach_id?: string | null;
         };
       };

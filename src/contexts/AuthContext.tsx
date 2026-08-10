@@ -15,7 +15,6 @@ interface CoachProfile {
 		groups?: {
 			id: string
 			name: string
-			sport: string
 		}
 	}
 }
@@ -401,7 +400,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 						.from('groups')
 						.insert({
 							name: `${fullName}'s Group`,
-							sport: '',
 							coach_id: userId,
 						})
 						.select()

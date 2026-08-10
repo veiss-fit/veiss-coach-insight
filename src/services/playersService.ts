@@ -21,7 +21,6 @@ export interface PlayerWithStats extends Player {
   lastWorkout: { name: string; date: string } | null;
 
   // For compatibility with existing UI components
-  sport: string;
   group: string;
   name: string;
 }
@@ -30,8 +29,8 @@ export interface PlayerWithStats extends Player {
  * Update a team's details
  */
 export const updateTeam = async (
-  teamId: string, 
-  updates: { name?: string; sport?: string }
+  teamId: string,
+  updates: { name?: string }
 ): Promise<boolean> => {
   try {
     const { error } = await (supabase as any)
@@ -66,24 +65,6 @@ export const deleteTeam = async (teamId: string): Promise<boolean> => {
   }
 };
 
-/**
- * Batch rename a sport across all teams
- * Useful for fixing typos (e.g. "Socer" -> "Soccer")
- */
-export const updateSportName = async (oldName: string, newName: string): Promise<boolean> => {
-  try {
-    const { error } = await (supabase as any)
-      .from('groups')
-      .update({ sport: newName })
-      .eq('sport', oldName) as { error: any };
-
-    if (error) throw error;
-    return true;
-  } catch (error) {
-    console.error('Error updating sport name:', error);
-    return false;
-  }
-};
 /**
  * Resolve the coaches.id (DB primary key) for a given auth user ID.
  * Returns null if no coach record exists yet.
@@ -145,7 +126,6 @@ export const getAllPlayersWithStats = async (teamIds?: string[]): Promise<Player
         return {
           ...player,
           name: player.full_name,
-          sport: player.groups?.sport || '',
           group: player.groups?.name || '',
           team: player.groups,
           ...stats,
@@ -180,7 +160,6 @@ export const getPlayersByTeamIds = async (teamIds: string[]): Promise<PlayerWith
         return {
           ...player,
           name: player.full_name,
-          sport: player.groups?.sport || '',
           group: player.groups?.name || '',
           team: player.groups,
           ...stats,
@@ -478,7 +457,6 @@ export const getPlayerById = async (playerId: string): Promise<PlayerWithStats |
     return {
       ...player,
       name: player.full_name,
-      sport: player.groups?.sport || 'Unknown',
       group: player.groups?.name || 'General',
       team: player.groups,
       ...stats,
@@ -486,30 +464,6 @@ export const getPlayerById = async (playerId: string): Promise<PlayerWithStats |
   } catch (error) {
     console.error('Error in getPlayerById:', error);
     return null;
-  }
-};
-
-/**
- * Get unique sports from teams
- */
-export const getSportsList = async (): Promise<string[]> => {
-  try {
-    const { data: teams, error } = await (supabase as any)
-      .from('groups')
-      .select('sport')
-      .order('sport', { ascending: true }) as { data: Array<{ sport: string }> | null; error: any };
-
-    if (error) {
-      console.error('Error fetching sports:', error);
-      return [];
-    }
-
-    // Get unique sports
-    const uniqueSports = [...new Set(teams?.map(t => t.sport) || [])];
-    return uniqueSports;
-  } catch (error) {
-    console.error('Error in getSportsList:', error);
-    return [];
   }
 };
 

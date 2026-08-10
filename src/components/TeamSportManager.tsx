@@ -112,7 +112,7 @@ export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportM
 
       const { error } = await supabase
         .from('groups')
-        .insert({ name: newTeamName, sport: '', coach_id: coachRow?.id ?? null } as any);
+        .insert({ name: newTeamName, coach_id: coachRow?.id ?? null } as any);
 
       if (error) throw error;
       toast.success("Group created");

@@ -56,16 +56,6 @@ export const Validators = {
     return null;
   },
 
-  sport: (sport: string) => {
-    if (!sport || sport.trim().length < 2) {
-      return "Sport name must be at least 2 characters";
-    }
-    if (sport.trim().length > 50) {
-      return "Sport name must be less than 50 characters";
-    }
-    return null;
-  },
-
   // ===== WORKOUT FIELDS =====
   workoutName: (name: string) => {
     if (!name || name.trim().length < 2) {

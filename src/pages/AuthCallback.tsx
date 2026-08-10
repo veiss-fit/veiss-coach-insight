@@ -62,7 +62,7 @@ export default function AuthCallback() {
           // Step 3: Create default group
           await (supabase as any)
             .from('groups')
-            .insert({ name: `${fullName}'s Group`, sport: '', coach_id: userId });
+            .insert({ name: `${fullName}'s Group`, coach_id: userId });
 
           // Step 4: Link profile → coach record
           await supabase
