@@ -162,9 +162,34 @@ export default function Messages() {
             ? `Announcement scheduled for ${format(scheduledDate, "PPP")} · ${result.count} athlete${result.count !== 1 ? "s" : ""}`
             : `Sent to ${result.count} athlete${result.count !== 1 ? "s" : ""}`
         );
+        // The announcement is stored regardless, but if nobody's device was reached
+        // the coach should know rather than assume everyone saw it (§6.5).
+        const { notificationsSent, notificationsAttempted } = result;
+        if (
+          !scheduledDate &&
+          notificationsAttempted != null &&
+          notificationsAttempted > 0 &&
+          notificationsSent === 0
+        ) {
+          toast.warning("Saved, but no push notifications could be delivered.", {
+            description: "Athletes will still see it in the app.",
+            duration: 8000,
+          });
+        }
+
         resetForm();
-        const history = await getCoachMessageHistory(user.id);
-        setSent(history);
+
+        // Refreshing the feed is cosmetic and must not be able to report the send
+        // itself as failed. Previously this sat inside the same try, so a failing
+        // reload fell through to the outer catch and showed "An error occurred while
+        // sending the announcement" moments after the success toast — for a send
+        // that had already committed (§5.2).
+        try {
+          const history = await getCoachMessageHistory(user.id);
+          setSent(history);
+        } catch (refreshError) {
+          console.error("Announcement sent, but refreshing the feed failed:", refreshError);
+        }
       } else {
         toast.error(result.error || "Failed to send announcement");
       }

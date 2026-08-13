@@ -57,7 +57,7 @@ export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportM
     }
   }, [open, profile?.coach?.team_id]);
 
-  const loadTeams = async () => {
+  const loadTeams = async (silent = false) => {
     if (!user?.id) return;
     setLoading(true);
     try {
@@ -80,7 +80,11 @@ export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportM
       if (error) throw error;
       setTeams((data || []) as any[]);
     } catch (error) {
-      handleError(error, "Load groups");
+      // silent=true when called as a post-write refresh: the write already reported
+      // its own outcome, and a failing refresh must not contradict it with a second,
+      // opposite toast for the same action (§5.1).
+      if (silent) console.error("[Refresh groups] Failed after a successful write:", error);
+      else handleError(error, "Load groups");
     } finally {
       setLoading(false);
     }
@@ -128,7 +132,7 @@ export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportM
       toast.success("Group created");
       setIsCreatingTeam(false);
       setNewTeamName("");
-      loadTeams();
+      loadTeams(true);
     } catch (error) {
       handleError(error, "Create group");
     }
@@ -142,7 +146,7 @@ export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportM
       await updateTeam(editingTeam.id, { name: editingTeam.name });
       toast.success("Group updated");
       setEditingTeam(null);
-      loadTeams();
+      loadTeams(true);
     } catch (error) {
       handleError(error, "Update group");
     }
@@ -153,7 +157,7 @@ export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportM
     try {
       await deleteTeam(id);
       toast.success("Group deleted");
-      loadTeams();
+      loadTeams(true);
     } catch (error) {
       // handleError maps 23503 (foreign key violation) to a real "still linked to
       // other records" message, instead of the previous blanket guess that players

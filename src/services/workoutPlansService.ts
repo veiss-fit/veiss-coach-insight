@@ -32,7 +32,14 @@ export const sendWorkoutPlan = async (
   coachId: string | null,
   scheduledDate: Date,
   planData: WorkoutPlanData
-): Promise<{ success: boolean; count: number; error?: string }> => {
+): Promise<{
+  success: boolean;
+  count: number;
+  error?: string;
+  /** Push notifications actually delivered; plans are saved regardless. */
+  notificationsSent?: number;
+  notificationsAttempted?: number;
+}> => {
   try {
     // Use local date parts to avoid UTC timezone shift (toISOString would subtract hours for UTC+ zones)
     const dateStr = scheduledDate instanceof Date
@@ -100,17 +107,29 @@ export const sendWorkoutPlan = async (
         })
       )
     );
+    let pushFailures = 0;
     pushResults.forEach((r, i) => {
       if (r.status === 'rejected') {
+        pushFailures++;
         console.error(`Push network error for userId ${userIds[i]}:`, r.reason);
       } else if (r.value?.error) {
+        pushFailures++;
         console.error(`Push function error for userId ${userIds[i]}:`, r.value.error);
       } else {
         console.log(`✅ Push sent for userId ${userIds[i]}`);
       }
     });
 
-    return { success: true, count: data?.length || 0 };
+    // The plans are saved either way, so this is not a failure of the send — but the
+    // coach should know their athletes weren't notified, which was previously only
+    // ever visible in the console (§6.5).
+    const notified = userIds.length - pushFailures;
+    return {
+      success: true,
+      count: data?.length || 0,
+      notificationsSent: notified,
+      notificationsAttempted: userIds.length,
+    };
   } catch (error: any) {
     console.error('Error in sendWorkoutPlan:', error);
     return { success: false, count: 0, error: error.message || 'Unknown error' };

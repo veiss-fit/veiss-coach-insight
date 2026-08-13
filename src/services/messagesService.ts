@@ -21,7 +21,14 @@ export const sendMessage = async (
   type: 'announcement' | 'feedback' | 'general' = 'announcement',
   priority: 'normal' | 'urgent' = 'normal',
   scheduledAt?: Date
-): Promise<{ success: boolean; count: number; error?: string }> => {
+): Promise<{
+  success: boolean;
+  count: number;
+  error?: string;
+  /** Push notifications actually delivered; messages are stored regardless. */
+  notificationsSent?: number;
+  notificationsAttempted?: number;
+}> => {
   try {
     const isScheduled = !!scheduledAt;
 
@@ -68,7 +75,7 @@ export const sendMessage = async (
       return { success: false, count: 0, error: error.message };
     }
 
-    await Promise.allSettled(
+    const pushResults = await Promise.allSettled(
       receiverUserIds.map((userId: string) =>
         supabase.functions.invoke('send-push-notification', {
           body: {
@@ -81,7 +88,27 @@ export const sendMessage = async (
       )
     );
 
-    return { success: true, count: data?.length || 0 };
+    // Previously fire-and-forget with the settled results discarded entirely — not
+    // even logged — so every athlete could fail to be notified with no trace (§6.5).
+    let pushFailures = 0;
+    pushResults.forEach((r, i) => {
+      if (r.status === 'rejected') {
+        pushFailures++;
+        console.error(`Push network error for userId ${receiverUserIds[i]}:`, r.reason);
+      } else if (r.value?.error) {
+        pushFailures++;
+        console.error(`Push function error for userId ${receiverUserIds[i]}:`, r.value.error);
+      }
+    });
+
+    // The messages are stored either way, so this is not a send failure — but the
+    // coach should know whether anyone was actually pinged.
+    return {
+      success: true,
+      count: data?.length || 0,
+      notificationsSent: receiverUserIds.length - pushFailures,
+      notificationsAttempted: receiverUserIds.length,
+    };
   } catch (error: any) {
     console.error('Error in sendMessage:', error);
     return { success: false, count: 0, error: error.message || 'Unknown error' };

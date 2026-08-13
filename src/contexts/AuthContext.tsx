@@ -446,11 +446,18 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 	const refreshProfile = async () => {
 		const uid = userRef.current?.id
 		if (!uid) return
-		const { data } = await supabase
+		// The error was previously destructured away entirely — not even logged — so a
+		// failed refresh (RLS rejection, network drop) silently left stale profile data
+		// on screen with no trace anywhere (§5.3).
+		const { data, error } = await supabase
 			.from('profiles')
 			.select('*')
 			.eq('id', uid)
 			.single()
+		if (error) {
+			console.error('[refreshProfile] Failed to reload profile:', error)
+			return
+		}
 		if (data) {
 			if (data.role !== 'coach') {
 				console.error('[refreshProfile] Role changed to non-coach, signing out')

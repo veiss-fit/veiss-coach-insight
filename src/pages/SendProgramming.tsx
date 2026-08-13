@@ -665,11 +665,15 @@ const SendProgramming = () => {
       // then navigated away before the coach could read the error (§2.5).
       const failedDates: string[] = []
       let totalCount = 0
+      let pushAttempted = 0
+      let pushSent = 0
 
       for (const date of selectedDates) {
         const result = await sendWorkoutPlan(selectedAthletes, coachDbId, date, planData)
         if (result.success) {
           totalCount += result.count ?? 0
+          pushAttempted += result.notificationsAttempted ?? 0
+          pushSent += result.notificationsSent ?? 0
         } else {
           failedDates.push(format(date, 'MMM d'))
           console.error(`[Send programming] ${format(date, 'MMM d')} failed:`, result.error)
@@ -678,6 +682,15 @@ const SendProgramming = () => {
 
       const sentDates = selectedDates.length - failedDates.length
       const athleteLabel = `${selectedAthletes.length} athlete${selectedAthletes.length !== 1 ? 's' : ''}`
+
+      // Plans are saved regardless; this only tells the coach whether devices were
+      // actually pinged, which used to be console-only information (§6.5).
+      if (pushAttempted > 0 && pushSent === 0) {
+        toast.warning("Saved, but no push notifications could be delivered.", {
+          description: 'Athletes will still see the workout in the app.',
+          duration: 8000,
+        })
+      }
 
       if (failedDates.length === 0) {
         toast.success(

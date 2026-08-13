@@ -115,14 +115,22 @@ const Profile = () => {
         console.error('Failed to sync name to coaches table:', coachError);
       }
 
-      // Refresh AuthContext so TopNav and avatar update immediately
-      await refreshProfile();
-
+      // Both writes have committed at this point, so the save has succeeded no
+      // matter what happens next. Refreshing AuthContext (so TopNav and the avatar
+      // update immediately) is a separate read that can fail on its own; it used to
+      // sit unguarded here, so a failed refresh threw to the catch below and showed
+      // "Failed to update profile" for a save that had actually worked (§5.3).
       setIsEditing(false);
       if (!coachError) {
         toast.success("Profile updated successfully");
       } else {
         toast.success("Profile updated");
+      }
+
+      try {
+        await refreshProfile();
+      } catch (refreshError) {
+        console.error('Profile saved, but refreshing it in the app failed:', refreshError);
       }
 
     } catch (err: any) {
