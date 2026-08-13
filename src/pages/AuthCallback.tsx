@@ -59,15 +59,25 @@ export default function AuthCallback() {
         }
 
         if (coachData) {
+          // coaches.id is DB-generated here (unlike the immediate-session path in
+          // AuthContext.signup, which pins id = userId), so it does NOT equal userId.
+          // Everything downstream must key off the real row id: groups.coach_id and
+          // profiles.coach_id are both resolved against coaches.id elsewhere
+          // (getCoachId/getCoachTeamIds, TeamSportManager.loadTeams, getUserProfile).
+          // Writing userId here produced a default group and a profile link that no
+          // lookup could ever match — a silently invisible group on every account
+          // created through the email-confirmation flow.
+          const coachId = (coachData as { id: string }).id;
+
           // Step 3: Create default group
           await (supabase as any)
             .from('groups')
-            .insert({ name: `${fullName}'s Group`, coach_id: userId });
+            .insert({ name: `${fullName}'s Group`, coach_id: coachId });
 
           // Step 4: Link profile → coach record
           await supabase
             .from('profiles')
-            .update({ coach_id: userId } as any)
+            .update({ coach_id: coachId } as any)
             .eq('id', userId);
         }
       }
