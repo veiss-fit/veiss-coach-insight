@@ -162,7 +162,9 @@ export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportM
     const teamIdToAssign = assignTeamId === "" || assignTeamId === "null" ? null : assignTeamId;
     try {
       setAssigning(true);
-      await Promise.all(selectedPlayerIds.map(id => assignPlayerToTeam(id, teamIdToAssign)));
+      // Pass the coach's auth id so assignPlayerToTeam verifies the target group
+      // belongs to this coach (defense in depth alongside the players RLS policies).
+      await Promise.all(selectedPlayerIds.map(id => assignPlayerToTeam(id, teamIdToAssign, user?.id)));
       const groupName = teamIdToAssign ? teams.find(t => t.id === teamIdToAssign)?.name : "No Group";
       toast.success(`Assigned ${selectedPlayerIds.length} player(s) to ${groupName}`);
       setSelectedPlayerIds([]);
