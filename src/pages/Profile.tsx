@@ -151,37 +151,68 @@ const Profile = () => {
   const handlePhotoUpload = async () => {
     if (!previewPhoto || !user?.id) return;
     setUploading(true);
+    // Each step is handled separately so the message names the step that actually
+    // failed. Previously one bare catch wrapped all three and always blamed a
+    // missing storage bucket — equally shown for a size-limit rejection, a storage
+    // RLS denial, or an auth metadata failure (§4.5).
     try {
-      // Convert data URL → Blob
-      const res = await fetch(previewPhoto);
-      const blob = await res.blob();
       const storagePath = `${user.id}/avatar`;
 
-      // Upload (overwrite) to the `avatars` bucket
+      // 1. Convert data URL → Blob
+      let blob: Blob;
+      try {
+        const res = await fetch(previewPhoto);
+        blob = await res.blob();
+      } catch (error) {
+        console.error('[Profile photo] Failed to read the selected image:', error);
+        toast.error("Couldn't read that image. Please pick a different file.");
+        return;
+      }
+
+      // 2. Upload (overwrite) to the `avatars` bucket
       const { error: uploadError } = await supabase.storage
         .from('avatars')
         .upload(storagePath, blob, { upsert: true, contentType: blob.type });
 
-      if (uploadError) throw uploadError;
+      if (uploadError) {
+        console.error('[Profile photo] Upload failed:', uploadError);
+        const message = uploadError.message ?? '';
+        if (/bucket not found/i.test(message)) {
+          toast.error("Photo storage isn't set up (missing 'avatars' bucket). This is a bug — please report it.");
+        } else if (/exceeded|too large|maximum size/i.test(message)) {
+          toast.error("That image is too large. Please choose a smaller file.");
+        } else if (/policy|permission|unauthorized/i.test(message)) {
+          toast.error("You don't have permission to upload a photo.");
+        } else {
+          toast.error(`Couldn't upload the photo: ${message || 'unknown error'}`);
+        }
+        return;
+      }
 
-      // Get public URL with cache-buster
+      // 3. Public URL with cache-buster
       const { data: { publicUrl } } = supabase.storage
         .from('avatars')
         .getPublicUrl(storagePath);
       const urlWithCacheBust = `${publicUrl}?v=${Date.now()}`;
 
-      // Persist URL in user metadata (no DB migration required)
+      // 4. Persist URL in user metadata (no DB migration required)
       const { error: metaError } = await supabase.auth.updateUser({
         data: { avatar_url: urlWithCacheBust }
       });
-      if (metaError) throw metaError;
+      if (metaError) {
+        // The image did upload; only the profile link failed.
+        console.error('[Profile photo] Saving avatar_url to user metadata failed:', metaError);
+        toast.error("Photo uploaded, but we couldn't attach it to your profile. Please try again.");
+        return;
+      }
 
       setProfilePhoto(urlWithCacheBust);
       toast.success("Profile photo updated");
       setPhotoModalOpen(false);
       setPreviewPhoto(null);
-    } catch {
-      toast.error("Failed to upload photo. Make sure the 'avatars' storage bucket exists in Supabase.");
+    } catch (error) {
+      console.error('[Profile photo] Unexpected failure:', error);
+      toast.error("Something went wrong updating your photo. Please try again.");
     } finally {
       setUploading(false);
     }
@@ -198,7 +229,8 @@ const Profile = () => {
       setPreviewPhoto(null);
       toast.success("Profile photo removed");
       setPhotoModalOpen(false);
-    } catch {
+    } catch (error) {
+      console.error('[Profile photo] Remove failed:', error);
       toast.error("Failed to remove photo");
     } finally {
       setUploading(false);
