@@ -72,10 +72,14 @@ export default function AuthCallback() {
         }
       }
 
-      // All writes settled — navigate to dashboard. onAuthStateChange will now
-      // fire (or has already fired and been suppressed by the pathname guard),
-      // and when loadProfile runs it will see role:'coach' correctly.
-      navigate('/');
+      // All writes are committed — hand control back to AuthProvider with a full
+      // page load rather than a client-side navigate. AuthProvider deliberately
+      // skips loading the profile while on this route (see the /auth/callback
+      // guard in AuthContext.initialize), and no further auth event fires after an
+      // in-app transition, so navigate('/') would land on the dashboard with a
+      // null profile and render it empty. A real navigation re-runs initialize()
+      // on '/', which reads the now fully-committed profile/coaches/groups rows.
+      window.location.replace('/');
     };
 
     handleCallback();

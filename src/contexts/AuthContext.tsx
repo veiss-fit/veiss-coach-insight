@@ -101,6 +101,19 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 				if (session?.user) {
 					console.log('✅ [initialize] Session found for user:', session.user.id)
 					setUser(session.user)
+
+					// AuthCallback.tsx owns the full setup sequence for users arriving via the
+					// email-confirmation link (profile upsert -> coaches -> group -> coach_id link).
+					// Racing it here reads whatever handle_new_user left behind before that upsert
+					// commits; if role isn't yet 'coach', loadProfile force-logs-out the user and
+					// hard-redirects to /login with no error shown — which is what users report as
+					// "failed to create account". Same guard as the onAuthStateChange listener below.
+					// AuthCallback hands control back with a full page load, which re-runs this.
+					if (window.location.pathname === '/auth/callback') {
+						console.log('⏭️ [initialize] On /auth/callback — deferring profile load to AuthCallback')
+						return
+					}
+
 					await loadProfile(session.user.id)
 				} else {
 					console.log('ℹ️ [initialize] No existing session found')
