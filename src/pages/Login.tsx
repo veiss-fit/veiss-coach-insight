@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, Link, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,6 +14,7 @@ const Login = () => {
   const [password, setPassword] = useState("");
   const { login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [loading, setLoading] = useState(false);
 
@@ -21,10 +22,24 @@ const Login = () => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('error') === 'confirmation_failed') {
       toast.error('Email confirmation failed. Please try signing up again.');
+      return;
     }
     if (params.get('message') === 'password_updated') {
       toast.success('Password updated successfully. Please log in.');
+      return;
     }
+
+    // ProtectedRoute redirects here with the route the user was trying to reach,
+    // but nothing ever read it — so an expired session or a lost profile looked
+    // like the app had silently thrown the user back to login for no reason (§1.5).
+    const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname;
+    if (from && from !== '/login') {
+      toast.info('Please sign in to continue', {
+        description: `You'll be taken to ${from} afterwards.`,
+      });
+    }
+    // Intentionally runs once on mount: this reports how the user arrived here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -49,7 +64,10 @@ const Login = () => {
       const result = await login(email, password);
       if (result.success) {
         toast.success("Welcome back!");
-        navigate("/");
+        // Return the user to whatever ProtectedRoute bounced them away from, as the
+        // sign-in prompt above promises; fall back to the dashboard.
+        const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname;
+        navigate(from && from !== '/login' ? from : '/');
       } else {
         toast.error(result.error || "Invalid credentials. Please try again.");
       }
