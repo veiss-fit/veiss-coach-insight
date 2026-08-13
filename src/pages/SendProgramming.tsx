@@ -13,6 +13,7 @@ import { zoneOf } from '@/lib/vbtZones'
 import { LoadingOverlay } from '@/components/ui/LoadingOverlay'
 import { TopNav } from '@/components/TopNav'
 import { PageHeader } from '@/components/pulse/PageHeader'
+import { LoadError } from '@/components/pulse/LoadError'
 import { Avatar } from '@/components/pulse/Avatar'
 import { LoadRecChip } from '@/components/pulse/chips'
 import { DragCalendar } from '@/components/pulse/DragCalendar'
@@ -396,12 +397,25 @@ function TemplatesTab({ onUse }: TemplatesTabProps) {
   const openCreate = () => { setEditing(null); setEditorOpen(true) }
   const openEdit = (t: WorkoutTemplate) => { setEditing(t); setEditorOpen(true) }
 
-  const handleSave = (data: Omit<WorkoutTemplate, 'id' | 'lastModified'>) => {
+  // Previously this fired the success toast unconditionally — and without even
+  // awaiting — so a template that failed to save (RLS rejection, schema mismatch)
+  // was reported to the coach as saved, and they'd only discover otherwise when it
+  // was missing later (§4.4). The editor now stays open on failure so their work
+  // isn't lost.
+  const handleSave = async (data: Omit<WorkoutTemplate, 'id' | 'lastModified'>) => {
     if (editing) {
-      updateTemplate(editing.id, data)
+      const ok = await updateTemplate(editing.id, data)
+      if (!ok) {
+        toast.error("Couldn't update the template. Please try again.")
+        return
+      }
       toast.success('Template updated')
     } else {
-      addTemplate(data)
+      const created = await addTemplate(data)
+      if (!created) {
+        toast.error("Couldn't create the template. Please try again.")
+        return
+      }
       toast.success('Template created')
     }
     setEditorOpen(false)
@@ -443,7 +457,11 @@ function TemplatesTab({ onUse }: TemplatesTabProps) {
                     className="v-btn ghost"
                     style={{ width: 28, padding: 0, justifyContent: 'center' }}
                     title="Duplicate"
-                    onClick={() => { duplicateTemplate(t); toast.success('Template duplicated') }}
+                    onClick={async () => {
+                      const ok = await duplicateTemplate(t)
+                      if (ok) toast.success('Template duplicated')
+                      else toast.error("Couldn't duplicate that template. Please try again.")
+                    }}
                   >
                     <Copy size={12} strokeWidth={1.5} />
                   </button>
@@ -451,7 +469,11 @@ function TemplatesTab({ onUse }: TemplatesTabProps) {
                     className="v-btn ghost"
                     style={{ width: 28, padding: 0, justifyContent: 'center', color: 'var(--bad)' }}
                     title="Delete"
-                    onClick={() => { deleteTemplate(t.id); toast.success('Template deleted') }}
+                    onClick={async () => {
+                      const ok = await deleteTemplate(t.id)
+                      if (ok) toast.success('Template deleted')
+                      else toast.error("Couldn't delete that template. Please try again.")
+                    }}
                   >
                     <Trash2 size={12} strokeWidth={1.5} />
                   </button>
@@ -533,12 +555,14 @@ const SendProgramming = () => {
   const [athletes, setAthletes] = useState<PlayerWithStats[]>([])
   const [groupsList, setGroupsList] = useState<Array<{ id: string; name: string }>>([])
   const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [coachDbId, setCoachDbId] = useState<string | null>(null)
 
   const loadData = useCallback(async () => {
     if (!user?.id) return
     try {
       setLoading(true)
+      setLoadError(null)
       // Client generics collapse to `never` on filtered queries (pre-existing) — cast per codebase convention.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data: coachRow } = await (supabase as any)
@@ -561,7 +585,10 @@ const SendProgramming = () => {
       setAthletes(players)
       setGroupsList(groupsResult.data || [])
     } catch (err) {
+      // Previously console-only, so a failed load rendered the builder with an empty
+      // athlete list and no groups — looking like a coach with no roster (§4.3).
       console.error('Error loading data:', err)
+      setLoadError(err instanceof Error ? err.message : null)
     } finally {
       setLoading(false)
     }
@@ -631,21 +658,44 @@ const SendProgramming = () => {
         notes: 'Assigned by Coach',
       }
 
+      // Each date is a separate insert that commits on its own — there is no
+      // transaction across them. Track which dates actually succeeded instead of
+      // assuming all did: the previous version hardcoded selectedDates.length into
+      // the success message, so 4-of-5 sending still claimed "across 5 dates" and
+      // then navigated away before the coach could read the error (§2.5).
+      const failedDates: string[] = []
       let totalCount = 0
+
       for (const date of selectedDates) {
         const result = await sendWorkoutPlan(selectedAthletes, coachDbId, date, planData)
-        if (result.success) totalCount += result.count ?? 0
-        else toast.error(result.error ?? `Failed to send for ${format(date, 'MMM d')}`)
+        if (result.success) {
+          totalCount += result.count ?? 0
+        } else {
+          failedDates.push(format(date, 'MMM d'))
+          console.error(`[Send programming] ${format(date, 'MMM d')} failed:`, result.error)
+        }
       }
 
-      if (totalCount > 0) {
+      const sentDates = selectedDates.length - failedDates.length
+      const athleteLabel = `${selectedAthletes.length} athlete${selectedAthletes.length !== 1 ? 's' : ''}`
+
+      if (failedDates.length === 0) {
         toast.success(
-          `"${workoutName}" sent to ${selectedAthletes.length} athlete${selectedAthletes.length !== 1 ? 's' : ''} across ${selectedDates.length} date${selectedDates.length !== 1 ? 's' : ''}`
+          `"${workoutName}" sent to ${athleteLabel} across ${sentDates} date${sentDates !== 1 ? 's' : ''}`
         )
         navigate('/')
+      } else if (sentDates === 0) {
+        toast.error(`Couldn't send "${workoutName}" for any of the selected dates.`)
+      } else {
+        // Partial success: stay on the page so the coach can see which dates failed
+        // and retry just those, rather than being bounced to the dashboard.
+        toast.warning(
+          `Sent ${sentDates} of ${selectedDates.length} dates to ${athleteLabel}. Failed: ${failedDates.join(', ')}.`,
+          { duration: 10000 }
+        )
       }
     } catch (err) {
-      console.error(err)
+      console.error('[Send programming] Unexpected failure:', err)
       toast.error('An error occurred while sending the programming')
     } finally {
       setSending(false)
@@ -693,6 +743,15 @@ const SendProgramming = () => {
         />
 
         <div style={{ flex: 1 }}>
+          {loadError !== null && tab !== 'templates' && (
+            <div style={{ marginBottom: 20 }}>
+              <LoadError
+                message={loadError}
+                onRetry={loadData}
+                title="Couldn't load your athletes and groups"
+              />
+            </div>
+          )}
           {tab === 'templates' ? (
             <TemplatesTab onUse={useTemplate} />
           ) : (

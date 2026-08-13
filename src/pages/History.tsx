@@ -4,6 +4,7 @@ import { format } from "date-fns";
 import { ArrowLeft, Dumbbell, Megaphone, Clock, Calendar, CalendarClock, Users } from "lucide-react";
 import { TopNav } from "@/components/TopNav";
 import { PageHeader } from "@/components/pulse/PageHeader";
+import { LoadError } from "@/components/pulse/LoadError";
 import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { useAuth } from "@/contexts/AuthContext";
 import { getCoachWorkoutHistory } from "@/services/workoutPlansService";
@@ -138,10 +139,12 @@ export default function History() {
   const [tab, setTab] = useState<"workouts" | "announcements">("workouts");
   const [workouts, setWorkouts] = useState<WorkoutBatch[]>([]);
   const [announcements, setAnnouncements] = useState<AnnouncementBatch[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadHistory = useCallback(async () => {
     if (!user?.id) return;
     setLoading(true);
+    setLoadError(null);
     try {
       const [workoutsData, messagesData] = await Promise.all([
         getCoachWorkoutHistory(user.id),
@@ -150,7 +153,10 @@ export default function History() {
       setWorkouts(workoutsData);
       setAnnouncements(messagesData);
     } catch (error) {
+      // Previously console-only, so a failed load looked exactly like an empty
+      // history — the coach had no way to tell the difference (§4.3).
       console.error("Failed to load history", error);
+      setLoadError(error instanceof Error ? error.message : null);
     } finally {
       setLoading(false);
     }
@@ -212,7 +218,9 @@ export default function History() {
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {!loading && rows.length === 0 ? (
+          {loadError !== null ? (
+            <LoadError message={loadError} onRetry={loadHistory} title="Couldn't load your history" />
+          ) : !loading && rows.length === 0 ? (
             <div className="v-card padded" style={{ textAlign: "center", color: "var(--ink-3)", fontSize: 12.5, padding: "36px 16px" }}>
               {emptyMessage}
             </div>

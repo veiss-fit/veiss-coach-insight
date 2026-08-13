@@ -5,6 +5,7 @@ import { Megaphone, Send, Check, CalendarIcon, Users, X } from "lucide-react";
 import { toast } from "sonner";
 import { TopNav } from "@/components/TopNav";
 import { PageHeader } from "@/components/pulse/PageHeader";
+import { LoadError } from "@/components/pulse/LoadError";
 import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -47,10 +48,12 @@ export default function Messages() {
   const [athletes, setAthletes] = useState<PlayerWithStats[]>([]);
   const [groupsList, setGroupsList] = useState<GroupRow[]>([]);
   const [sent, setSent] = useState<SentAnnouncement[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     if (!user?.id) return;
     setLoading(true);
+    setLoadError(null);
     try {
       // The generated client generics collapse to `never` on filtered queries
       // (pre-existing, see TemplatesContext) — cast like the rest of the
@@ -76,7 +79,10 @@ export default function Messages() {
       setGroupsList(groupsResult.data || []);
       setSent(history);
     } catch (error) {
+      // Previously console-only: a failed load rendered an empty composer with no
+      // groups and an empty feed, looking like a brand-new account (§4.3).
       console.error("Error loading messages data:", error);
+      setLoadError(error instanceof Error ? error.message : null);
     } finally {
       setLoading(false);
     }
@@ -182,6 +188,16 @@ export default function Messages() {
           title="Messages"
           subtitle="Send announcements to athletes and keep a record of what went out."
         />
+
+        {loadError !== null && (
+          <div style={{ marginBottom: 20 }}>
+            <LoadError
+              message={loadError}
+              onRetry={loadData}
+              title="Couldn't load your athletes and groups"
+            />
+          </div>
+        )}
 
         <div style={{ display: "grid", gridTemplateColumns: "1.1fr 1fr", gap: 28, alignItems: "start" }}>
           {/* Composer */}

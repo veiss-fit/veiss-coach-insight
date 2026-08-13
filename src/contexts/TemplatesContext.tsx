@@ -21,9 +21,10 @@ interface TemplatesContextValue {
   templates: WorkoutTemplate[]
   loading: boolean
   addTemplate: (data: Omit<WorkoutTemplate, 'id' | 'lastModified'>) => Promise<WorkoutTemplate | null>
-  updateTemplate: (id: string, data: Omit<WorkoutTemplate, 'id' | 'lastModified'>) => Promise<void>
-  deleteTemplate: (id: string) => Promise<void>
-  duplicateTemplate: (template: WorkoutTemplate) => Promise<void>
+  /** Resolves false when the write failed, so callers never report a false success. */
+  updateTemplate: (id: string, data: Omit<WorkoutTemplate, 'id' | 'lastModified'>) => Promise<boolean>
+  deleteTemplate: (id: string) => Promise<boolean>
+  duplicateTemplate: (template: WorkoutTemplate) => Promise<boolean>
 }
 
 const TemplatesContext = createContext<TemplatesContextValue | null>(null)
@@ -125,7 +126,7 @@ export const TemplatesProvider = ({ children }: { children: ReactNode }) => {
   const updateTemplate = async (
     id: string,
     data: Omit<WorkoutTemplate, 'id' | 'lastModified'>
-  ): Promise<void> => {
+  ): Promise<boolean> => {
     const { error } = await db
       .from('workout_plans')
       .update({
@@ -139,7 +140,7 @@ export const TemplatesProvider = ({ children }: { children: ReactNode }) => {
 
     if (error) {
       console.error('Error updating template:', error)
-      return
+      return false
     }
 
     setTemplates(prev =>
@@ -149,9 +150,10 @@ export const TemplatesProvider = ({ children }: { children: ReactNode }) => {
           : t
       )
     )
+    return true
   }
 
-  const deleteTemplate = async (id: string): Promise<void> => {
+  const deleteTemplate = async (id: string): Promise<boolean> => {
     const { error } = await db
       .from('workout_plans')
       .delete()
@@ -160,14 +162,15 @@ export const TemplatesProvider = ({ children }: { children: ReactNode }) => {
 
     if (error) {
       console.error('Error deleting template:', error)
-      return
+      return false
     }
 
     setTemplates(prev => prev.filter(t => t.id !== id))
+    return true
   }
 
-  const duplicateTemplate = async (template: WorkoutTemplate): Promise<void> => {
-    if (!user?.id) return
+  const duplicateTemplate = async (template: WorkoutTemplate): Promise<boolean> => {
+    if (!user?.id) return false
 
     const { data: coach } = await db
       .from('coaches')
@@ -175,7 +178,7 @@ export const TemplatesProvider = ({ children }: { children: ReactNode }) => {
       .eq('user_id', user.id)
       .single() as { data: { id: string } | null }
 
-    if (!coach) return
+    if (!coach) return false
 
     const { data: row, error } = await db
       .from('workout_plans')
@@ -194,10 +197,11 @@ export const TemplatesProvider = ({ children }: { children: ReactNode }) => {
 
     if (error) {
       console.error('Error duplicating template:', error)
-      return
+      return false
     }
 
     setTemplates(prev => [rowToTemplate(row), ...prev])
+    return true
   }
 
   return (
