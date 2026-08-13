@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
+import { ensureCoachSetup } from '@/lib/coachSetup';
 
 export default function AuthCallback() {
   const navigate = useNavigate();
@@ -19,67 +20,17 @@ export default function AuthCallback() {
       const email = user.email ?? '';
       const fullName = (user.user_metadata?.full_name as string | undefined) ?? '';
 
-      // Step 1: Upsert profile — handle_new_user trigger may have already created it.
-      // This MUST succeed before we navigate away; a missing/wrong role here is what
-      // caused the race-condition logout bug.
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .upsert({
-          id: userId,
-          full_name: fullName,
-          role: 'coach' as const,
-          email,
-          created_at: new Date().toISOString(),
-        } as any, { onConflict: 'id' });
+      // Full DB setup: profile (role 'coach') -> coaches row -> default group ->
+      // profiles.coach_id link. This MUST complete before we hand back to
+      // AuthProvider; a missing or wrong role here is what caused the
+      // race-condition logout bug. Shared with AuthContext.signup so the two
+      // signup paths cannot drift apart again (that divergence caused §2.2).
+      const setup = await ensureCoachSetup(userId, fullName, email);
 
-      if (profileError) {
-        console.error('[AuthCallback] Failed to upsert profile:', profileError);
-        setSetupError('We hit a problem setting up your account. Please contact support or try again.');
+      if (!setup.ok) {
+        console.error('[AuthCallback] Coach setup failed:', setup.error);
+        setSetupError(setup.error ?? 'We hit a problem setting up your account. Please contact support or try again.');
         return;
-      }
-
-      // Step 2: Create coaches row only if one doesn't exist yet
-      const { data: existing } = await supabase
-        .from('coaches')
-        .select('id')
-        .eq('user_id' as any, userId)
-        .maybeSingle();
-
-      if (!existing) {
-        const { data: coachData, error: coachError } = await supabase
-          .from('coaches')
-          .insert({ full_name: fullName, email, user_id: userId } as any)
-          .select()
-          .single();
-
-        if (coachError) {
-          console.error('[AuthCallback] Failed to create coaches row:', coachError);
-          setSetupError('We hit a problem setting up your coach account. Please contact support or try again.');
-          return;
-        }
-
-        if (coachData) {
-          // coaches.id is DB-generated here (unlike the immediate-session path in
-          // AuthContext.signup, which pins id = userId), so it does NOT equal userId.
-          // Everything downstream must key off the real row id: groups.coach_id and
-          // profiles.coach_id are both resolved against coaches.id elsewhere
-          // (getCoachId/getCoachTeamIds, TeamSportManager.loadTeams, getUserProfile).
-          // Writing userId here produced a default group and a profile link that no
-          // lookup could ever match — a silently invisible group on every account
-          // created through the email-confirmation flow.
-          const coachId = (coachData as { id: string }).id;
-
-          // Step 3: Create default group
-          await (supabase as any)
-            .from('groups')
-            .insert({ name: `${fullName}'s Group`, coach_id: coachId });
-
-          // Step 4: Link profile → coach record
-          await supabase
-            .from('profiles')
-            .update({ coach_id: coachId } as any)
-            .eq('id', userId);
-        }
       }
 
       // All writes are committed — hand control back to AuthProvider with a full

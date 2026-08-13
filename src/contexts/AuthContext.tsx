@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react'
 import { User } from '@supabase/supabase-js'
 import { supabase, getUserProfile, resetPassword as supabaseResetPassword } from '@/lib/supabase'
+import { ensureCoachSetup, isAlreadyRegistered } from '@/lib/coachSetup'
 
 interface CoachProfile {
 	id: string
@@ -356,6 +357,29 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 			})
 
 			if (error) {
+				// An "already registered" error is ambiguous: it may be a genuine duplicate,
+				// or a retry after an earlier attempt created the auth user but died partway
+				// through DB setup (there is no rollback — §1.2). Sign in with the credentials
+				// just supplied; if they are valid, this is that user resuming, so finish the
+				// setup idempotently instead of failing with a confusing generic message.
+				if (isAlreadyRegistered(error)) {
+					const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+						email,
+						password,
+					})
+
+					if (!signInError && signInData?.user) {
+						console.log('[signup] Account exists and credentials are valid — resuming setup')
+						const setup = await ensureCoachSetup(signInData.user.id, fullName, email)
+						if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current)
+						if (!setup.ok) return { success: false, error: setup.error }
+
+						setUser(signInData.user)
+						await loadProfile(signInData.user.id)
+						return { success: true }
+					}
+				}
+
 				console.error('Signup error:', error)
 				if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current)
 				return { success: false, error: error.message }
@@ -370,69 +394,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 					return { success: true, needsConfirmation: true };
 				}
 
-				// Session is immediately available — perform full DB setup now.
-				const userId = data.user.id;
-
-				// Step 1: Upsert profile
-				const { error: profileError } = await supabase
-					.from('profiles')
-					.upsert({
-						id: userId,
-						full_name: fullName,
-						role: 'coach' as const,
-						email: email,
-						created_at: new Date().toISOString(),
-					} as any, { onConflict: 'id' })
-
-				if (profileError) {
-					console.error('Error creating profile:', profileError)
-					if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current)
-					return { success: false, error: 'Account created but failed to initialize profile' }
-				}
-
-				try {
-					// Step 2: Create coach record
-					const { data: coachData, error: coachError } = await supabase
-						.from('coaches')
-						.insert({
-							id: userId,
-							full_name: fullName,
-							email: email,
-							user_id: userId,
-						} as any)
-						.select()
-						.single()
-
-					if (coachError) {
-						console.error('Coach insert error:', coachError)
-						throw coachError
-					}
-
-					// Step 3: Create default group
-					const { error: groupError } = await (supabase as any)
-						.from('groups')
-						.insert({
-							name: `${fullName}'s Group`,
-							coach_id: userId,
-						})
-						.select()
-						.single()
-
-					if (groupError) console.error('Group insert error:', groupError)
-
-					// Step 4: Link profile → coach record
-					await supabase
-						.from('profiles')
-						.update({ coach_id: userId } as any)
-						.eq('id', userId)
-
-				} catch (error: any) {
-					console.error('[signup] DB setup failed:', error)
-					if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current)
-					throw error
-				}
-
+				// Session is immediately available — run the same setup the confirmation
+				// path uses, so the two cannot drift apart again (this divergence is what
+				// produced §2.2).
+				const setup = await ensureCoachSetup(data.user.id, fullName, email)
 				if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current)
+				if (!setup.ok) return { success: false, error: setup.error }
+
 				return { success: true }
 			}
 
