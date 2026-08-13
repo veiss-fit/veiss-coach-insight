@@ -17,6 +17,7 @@ import { Validators } from "@/lib/validators";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 import { updateTeam, deleteTeam, assignPlayerToTeam, getAllPlayersForAssignment, getCoachTeamIds } from "@/services/playersService";
+import { handleError } from "@/lib/errorHandler";
 import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 interface TeamSportManagerProps {
@@ -75,10 +76,11 @@ export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportM
           .eq('coach_id', coachRow.id)
           .order('name');
       }
-      const { data } = await query;
+      const { data, error } = await query;
+      if (error) throw error;
       setTeams((data || []) as any[]);
-    } catch {
-      toast.error("Failed to load groups");
+    } catch (error) {
+      handleError(error, "Load groups");
     } finally {
       setLoading(false);
     }
@@ -90,8 +92,8 @@ export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportM
       const teamIds = user?.id ? await getCoachTeamIds(user.id) : undefined;
       const players = await getAllPlayersForAssignment(teamIds);
       setExistingPlayers(players || []);
-    } catch {
-      toast.error("Failed to load players");
+    } catch (error) {
+      handleError(error, "Load players");
       setExistingPlayers([]);
     } finally {
       setLoadingPlayers(false);
@@ -104,23 +106,31 @@ export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportM
     const nameError = Validators.required(newTeamName, "Group Name");
     if (nameError) return toast.error(nameError);
     try {
-      const { data: coachRow } = await (supabase as any)
+      const { data: coachRow, error: coachError } = await (supabase as any)
         .from('coaches')
         .select('id')
         .eq('user_id', user?.id)
-        .single() as { data: { id: string } | null };
+        .maybeSingle() as { data: { id: string } | null; error: unknown };
+
+      if (coachError) throw coachError;
+      if (!coachRow?.id) {
+        // Previously this fell through and inserted coach_id: null, creating a group
+        // owned by nobody that no query could ever find again.
+        toast.error("Your coach profile isn't set up yet. Please sign out and back in.");
+        return;
+      }
 
       const { error } = await supabase
         .from('groups')
-        .insert({ name: newTeamName, coach_id: coachRow?.id ?? null } as any);
+        .insert({ name: newTeamName, coach_id: coachRow.id } as any);
 
       if (error) throw error;
       toast.success("Group created");
       setIsCreatingTeam(false);
       setNewTeamName("");
       loadTeams();
-    } catch {
-      toast.error("Failed to create group");
+    } catch (error) {
+      handleError(error, "Create group");
     }
   };
 
@@ -128,24 +138,27 @@ export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportM
     if (!editingTeam) return;
     const nameError = Validators.required(editingTeam.name, "Group Name");
     if (nameError) return toast.error(nameError);
-    const success = await updateTeam(editingTeam.id, { name: editingTeam.name });
-    if (success) {
+    try {
+      await updateTeam(editingTeam.id, { name: editingTeam.name });
       toast.success("Group updated");
       setEditingTeam(null);
       loadTeams();
-    } else {
-      toast.error("Update failed");
+    } catch (error) {
+      handleError(error, "Update group");
     }
   };
 
   const handleDeleteTeam = async (id: string) => {
     if (!confirm("Are you sure? This will fail if players are assigned to this group.")) return;
-    const success = await deleteTeam(id);
-    if (success) {
+    try {
+      await deleteTeam(id);
       toast.success("Group deleted");
       loadTeams();
-    } else {
-      toast.error("Cannot delete group (likely has players assigned)");
+    } catch (error) {
+      // handleError maps 23503 (foreign key violation) to a real "still linked to
+      // other records" message, instead of the previous blanket guess that players
+      // must be assigned — which was equally shown for RLS and network failures (§2.4).
+      handleError(error, "Delete group");
     }
   };
 
@@ -162,16 +175,49 @@ export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportM
     const teamIdToAssign = assignTeamId === "" || assignTeamId === "null" ? null : assignTeamId;
     try {
       setAssigning(true);
-      // Pass the coach's auth id so assignPlayerToTeam verifies the target group
-      // belongs to this coach (defense in depth alongside the players RLS policies).
-      await Promise.all(selectedPlayerIds.map(id => assignPlayerToTeam(id, teamIdToAssign, user?.id)));
       const groupName = teamIdToAssign ? teams.find(t => t.id === teamIdToAssign)?.name : "No Group";
-      toast.success(`Assigned ${selectedPlayerIds.length} player(s) to ${groupName}`);
+
+      // allSettled, not all: each assignment is an independent UPDATE that commits on
+      // its own. Promise.all rejects on the first failure while the rest still commit,
+      // so the previous code showed a blanket "Failed to assign players" and skipped
+      // both the reload and the selection clear — leaving the DB partially updated and
+      // the UI insisting nothing had happened (§2.3).
+      const results = await Promise.allSettled(
+        // Passing the coach's auth id makes assignPlayerToTeam verify the target group
+        // belongs to this coach (defense in depth alongside the players RLS policies).
+        selectedPlayerIds.map(id => assignPlayerToTeam(id, teamIdToAssign, user?.id))
+      );
+
+      // assignPlayerToTeam resolves false (rather than rejecting) when its ownership
+      // check rejects the target group, so both outcomes count as failures.
+      const failures = results.filter(r => r.status === 'rejected' || r.value === false);
+      const succeeded = results.length - failures.length;
+
+      results.forEach((r, i) => {
+        if (r.status === 'rejected') {
+          console.error(`[Assign players] ${selectedPlayerIds[i]} failed:`, r.reason);
+        } else if (r.value === false) {
+          console.error(`[Assign players] ${selectedPlayerIds[i]} rejected: group not owned by this coach`);
+        }
+      });
+
+      if (failures.length === 0) {
+        toast.success(`Assigned ${succeeded} player(s) to ${groupName}`);
+      } else if (succeeded === 0) {
+        toast.error(`Couldn't assign any players to ${groupName}. See console for details.`);
+      } else {
+        toast.warning(
+          `Assigned ${succeeded} of ${results.length} players to ${groupName}; ${failures.length} failed.`
+        );
+      }
+
+      // Always reload and clear: writes that did succeed are already committed, so the
+      // UI must reflect them even on partial failure.
       setSelectedPlayerIds([]);
       await loadPlayers();
       onPlayersChanged?.();
-    } catch {
-      toast.error("Failed to assign players");
+    } catch (error) {
+      handleError(error, "Assign players");
     } finally {
       setAssigning(false);
     }

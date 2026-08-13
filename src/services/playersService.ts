@@ -31,38 +31,32 @@ export interface PlayerWithStats extends Player {
 export const updateTeam = async (
   teamId: string,
   updates: { name?: string }
-): Promise<boolean> => {
-  try {
-    const { error } = await (supabase as any)
-      .from('groups')
-      .update(updates)
-      .eq('id', teamId) as { error: any };
+): Promise<void> => {
+  // Throws rather than returning a boolean so callers can inspect the real
+  // Postgres error (via handleError) instead of guessing at a cause.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (supabase as any)
+    .from('groups')
+    .update(updates)
+    .eq('id', teamId) as { error: unknown };
 
-    if (error) throw error;
-    return true;
-  } catch (error) {
-    console.error('Error updating team:', error);
-    return false;
-  }
+  if (error) throw error;
 };
 
 /**
  * Delete a team
  * Note: This might fail if players are linked to it, depending on your DB constraints
  */
-export const deleteTeam = async (teamId: string): Promise<boolean> => {
-  try {
-    const { error } = await supabase
-      .from('groups')
-      .delete()
-      .eq('id', teamId);
+export const deleteTeam = async (teamId: string): Promise<void> => {
+  // Throws rather than returning a boolean: the caller previously had to guess why
+  // a delete failed and always blamed "players still assigned", when an RLS
+  // rejection or network error produced the identical result (§2.4).
+  const { error } = await supabase
+    .from('groups')
+    .delete()
+    .eq('id', teamId);
 
-    if (error) throw error;
-    return true;
-  } catch (error) {
-    console.error('Error deleting team:', error);
-    return false;
-  }
+  if (error) throw error;
 };
 
 /**
