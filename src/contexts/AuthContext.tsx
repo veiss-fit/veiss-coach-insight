@@ -307,19 +307,26 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
 			if (data.user) {
 				setUser(data.user)
-				await loadProfile(data.user.id)
 
-				// Profile is now loaded, check if user is a coach
-				await new Promise((resolve) => setTimeout(resolve, 100))
-
-				// Re-fetch to verify
-				const profileData = await getUserProfile(data.user.id)
-				if (profileData?.role !== 'coach') {
-					await logout()
+				// loadProfile already enforces the coach check: on a non-coach it logs the
+				// user out and throws. The previous code additionally slept 100ms and
+				// re-fetched the profile to "verify" — a band-aid for the /auth/callback
+				// race now fixed at its source in initialize() (§1.1), which cost every
+				// login an extra round trip plus the sleep.
+				try {
+					await loadProfile(data.user.id)
+				} catch (profileError) {
 					if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current)
+					const message = profileError instanceof Error ? profileError.message : ''
+					if (message === 'User is not a coach') {
+						return {
+							success: false,
+							error: 'Access denied. This dashboard is for coaches only.',
+						}
+					}
 					return {
 						success: false,
-						error: 'Access denied. This dashboard is for coaches only.',
+						error: 'Signed in, but your profile could not be loaded. Please try again.',
 					}
 				}
 
