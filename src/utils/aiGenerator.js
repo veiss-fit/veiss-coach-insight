@@ -268,16 +268,16 @@ export async function generateSmartWorkoutAI(musclesArray, timeLimit) {
     targetExerciseCount = allowedExercises.length;
   }
 
-  // 📉 OPTIMIZATION 1: Remove quotes and spaces from the array join to save tokens
+  // Remove quotes and spaces from the array join to save tokens
   const allowedString = allowedExercises.join(",");
 
-  // 📉 OPTIMIZATION 2: Telegraphic prompt and single-letter JSON keys
+  // Telegraphic prompt and single-letter JSON keys
   const prompt = `Task:${timeLimit}min workout for ${primaryLabel}.
 Rules:${targetExerciseCount} unique exercises. Pick ONLY from:[${allowedString}].
 Output JSON ONLY schema:
 {"p":"${primaryLabel}","s":"3-5 secondary muscles","t":${timeLimit},"ex":[{"n":"AllowedName","s":"4","r":"8","v":"1.0"}]}`;
 
-  // 🔄 Helper function to expand the optimized JSON back to your app's full format
+  // Helper function to expand the optimized JSON back to your app's full format
   const mapShortKeysToFull = (rawWorkout) => {
     const expandedWorkout = {
       primary: rawWorkout.p || primaryLabel,
