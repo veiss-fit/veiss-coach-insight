@@ -14,6 +14,13 @@ const groq = new Groq({
 });
 
 const exerciseFolders = {
+  Neck: [
+    "Neck Curls",
+    "Neck Extensions",
+    "Lateral Neck Flexion",
+    "Wrestler's Bridges",
+    "Isometric Neck Holds",
+  ],
   Chest: [
     "Barbell Bench Press",
     "Dumbbell Bench Press",
@@ -279,17 +286,33 @@ Output JSON ONLY schema:
 
   // Helper function to expand the optimized JSON back to your app's full format
   const mapShortKeysToFull = (rawWorkout) => {
+    // 🛡️ THE BOUNCER: Sanitize the AI's homework
+    const sanitizedExercises = (rawWorkout.ex || []).map((item) => {
+      let finalName = item.n;
+
+      // If the AI hallucinated an exercise NOT in database, swap it for a real one
+      if (!allowedExercises.includes(finalName)) {
+        console.warn(`Blocked AI Hallucination: ${finalName}`);
+        // Pick a random valid exercise from the allowed list as a fallback
+        finalName =
+          allowedExercises[Math.floor(Math.random() * allowedExercises.length)];
+      }
+
+      return {
+        name: finalName,
+        sets: String(item.s || "3"),
+        reps: String(item.r || "10"),
+        velocity: String(item.v || "1.0"),
+      };
+    });
+
     const expandedWorkout = {
       primary: rawWorkout.p || primaryLabel,
       secondary: rawWorkout.s || "",
       totalTime: rawWorkout.t || timeLimit,
-      exercises: (rawWorkout.ex || []).map((item) => ({
-        name: item.n,
-        sets: String(item.s),
-        reps: String(item.r),
-        velocity: String(item.v),
-      })),
+      exercises: sanitizedExercises,
     };
+
     return calculateWorkoutTime(expandedWorkout, timeLimit);
   };
 
