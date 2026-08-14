@@ -14,13 +14,6 @@ const groq = new Groq({
 });
 
 const exerciseFolders = {
-  Neck: [
-    "Neck Curls",
-    "Neck Extensions",
-    "Lateral Neck Flexion",
-    "Wrestler's Bridges",
-    "Isometric Neck Holds",
-  ],
   Chest: [
     "Barbell Bench Press",
     "Dumbbell Bench Press",
@@ -254,7 +247,7 @@ const exerciseFolders = {
 
 export async function generateSmartWorkoutAI(musclesArray, timeLimit) {
   if (!musclesArray || musclesArray.length === 0) return null;
-  const primaryLabel = musclesArray.join(", ");
+  const primaryLabel = musclesArray.join(",");
 
   let allowedExercises = [];
   musclesArray.forEach((muscle) => {
@@ -275,30 +268,30 @@ export async function generateSmartWorkoutAI(musclesArray, timeLimit) {
     targetExerciseCount = allowedExercises.length;
   }
 
-  const allowedString = allowedExercises.map((ex) => `"${ex}"`).join(", ");
+  // 📉 OPTIMIZATION 1: Remove quotes and spaces from the array join to save tokens
+  const allowedString = allowedExercises.join(",");
 
-  const prompt = `
-    You are an elite sports scientist programming for an athlete. 
-    Design a workout targeting: ${primaryLabel}.
-    
-    Rules:
-    1. Generate EXACTLY ${targetExerciseCount} exercises.
-    2. Every exercise must be unique. DO NOT REPEAT any exercise.
-    3. FATAL ERROR PRECAUTION: You are strictly limited to ONLY these exact exercise names:
-       [ ${allowedString} ]
-    4. NEVER invent, modify, or combine exercise names.
-    
-    JSON Schema Requirement:
-    Return ONLY a valid JSON object matching this exact structure:
-    {
-      "primary": "${primaryLabel}",
-      "secondary": "List 3-5 secondary muscles engaged",
-      "totalTime": ${timeLimit},
-      "exercises": [
-        { "name": "Exact Name From Allowed List", "sets": "4", "reps": "8", "velocity": "1.0" }
-      ]
-    }
-  `;
+  // 📉 OPTIMIZATION 2: Telegraphic prompt and single-letter JSON keys
+  const prompt = `Task:${timeLimit}min workout for ${primaryLabel}.
+Rules:${targetExerciseCount} unique exercises. Pick ONLY from:[${allowedString}].
+Output JSON ONLY schema:
+{"p":"${primaryLabel}","s":"3-5 secondary muscles","t":${timeLimit},"ex":[{"n":"AllowedName","s":"4","r":"8","v":"1.0"}]}`;
+
+  // 🔄 Helper function to expand the optimized JSON back to your app's full format
+  const mapShortKeysToFull = (rawWorkout) => {
+    const expandedWorkout = {
+      primary: rawWorkout.p || primaryLabel,
+      secondary: rawWorkout.s || "",
+      totalTime: rawWorkout.t || timeLimit,
+      exercises: (rawWorkout.ex || []).map((item) => ({
+        name: item.n,
+        sets: String(item.s),
+        reps: String(item.r),
+        velocity: String(item.v),
+      })),
+    };
+    return calculateWorkoutTime(expandedWorkout, timeLimit);
+  };
 
   // --- ATTEMPT 1: GOOGLE GEMINI ---
   try {
@@ -311,7 +304,7 @@ export async function generateSmartWorkoutAI(musclesArray, timeLimit) {
     });
 
     const rawWorkout = JSON.parse(response.text);
-    return calculateWorkoutTime(rawWorkout, timeLimit);
+    return mapShortKeysToFull(rawWorkout);
   } catch (error) {
     console.warn(
       "Gemini Error Caught (Switching to Groq LLaMA fallback...):",
@@ -327,7 +320,7 @@ export async function generateSmartWorkoutAI(musclesArray, timeLimit) {
       });
 
       const rawWorkout = JSON.parse(chatCompletion.choices[0].message.content);
-      return calculateWorkoutTime(rawWorkout, timeLimit);
+      return mapShortKeysToFull(rawWorkout);
     } catch (groqError) {
       console.error("Groq Fallback Error:", groqError);
       throw new Error("Both AI providers failed to generate the workout.", {

@@ -3,13 +3,6 @@
 // 📁 COMPACT FOLDER MAPPING
 // We group the exercises by folder to keep the code clean and easy to read.
 const exerciseFolders = {
-  neck: [
-    "Neck Curls",
-    "Neck Extensions",
-    "Lateral Neck Flexion",
-    "Wrestler's Bridges",
-    "Isometric Neck Holds",
-  ],
   chest: [
     "Barbell Bench Press",
     "Dumbbell Bench Press",
