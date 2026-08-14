@@ -10,7 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { User, LogOut, Bell, Users } from "lucide-react";
+import { User, LogOut, Users } from "lucide-react";
 import { TeamSportManager } from "./TeamSportManager";
 
 export const ProfileMenu = () => {
@@ -51,10 +51,6 @@ export const ProfileMenu = () => {
         <DropdownMenuItem className="cursor-pointer" onClick={() => navigate("/profile")}>
           <User className="mr-2 h-4 w-4" />
           <span>Profile</span>
-        </DropdownMenuItem>
-        <DropdownMenuItem className="cursor-pointer" onClick={() => navigate("/profile?section=notifications")}>
-          <Bell className="mr-2 h-4 w-4" />
-          <span>Notifications</span>
         </DropdownMenuItem>
         <DropdownMenuItem className="cursor-pointer" onClick={() => setGroupManagerOpen(true)}>
           <Users className="mr-2 h-4 w-4" />

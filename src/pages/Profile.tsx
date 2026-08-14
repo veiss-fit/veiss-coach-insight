@@ -7,8 +7,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Separator } from "@/components/ui/separator";
-import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -17,7 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { User, Mail, Shield, Upload, Camera, X, Trash2 } from "lucide-react";
+import { User, Mail, Upload, Camera, X, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Validators } from "@/lib/validators";
 import { supabase } from "@/lib/supabase";
@@ -40,23 +38,16 @@ const Profile = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState({
     fullName: "",
-    jobTitle: "",
   });
 
   // Modal states
   const [photoModalOpen, setPhotoModalOpen] = useState(false);
-  const [notificationsModalOpen, setNotificationsModalOpen] = useState(false);
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
-  const [twoFactorModalOpen, setTwoFactorModalOpen] = useState(false);
 
   // Form states
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [emailNotifications, setEmailNotifications] = useState(true);
-  const [performanceAlerts, setPerformanceAlerts] = useState(true);
-  const [weeklyDigest, setWeeklyDigest] = useState(false);
-  const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
 
   // Photo states
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
@@ -66,16 +57,13 @@ const Profile = () => {
 
   useEffect(() => {
     const section = searchParams.get("section");
-    if (section === "notifications") {
-      setNotificationsModalOpen(true);
-    } else if (section === "settings") {
+    if (section === "settings") {
       document.getElementById("account-settings")?.scrollIntoView({ behavior: "smooth" });
     }
 
     if (profile) {
       setFormData({
         fullName: profile.full_name || "",
-        jobTitle: (profile as any).job_title || "",
       });
     }
 
@@ -95,7 +83,6 @@ const Profile = () => {
         .from('profiles')
         .update({
           full_name: name,
-          job_title: formData.jobTitle.trim() || null,
         })
         .eq('id', user.id);
 
@@ -251,11 +238,6 @@ const Profile = () => {
   };
 
   // ── Other handlers ────────────────────────────────────────────────────────
-  const handleSaveNotifications = () => {
-    toast.success("Notification preferences saved");
-    setNotificationsModalOpen(false);
-  };
-
   const handleChangePassword = async () => {
     if (!currentPassword || !newPassword || !confirmPassword) {
       toast.error("Please fill in all password fields");
@@ -277,12 +259,6 @@ const Profile = () => {
     }
   };
 
-  const handleToggleTwoFactor = () => {
-    setTwoFactorEnabled(!twoFactorEnabled);
-    toast.success(twoFactorEnabled ? "Two-factor authentication disabled" : "Two-factor authentication enabled");
-    setTwoFactorModalOpen(false);
-  };
-
   const initials = getInitials(formData.fullName);
 
   return (
@@ -301,9 +277,9 @@ const Profile = () => {
           </button>
         </div>
 
-        <div className="grid gap-6 md:grid-cols-3">
+        <div className="grid gap-6 md:grid-cols-2">
           {/* ── Profile picture card ── */}
-          <Card className="md:col-span-1">
+          <Card>
             <CardHeader>
               <CardTitle>Profile Picture</CardTitle>
             </CardHeader>
@@ -326,7 +302,7 @@ const Profile = () => {
           </Card>
 
           {/* ── Personal information card ── */}
-          <Card className="md:col-span-2">
+          <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
                 <CardTitle>Personal Information</CardTitle>
@@ -366,25 +342,11 @@ const Profile = () => {
                 />
                 <p className="text-xs text-muted-foreground">Email cannot be changed directly.</p>
               </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="role">
-                  <Shield className="inline mr-2 h-4 w-4" />
-                  Role / Job Title
-                </Label>
-                <Input
-                  id="role"
-                  value={formData.jobTitle}
-                  onChange={(e) => setFormData({ ...formData, jobTitle: e.target.value })}
-                  disabled={!isEditing}
-                  placeholder="e.g. Head Coach"
-                />
-              </div>
             </CardContent>
           </Card>
 
           {/* ── Account settings card ── */}
-          <Card className="md:col-span-3" id="account-settings">
+          <Card className="md:col-span-2" id="account-settings">
             <CardHeader>
               <CardTitle>Account Settings</CardTitle>
               <CardDescription>Manage your account preferences</CardDescription>
@@ -397,18 +359,6 @@ const Profile = () => {
                 </div>
                 <Button variant="outline" size="sm" onClick={() => setPasswordModalOpen(true)}>
                   Update
-                </Button>
-              </div>
-              <Separator />
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label className="text-base">Two-Factor Authentication</Label>
-                  <p className="text-sm text-muted-foreground">
-                    {twoFactorEnabled ? "Currently enabled" : "Add an extra layer of security"}
-                  </p>
-                </div>
-                <Button variant="outline" size="sm" onClick={() => setTwoFactorModalOpen(true)}>
-                  {twoFactorEnabled ? "Manage" : "Enable"}
                 </Button>
               </div>
             </CardContent>
@@ -491,47 +441,6 @@ const Profile = () => {
         </DialogContent>
       </Dialog>
 
-      {/* ── Notifications modal ── */}
-      <Dialog open={notificationsModalOpen} onOpenChange={setNotificationsModalOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Notification Preferences</DialogTitle>
-            <DialogDescription>
-              Configure how you receive notifications about athlete performance.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <Label className="text-base">Email Notifications</Label>
-                <p className="text-sm text-muted-foreground">Receive email updates</p>
-              </div>
-              <Switch checked={emailNotifications} onCheckedChange={setEmailNotifications} />
-            </div>
-            <Separator />
-            <div className="flex items-center justify-between">
-              <div>
-                <Label className="text-base">Performance Alerts</Label>
-                <p className="text-sm text-muted-foreground">Get notified about significant changes</p>
-              </div>
-              <Switch checked={performanceAlerts} onCheckedChange={setPerformanceAlerts} />
-            </div>
-            <Separator />
-            <div className="flex items-center justify-between">
-              <div>
-                <Label className="text-base">Weekly Digest</Label>
-                <p className="text-sm text-muted-foreground">Summary of weekly activity</p>
-              </div>
-              <Switch checked={weeklyDigest} onCheckedChange={setWeeklyDigest} />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setNotificationsModalOpen(false)}>Cancel</Button>
-            <Button onClick={handleSaveNotifications}>Save Preferences</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       {/* ── Change password modal ── */}
       <Dialog open={passwordModalOpen} onOpenChange={setPasswordModalOpen}>
         <DialogContent>
@@ -560,42 +469,6 @@ const Profile = () => {
           <DialogFooter>
             <Button variant="outline" onClick={() => setPasswordModalOpen(false)}>Cancel</Button>
             <Button onClick={handleChangePassword}>Change Password</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Two-factor authentication modal ── */}
-      <Dialog open={twoFactorModalOpen} onOpenChange={setTwoFactorModalOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Two-Factor Authentication</DialogTitle>
-            <DialogDescription>
-              {twoFactorEnabled
-                ? "Two-factor authentication is currently enabled on your account."
-                : "Add an extra layer of security to your account by enabling two-factor authentication."}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-4">
-            {twoFactorEnabled ? (
-              <div className="space-y-4">
-                <div className="p-4 bg-muted rounded-lg">
-                  <p className="text-sm text-center">Your account is protected with two-factor authentication.</p>
-                </div>
-                <p className="text-sm text-muted-foreground text-center">Disabling 2FA will make your account less secure.</p>
-              </div>
-            ) : (
-              <div className="p-4 bg-muted rounded-lg">
-                <p className="text-sm">
-                  When enabled, you'll need to enter a verification code from your authenticator app each time you sign in.
-                </p>
-              </div>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setTwoFactorModalOpen(false)}>Cancel</Button>
-            <Button onClick={handleToggleTwoFactor} variant={twoFactorEnabled ? "destructive" : "default"}>
-              {twoFactorEnabled ? "Disable 2FA" : "Enable 2FA"}
-            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
