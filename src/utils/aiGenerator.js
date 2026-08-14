@@ -14,13 +14,6 @@ const groq = new Groq({
 });
 
 const exerciseFolders = {
-  Head: [
-    "Chin Tucks",
-    "Head Nods",
-    "Head Rotations",
-    "Jaw Clenches",
-    "Isometric Head Pushes",
-  ],
   Neck: [
     "Neck Curls",
     "Neck Extensions",
@@ -160,12 +153,6 @@ const exerciseFolders = {
     "Toe Splay",
     "Plantar Fascia Rolls",
     "Heel Raises",
-  ],
-  Hair: [
-    "Scalp Massages",
-    "Vigorous Towel Drying",
-    "Post-Workout Brushing",
-    "Sweaty Hair Flips",
   ],
   Trapezius: [
     "Barbell Shrugs",

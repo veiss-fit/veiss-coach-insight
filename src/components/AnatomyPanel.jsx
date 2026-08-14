@@ -1,10 +1,13 @@
-// src/components/AnatomyPanel.jsx
+/**
+ * Project: Veiss Workout Dashboard
+ * Author: Binrui Chen
+ * Description: Interactive SVG anatomy component and target list
+ */
 import { useState } from "react";
 import Body from "react-muscle-highlighter";
 import { secondaryMuscleMap } from "../workoutDatabase";
 import "./AnatomyPanel.css";
 
-// 🚀 OPTIMIZATION: Moved outside the component so they are only created once in memory!
 const muscleToSlug = {
   Chest: ["chest"],
   Core: ["abs"],
@@ -68,16 +71,21 @@ export default function AnatomyPanel({
 
   const handleComponentClick = (part) => {
     if (!part?.slug) return;
+
+    // 🛡️ THE INTERCEPTOR: Block specific slugs from registering clicks
+    const forbiddenSlugs = ["head", "neck", "hair"];
+    if (forbiddenSlugs.includes(part.slug)) {
+      return; // Do nothing if the user clicks these areas
+    }
+
     const coreAppName = slugToMuscle[part.slug];
     if (coreAppName) {
       onBodyPartClick(coreAppName);
     }
   };
 
-  // Build the array of highlights for the 3D model
   let highlightData = [];
 
-  // 1. Paint all selected muscles Gold (#FFB800)
   selectedMuscles.forEach((muscle) => {
     const slugs = muscleToSlug[muscle] || [];
     slugs.forEach((slug) => {
@@ -85,19 +93,15 @@ export default function AnatomyPanel({
     });
   });
 
-  // 2. If a user is hovering over a specific row, highlight that target & its secondaries in Orange (#FF5722)
   if (hoveredMuscle) {
-    // Highlight hovered target
     const targetSlugs = muscleToSlug[hoveredMuscle] || [];
     targetSlugs.forEach((slug) => {
       highlightData.push({ slug, color: "#FF5722" });
     });
 
-    // Highlight secondary activation items for that target
     const secondaries = secondaryMuscleMap[hoveredMuscle];
     if (secondaries && secondaries !== "None") {
       secondaries.split(", ").forEach((sec) => {
-        // Clean text mapping helper in case names differ slightly
         const secClean = sec.trim();
         const secSlugs = muscleToSlug[secClean] || [];
         secSlugs.forEach((slug) => {

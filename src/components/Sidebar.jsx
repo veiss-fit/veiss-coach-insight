@@ -1,10 +1,13 @@
-// src/components/Sidebar.jsx
+/**
+ * Project: Veiss Workout Dashboard
+ * Author: Binrui Chen
+ * Description: Sidebar component for workout configuration
+ */
 import { useState, useRef, useEffect } from "react";
 import "./Sidebar.css";
 
+// 🚫 "Neck" has been removed from the anteriorOptions array
 const anteriorOptions = [
-  "Head",
-  "Neck",
   "Chest",
   "Core",
   "Obliques",
@@ -20,7 +23,6 @@ const anteriorOptions = [
   "Feet",
 ];
 const posteriorOptions = [
-  "Hair",
   "Trapezius",
   "Upper Back",
   "Lats",
@@ -34,7 +36,7 @@ const posteriorOptions = [
 export default function Sidebar({
   selectedMuscles,
   onMuscleToggle,
-  workoutTime, // This remains as absolute minutes for the rest of your app!
+  workoutTime,
   onTimeChange,
   onGenerateClick,
   isGenerating,
@@ -42,15 +44,12 @@ export default function Sidebar({
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef(null);
 
-  // 1. UPDATED: Warning state now holds the exact message text!
   const [warningMessage, setWarningMessage] = useState("");
 
-  // 2. States for the custom time unit dropdown
   const [timeUnit, setTimeUnit] = useState("min");
   const [isUnitDropdownOpen, setIsUnitDropdownOpen] = useState(false);
   const unitDropdownRef = useRef(null);
 
-  // Close dropdowns if the user clicks outside of them
   useEffect(() => {
     function handleClickOutside(event) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
@@ -67,28 +66,23 @@ export default function Sidebar({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // 3. UPDATED: The Interceptor now checks for both muscles AND time
   const handleGenerateClickWrapper = () => {
-    // Check 1: Did they select at least one muscle?
     if (!selectedMuscles || selectedMuscles.length === 0) {
       setWarningMessage("⚠️ Please select at least 1 Muscle Group!");
       setTimeout(() => setWarningMessage(""), 10000);
-      return; // Stop generation
+      return;
     }
 
-    // Check 2: Did they enter a valid time?
     if (workoutTime <= 0) {
       setWarningMessage("⚠️ Please enter a Workout Time greater than 0!");
       setTimeout(() => setWarningMessage(""), 10000);
-      return; // Stop generation
+      return;
     }
 
-    // If both checks pass, clear any warnings and generate!
     setWarningMessage("");
     onGenerateClick();
   };
 
-  // Calculate what number to show in the input box based on the unit
   const displayValue =
     timeUnit === "sec"
       ? workoutTime * 60
@@ -96,7 +90,6 @@ export default function Sidebar({
         ? +(workoutTime / 60).toFixed(2)
         : workoutTime;
 
-  // Convert the user's input back into minutes for the rest of the app
   const handleTimeChange = (e) => {
     let val = Number(e.target.value);
     if (val < 0) val = 0;
@@ -169,7 +162,6 @@ export default function Sidebar({
           <span className="step-number">2</span> Workout Time
         </label>
 
-        {/* Updated layout with the Custom React Dropdown */}
         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
           <input
             type="number"
@@ -181,9 +173,7 @@ export default function Sidebar({
             min="0"
           />
 
-          {/* THE CUSTOM DROPDOWN CONTAINER */}
           <div ref={unitDropdownRef} style={{ position: "relative" }}>
-            {/* The Clickable Button */}
             <div
               onClick={() => setIsUnitDropdownOpen(!isUnitDropdownOpen)}
               style={{
@@ -208,7 +198,6 @@ export default function Sidebar({
               </span>
             </div>
 
-            {/* The Floating Menu */}
             {isUnitDropdownOpen && (
               <div
                 style={{
@@ -262,7 +251,6 @@ export default function Sidebar({
         </div>
       </div>
 
-      {/* 4. UPDATED: UI block now dynamically renders the custom warning message! */}
       {warningMessage && (
         <div
           style={{

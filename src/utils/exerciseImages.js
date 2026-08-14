@@ -3,13 +3,6 @@
 // 📁 COMPACT FOLDER MAPPING
 // We group the exercises by folder to keep the code clean and easy to read.
 const exerciseFolders = {
-  head: [
-    "Chin Tucks",
-    "Head Nods",
-    "Head Rotations",
-    "Jaw Clenches",
-    "Isometric Head Pushes",
-  ],
   neck: [
     "Neck Curls",
     "Neck Extensions",
