@@ -101,20 +101,18 @@ export function useWorkoutData() {
       if (!prevWorkout || prevWorkout.exercises.length === 0)
         return prevWorkout;
 
-      // 1. Copy the exercises array and update the specific dropdown value
+      // Copy the exercises array and update the specific dropdown value
       const updatedExercises = [...prevWorkout.exercises];
       updatedExercises[index] = {
         ...updatedExercises[index],
         [field]: newValue,
       };
 
-      // 2. Build the updated workout object
       const updatedWorkout = {
         ...prevWorkout,
         exercises: updatedExercises,
       };
 
-      // 3. Run the ENTIRE workout through the proportional calculator
       // This perfectly redistributes the minutes across all cards!
       const perfectlyTimedWorkout = calculateWorkoutTime(
         updatedWorkout,
@@ -125,7 +123,7 @@ export function useWorkoutData() {
     });
   };
 
-  // 🗑️ NEW: Deletes a specific exercise from the list
+  // Deletes a specific exercise from the list
   const handleDeleteExercise = (indexToDelete) => {
     setDisplayedWorkout((prevWorkout) => {
       if (!prevWorkout || !prevWorkout.exercises) return prevWorkout;
@@ -147,7 +145,7 @@ export function useWorkoutData() {
     });
   };
 
-  // 💾 RESTORED: Fully functional Supabase save logic
+  // functional Supabase save logic
   const handleSaveActiveWorkout = async () => {
     if (!displayedWorkout || displayedWorkout.exercises.length === 0) {
       alert("No workout generated to save.");
@@ -190,7 +188,6 @@ export function useWorkoutData() {
     }
   };
 
-  // 🗑️ RESTORED: Fully functional Supabase clear logic
   const handleClearHistory = async () => {
     if (
       window.confirm("Are you sure you want to clear all cloud history logs?")
@@ -219,7 +216,7 @@ export function useWorkoutData() {
     handleMuscleToggle,
     handleForceGenerate,
     handleUpdateExercise,
-    handleDeleteExercise, // 👈 Export new function
+    handleDeleteExercise,
     handleSaveActiveWorkout,
     handleClearHistory,
   };

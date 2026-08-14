@@ -18,7 +18,7 @@ export default function WorkoutDashboard() {
     handleMuscleToggle,
     handleForceGenerate,
     handleUpdateExercise,
-    handleDeleteExercise, // 👈 Destructure new function
+    handleDeleteExercise,
     handleSaveActiveWorkout,
     handleClearHistory,
   } = useWorkoutData();
@@ -46,7 +46,7 @@ export default function WorkoutDashboard() {
         <WorkoutPanel
           displayedWorkout={displayedWorkout}
           onUpdateExercise={handleUpdateExercise}
-          onDeleteExercise={handleDeleteExercise} // 👈 Pass it down
+          onDeleteExercise={handleDeleteExercise}
           onSaveWorkout={handleSaveActiveWorkout}
           historyLogs={savedHistory}
           onClearHistory={handleClearHistory}

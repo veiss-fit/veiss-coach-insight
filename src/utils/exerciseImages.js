@@ -1,7 +1,5 @@
 // src/utils/exerciseImages.js
 
-// 📁 COMPACT FOLDER MAPPING
-// We group the exercises by folder to keep the code clean and easy to read.
 const exerciseFolders = {
   chest: [
     "Barbell Bench Press",
@@ -239,8 +237,6 @@ const exerciseFolders = {
   ],
 };
 
-// ⚙️ AUTOMATIC DICTIONARY GENERATOR
-// This loops through the groups above and automatically creates perfect file paths.
 const customImages = {};
 
 for (const [folder, exercises] of Object.entries(exerciseFolders)) {
@@ -258,10 +254,9 @@ export function getExerciseImage(exerciseName) {
     return "https://placehold.co/120x120/1f2937/ffffff?text=Move";
   }
 
-  // 1. Protect words that naturally end in 'ss' (like "Press") from being chopped
   const isPress = exerciseName.toLowerCase().endsWith("ss");
 
-  // 2. Automatically generate all plural and singular versions for typos
+  // Automatically generate all plural and singular versions for typos
   const nameWithoutS =
     !isPress && exerciseName.endsWith("s")
       ? exerciseName.slice(0, -1)
@@ -273,7 +268,6 @@ export function getExerciseImage(exerciseName) {
   const nameWithS = exerciseName + "s";
   const nameWithEs = exerciseName + "es";
 
-  // 3. Array of variants to check against your dictionary
   const possibleMatches = [
     exerciseName,
     nameWithoutS,
@@ -282,7 +276,7 @@ export function getExerciseImage(exerciseName) {
     nameWithEs,
   ];
 
-  // 4. SMART MATCH: Loop through variants. If ANY match the list above, use it!
+  // SMART MATCH: Loop through variants.
   for (const possibleName of possibleMatches) {
     const foundKey = Object.keys(customImages).find(
       (key) => key.toLowerCase() === possibleName.toLowerCase(),
@@ -292,7 +286,7 @@ export function getExerciseImage(exerciseName) {
     }
   }
 
-  // 5. Fallback Generator if the image file doesn't exist yet
+  // Fallback Generator if the image file doesn't exist yet
   const urlSafeText = exerciseName.replace(/\s+/g, "+");
   return `https://placehold.co/120x120/1f2937/ffffff?text=${urlSafeText}&font=Montserrat`;
 }

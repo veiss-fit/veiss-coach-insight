@@ -1,8 +1,3 @@
-/**
- * Project: Veiss Workout Dashboard
- * Author: Binrui Chen
- * Description: Interactive SVG anatomy component and target list
- */
 import { useState } from "react";
 import Body from "react-muscle-highlighter";
 import { secondaryMuscleMap } from "../workoutDatabase";
@@ -72,7 +67,6 @@ export default function AnatomyPanel({
   const handleComponentClick = (part) => {
     if (!part?.slug) return;
 
-    // 🛡️ THE INTERCEPTOR: Block specific slugs from registering clicks
     const forbiddenSlugs = ["head", "neck", "hair"];
     if (forbiddenSlugs.includes(part.slug)) {
       return; // Do nothing if the user clicks these areas
