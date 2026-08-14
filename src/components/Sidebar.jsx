@@ -69,13 +69,22 @@ export default function Sidebar({
   const handleGenerateClickWrapper = () => {
     if (!selectedMuscles || selectedMuscles.length === 0) {
       setWarningMessage("⚠️ Please select at least 1 Muscle Group!");
-      setTimeout(() => setWarningMessage(""), 10000);
+      setTimeout(() => setWarningMessage(""), 5000);
       return;
     }
 
     if (workoutTime <= 0) {
       setWarningMessage("⚠️ Please enter a Workout Time greater than 0!");
-      setTimeout(() => setWarningMessage(""), 10000);
+      setTimeout(() => setWarningMessage(""), 5000);
+      return;
+    }
+
+    // 🛡️ NEW SAFETY NET: Block the API call if time exceeds 180 mins
+    if (workoutTime > 180) {
+      setWarningMessage(
+        "⚠️ Maximum allowed workout time is 3 hours (180 mins).",
+      );
+      setTimeout(() => setWarningMessage(""), 5000);
       return;
     }
 
@@ -92,11 +101,18 @@ export default function Sidebar({
 
   const handleTimeChange = (e) => {
     let val = Number(e.target.value);
+
+    // Prevent negative numbers
     if (val < 0) val = 0;
 
     let minutes = val;
     if (timeUnit === "sec") minutes = val / 60;
     if (timeUnit === "hr") minutes = val * 60;
+
+    // 🛡️ THE CAP: Auto-correct the input down to 180 minutes if they type too much
+    if (minutes > 180) {
+      minutes = 180;
+    }
 
     onTimeChange(minutes);
   };
