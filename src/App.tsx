@@ -21,11 +21,14 @@ import AuthCallback from "./pages/AuthCallback";
 
 const queryClient = new QueryClient();
 
-/** Keyed by pathname so each route change replays the subtle entrance animation. */
+/** Keyed by pathname so each route change replays the subtle entrance animation.
+ *  Login is excluded: its centered card sits alone on an empty background, so the
+ *  6px shift reads as a jump rather than a subtle transition. */
 const AppRoutes = () => {
   const location = useLocation();
+  const isLogin = location.pathname === "/login";
   return (
-    <div className="route-fade" key={location.pathname}>
+    <div className={isLogin ? undefined : "route-fade"} key={location.pathname}>
       <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<Signup />} />
