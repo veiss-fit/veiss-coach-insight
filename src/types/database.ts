@@ -72,7 +72,10 @@ export interface Database {
           id: string;
           full_name: string;
           email: string | null;
-          team_id: string;
+          /** All group ids owned by this coach (groups.coach_id). Kept in sync
+           * automatically by a DB trigger whenever a group's coach_id changes —
+           * never write to this column directly. */
+          team_id: string[];
           created_at: string;
           user_id: string | null;
         };
@@ -80,7 +83,7 @@ export interface Database {
           id?: string;
           full_name: string;
           email?: string | null;
-          team_id: string;
+          team_id?: string[];
           created_at?: string;
           user_id?: string | null;
         };
@@ -88,7 +91,7 @@ export interface Database {
           id?: string;
           full_name?: string;
           email?: string | null;
-          team_id?: string;
+          team_id?: string[];
           created_at?: string;
           user_id?: string | null;
         };

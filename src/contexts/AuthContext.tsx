@@ -12,11 +12,8 @@ interface CoachProfile {
 		id: string
 		full_name: string
 		email: string | null
-		team_id: string
-		groups?: {
-			id: string
-			name: string
-		}
+		/** All group ids owned by this coach, kept in sync by a DB trigger. */
+		team_id: string[]
 	}
 }
 

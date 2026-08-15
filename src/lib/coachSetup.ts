@@ -3,11 +3,13 @@ import { supabase } from '@/lib/supabase'
 /**
  * Idempotent coach account setup.
  *
- * A coach account is four rows/links that must all exist:
+ * A coach account is three rows/links that must all exist:
  *   1. profiles row with role 'coach'
  *   2. coaches row for this auth user
- *   3. at least one group owned by that coach
- *   4. profiles.coach_id pointing at the coaches row
+ *   3. profiles.coach_id pointing at the coaches row
+ *
+ * Deliberately does NOT create a default group — a coach starts with zero
+ * groups and creates their own via "Manage Groups."
  *
  * These were previously written inline in two places — AuthContext.signup (the
  * immediate-session path) and AuthCallback (the email-confirmation path) — which
@@ -79,29 +81,9 @@ export const ensureCoachSetup = async (
       coachId = created.id
     }
 
-    // 3. Default group — only when this coach has none at all, so a coach who has
-    //    since deleted or renamed their groups does not get a surprise new one.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: existingGroups } = await (supabase as any)
-      .from('groups')
-      .select('id')
-      .eq('coach_id', coachId)
-      .limit(1) as { data: Array<{ id: string }> | null }
-
-    if (!existingGroups || existingGroups.length === 0) {
-      // Non-fatal: an account with no default group is usable (the coach can create
-      // one), so a failure here must not block them from reaching the dashboard.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error: groupError } = await (supabase as any)
-        .from('groups')
-        .insert({ name: `${fullName}'s Group`, coach_id: coachId })
-
-      if (groupError) {
-        console.error('[ensureCoachSetup] default group insert failed:', groupError)
-      }
-    }
-
-    // 4. Link profile -> coaches.id (NOT the auth uid; see §2.2).
+    // 3. Link profile -> coaches.id (NOT the auth uid; see §2.2). No default group
+    //    is created here — a coach starts with zero groups and creates their own via
+    //    "Manage Groups," rather than getting an unrequested "<name>'s Group."
     const { error: linkError } = await supabase
       .from('profiles')
       .update({ coach_id: coachId } as never)

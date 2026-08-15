@@ -55,7 +55,9 @@ export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportM
       loadTeams();
       loadPlayers();
     }
-  }, [open, profile?.coach?.team_id]);
+    // team_id is an array now; its length is a stable primitive to key off of
+    // instead of the array reference, which changes on every profile refetch.
+  }, [open, profile?.coach?.team_id?.length]);
 
   const loadTeams = async (silent = false) => {
     if (!user?.id) return;

@@ -83,8 +83,10 @@ export const getUserProfile = async (userId: string) => {
 				)
 
 				try {
+					// team_id is now an array of every group the coach owns (kept in sync by a
+					// DB trigger), so there's no longer a single-row FK to embed here.
 					const coachResult = (await Promise.race([
-						supabase.from('coaches').select('*, groups!coaches_team_id_fkey(*)').eq('id', profile.coach_id).single(),
+						supabase.from('coaches').select('*').eq('id', profile.coach_id).single(),
 						coachTimeoutPromise,
 					])) as any
 
