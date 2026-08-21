@@ -282,27 +282,38 @@ export async function generateSmartWorkoutAI(musclesArray, timeLimit) {
   const prompt = `Task:${timeLimit}min workout for ${primaryLabel}.
 Rules:${targetExerciseCount} unique exercises. Pick ONLY from:[${allowedString}].
 Output JSON ONLY schema:
-{"p":"${primaryLabel}","s":"3-5 secondary muscles","t":${timeLimit},"ex":[{"n":"AllowedName","s":"4","r":"8","v":"1.0"}]}`;
+{"p":"${primaryLabel}","s":"3-5 secondary muscles","t":${timeLimit},"ex":[{"n":"AllowedName","s":"4","r":"8","v":"0.8|1.0|1.2"}]}`;
 
-  // Helper function to expand the optimized JSON back to your app's full format
+  // Helper function to expand the optimized JSON back to app's full format
   const mapShortKeysToFull = (rawWorkout) => {
-    // 🛡️ THE BOUNCER: Sanitize the AI's homework
     const sanitizedExercises = (rawWorkout.ex || []).map((item) => {
       let finalName = item.n;
 
-      // If the AI hallucinated an exercise NOT in database, swap it for a real one
+      // 1. Check for hallucinated exercises
       if (!allowedExercises.includes(finalName)) {
         console.warn(`Blocked AI Hallucination: ${finalName}`);
-        // Pick a random valid exercise from the allowed list as a fallback
         finalName =
           allowedExercises[Math.floor(Math.random() * allowedExercises.length)];
       }
 
+      // 2. 🛡️ STRICT VELOCITY CHECK
+      let finalVelocity = String(item.v);
+      const validVelocities = ["0.8", "0.9", "1.0", "1.1", "1.2"];
+      if (!validVelocities.includes(finalVelocity)) {
+        console.warn(`Blocked Velocity Hallucination: ${finalVelocity}`);
+        finalVelocity = "1.0";
+      }
+
+      // 3. 🛡️ CLEAN REPS TYPOS
+      let finalReps = String(item.r || "10")
+        .replace("secc", "sec")
+        .replace("seconds", "sec");
+
       return {
         name: finalName,
         sets: String(item.s || "3"),
-        reps: String(item.r || "10"),
-        velocity: String(item.v || "1.0"),
+        reps: finalReps,
+        velocity: finalVelocity,
       };
     });
 
