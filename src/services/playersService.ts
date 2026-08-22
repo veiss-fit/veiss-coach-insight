@@ -88,6 +88,29 @@ export const getCoachTeamIds = async (coachUserId: string): Promise<string[]> =>
   return groups?.map((g: { id: string }) => g.id) ?? [];
 };
 
+export interface CoachGroup {
+  id: string;
+  name: string;
+}
+
+/**
+ * All groups owned by a coach (auth user ID), including ones with zero
+ * players assigned — unlike deriving groups from the player list, which
+ * silently drops any group nobody has been assigned to yet.
+ */
+export const getCoachGroups = async (coachUserId: string): Promise<CoachGroup[]> => {
+  const coachId = await getCoachId(coachUserId);
+  if (!coachId) return [];
+
+  const { data } = await (supabase as any)
+    .from('groups')
+    .select('id, name')
+    .eq('coach_id', coachId)
+    .order('name') as { data: CoachGroup[] | null };
+
+  return data ?? [];
+};
+
 /**
  * Fetch players scoped to a coach's groups, with computed stats.
  * Pass the auth user ID — internally resolves team IDs first.

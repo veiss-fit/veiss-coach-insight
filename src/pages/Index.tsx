@@ -13,7 +13,7 @@ import { AthleteCard, NextPlanInfo } from "@/components/pulse/AthleteCard";
 import { PulseAthleteTable } from "@/components/pulse/AthleteTable";
 import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { useAuth } from "@/contexts/AuthContext";
-import { getPlayersWithStatsByCoach, getCoachTeamIds, PlayerWithStats } from "@/services/playersService";
+import { getPlayersWithStatsByCoach, getCoachTeamIds, getCoachGroups, CoachGroup, PlayerWithStats } from "@/services/playersService";
 import { getCoachDashboardStats, DashboardStats } from "@/services/statsService";
 import { getRosterMetrics, RosterMetricsResult } from "@/services/rosterMetricsService";
 import { getUpcomingWorkoutPlans } from "@/services/workoutPlansService";
@@ -70,6 +70,7 @@ const Index = () => {
   );
 
   const [athletes, setAthletes] = useState<PlayerWithStats[]>([]);
+  const [coachGroups, setCoachGroups] = useState<CoachGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<DashboardStats>(EMPTY_STATS);
   const [roster, setRoster] = useState<RosterMetricsResult | null>(null);
@@ -96,12 +97,14 @@ const Index = () => {
       setLoading(true);
       const coachUserId = user?.id ?? "";
       const teamIds = coachUserId ? await getCoachTeamIds(coachUserId) : [];
-      const [players, dashboardStats] = await Promise.all([
+      const [players, dashboardStats, groups] = await Promise.all([
         getPlayersWithStatsByCoach(coachUserId),
         getCoachDashboardStats(teamIds),
+        coachUserId ? getCoachGroups(coachUserId) : Promise.resolve([]),
       ]);
       setAthletes(players);
       setStats(dashboardStats);
+      setCoachGroups(groups);
 
       // Batched roster series + upcoming plans (fixed query count, not per-player).
       // Non-fatal: the core roster is already rendered if these fail.
@@ -164,6 +167,11 @@ const Index = () => {
   // ── Derived: groups, filters, sort ─────────────────────────────────────────
   const groups = useMemo<FilterGroup[]>(() => {
     const map = new Map<string, FilterGroup>();
+    // Seed every group the coach owns at size 0 first, so ones with no players
+    // assigned yet still show up in the filter bar instead of being invisible.
+    for (const g of coachGroups) {
+      map.set(g.id, { id: g.id, name: g.name || "Unnamed group", size: 0 });
+    }
     for (const a of athletes) {
       if (!a.team_id) continue;
       const existing = map.get(a.team_id);
@@ -174,7 +182,7 @@ const Index = () => {
     const unassigned = athletes.filter((a) => !a.team_id).length;
     if (unassigned > 0) list.push({ id: "unassigned", name: "Unassigned", size: unassigned });
     return list;
-  }, [athletes]);
+  }, [athletes, coachGroups]);
 
   const activeFilterCount =
     (filters.flaggedOnly ? 1 : 0) + filters.engagement.length + filters.load.length;

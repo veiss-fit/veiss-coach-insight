@@ -35,7 +35,7 @@ const Login = () => {
     const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname;
     if (from && from !== '/login') {
       toast.info('Please sign in to continue', {
-        description: `You'll be taken to ${from} afterwards.`,
+        description: `You'll be taken to the dashboard afterwards.`,
       });
     }
     // Intentionally runs once on mount: this reports how the user arrived here.
