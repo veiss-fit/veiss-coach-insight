@@ -2,9 +2,10 @@ import { useState, useMemo, useEffect, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { format } from "date-fns";
-import { Send, Plus, Megaphone, Filter, Check, ChevronDown } from "lucide-react";
+import { Send, Plus, Megaphone, Check, ChevronDown, Users } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { TopNav } from "@/components/TopNav";
+import { TeamSportManager } from "@/components/TeamSportManager";
 import { PageHeader } from "@/components/pulse/PageHeader";
 import { KpiTile } from "@/components/pulse/KpiTile";
 import { Donut } from "@/components/pulse/Donut";
@@ -32,14 +33,6 @@ const EMPTY_STATS: DashboardStats = {
 
 type SortMode = "name" | "velocity";
 const SORT_LABELS: Record<SortMode, string> = { name: "Name (A-Z)", velocity: "Velocity" };
-
-interface RosterFilters {
-  flaggedOnly: boolean;
-  engagement: string[];
-  load: string[];
-}
-
-const EMPTY_FILTERS: RosterFilters = { flaggedOnly: false, engagement: [], load: [] };
 
 /** Checkbox-style row for the filter/columns dropdowns. */
 function CheckRow({ label, on, onClick }: { label: string; on: boolean; onClick: () => void }) {
@@ -79,9 +72,9 @@ const Index = () => {
   const [groupFilter, setGroupFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [sortMode, setSortMode] = useState<SortMode>("name");
-  const [filters, setFilters] = useState<RosterFilters>(EMPTY_FILTERS);
   const [showAllFocus, setShowAllFocus] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [groupManagerOpen, setGroupManagerOpen] = useState(false);
 
   const loadData = useCallback(async () => {
     if (!profile) {
@@ -184,15 +177,6 @@ const Index = () => {
     return list;
   }, [athletes, coachGroups]);
 
-  const activeFilterCount =
-    (filters.flaggedOnly ? 1 : 0) + filters.engagement.length + filters.load.length;
-
-  const toggleFilter = (key: "engagement" | "load", val: string) =>
-    setFilters((f) => ({
-      ...f,
-      [key]: f[key].includes(val) ? f[key].filter((x) => x !== val) : [...f[key], val],
-    }));
-
   const filteredAthletes = useMemo(() => {
     const list = athletes.filter((a) => {
       if (groupFilter === "unassigned") {
@@ -201,9 +185,6 @@ const Index = () => {
         return false;
       }
       if (search && !a.name.toLowerCase().includes(search.toLowerCase())) return false;
-      if (filters.flaggedOnly && !isFlagged(a, metricsByPlayer.get(a.id))) return false;
-      if (filters.engagement.length && !filters.engagement.includes(a.engagement)) return false;
-      if (filters.load.length && !filters.load.includes(a.loadRec)) return false;
       return true;
     });
     return [...list].sort((a, b) => {
@@ -214,7 +195,7 @@ const Index = () => {
       }
       return a.name.localeCompare(b.name);
     });
-  }, [athletes, groupFilter, search, filters, sortMode, metricsByPlayer]);
+  }, [athletes, groupFilter, search, sortMode, metricsByPlayer]);
 
   const focusAthletes = useMemo(
     () =>
@@ -254,7 +235,6 @@ const Index = () => {
 
       <main style={{ padding: "20px 28px 28px", maxWidth: 1480, margin: "0 auto", width: "100%", flex: 1 }}>
         <PageHeader
-          eyebrow="Coach dashboard"
           title="Team Pulse"
           subtitle={`${athletes.length} athlete${athletes.length !== 1 ? "s" : ""} · ${groups.filter((g) => g.id !== "unassigned").length} group${groups.filter((g) => g.id !== "unassigned").length !== 1 ? "s" : ""} · week of ${format(new Date(), "MMM d")}`}
           actions={
@@ -277,6 +257,7 @@ const Index = () => {
             footnote="plan completion, wk over wk"
             sparkData={team && team.attSeries.length > 1 ? team.attSeries : undefined}
             sparkTarget={85}
+            sparkAxisLabels={["8 wks ago", "this wk"]}
             accent="var(--brand)"
           />
           <KpiTile
@@ -286,6 +267,7 @@ const Index = () => {
             delta={teamVelNow != null && teamVelPrev != null ? +(teamVelNow - teamVelPrev).toFixed(2) : null}
             footnote="roster average · weekly"
             sparkData={team && team.velSeries.length > 1 ? team.velSeries : undefined}
+            sparkAxisLabels={["8 wks ago", "this wk"]}
             accent="var(--brand)"
           />
           <KpiTile
@@ -294,6 +276,7 @@ const Index = () => {
             delta={team ? team.sessionsThisWeek - team.sessionsLastWeek : null}
             footnote="vs last week"
             sparkData={team ? team.sessionsByDay : undefined}
+            sparkAxisLabels={["Mon", "Sun"]}
             accent="var(--brand)"
           />
 
@@ -339,34 +322,6 @@ const Index = () => {
           onChange={setGroupFilter}
           search={search}
           onSearch={setSearch}
-          right={
-            <Popover>
-              <PopoverTrigger asChild>
-                <button className="v-btn ghost">
-                  <Filter size={12} strokeWidth={1.5} />
-                  Filters
-                  {activeFilterCount > 0 && (
-                    <span className="v-chip" data-tone="brand" style={{ height: 16, padding: "0 5px", marginLeft: 2 }}>{activeFilterCount}</span>
-                  )}
-                </button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="v-pop" style={{ width: 236, padding: 5 }}>
-                <div className="row" style={{ justifyContent: "space-between", padding: "4px 8px 6px" }}>
-                  <span className="v-label">Filters</span>
-                  <button className="v-btn ghost" style={{ height: 22, fontSize: 11 }} onClick={() => setFilters(EMPTY_FILTERS)}>Clear</button>
-                </div>
-                <CheckRow label="Flagged only" on={filters.flaggedOnly} onClick={() => setFilters((f) => ({ ...f, flaggedOnly: !f.flaggedOnly }))} />
-                <div className="v-label" style={{ padding: "8px 8px 2px", fontSize: 9.5 }}>Engagement</div>
-                {["High", "Moderate", "Low"].map((e) => (
-                  <CheckRow key={e} label={e} on={filters.engagement.includes(e)} onClick={() => toggleFilter("engagement", e)} />
-                ))}
-                <div className="v-label" style={{ padding: "8px 8px 2px", fontSize: 9.5 }}>Load recommendation</div>
-                {([["Increase", "Increase"], ["Maintain", "Maintain"], ["Decrease", "Reduce"]] as const).map(([v, l]) => (
-                  <CheckRow key={v} label={l} on={filters.load.includes(v)} onClick={() => toggleFilter("load", v)} />
-                ))}
-              </PopoverContent>
-            </Popover>
-          }
         />
 
         {/* Focus cards */}
@@ -408,6 +363,10 @@ const Index = () => {
               <div className="v-meta" style={{ marginTop: 2 }}>Click any row to open the athlete detail.</div>
             </div>
             <div className="row" style={{ gap: 6 }}>
+              <button className="v-btn ghost" style={{ fontSize: 12 }} onClick={() => setGroupManagerOpen(true)}>
+                <Users size={12} strokeWidth={1.5} />
+                Manage groups
+              </button>
               <Popover>
                 <PopoverTrigger asChild>
                   <button className="v-btn ghost" style={{ fontSize: 12 }}>
@@ -449,6 +408,12 @@ const Index = () => {
       <footer style={{ padding: "16px 28px", textAlign: "center" }} className="v-meta">
         © {new Date().getFullYear()} Veiss. All rights reserved.
       </footer>
+
+      <TeamSportManager
+        open={groupManagerOpen}
+        onClose={() => setGroupManagerOpen(false)}
+        onPlayersChanged={loadData}
+      />
     </div>
   );
 };

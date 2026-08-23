@@ -316,7 +316,15 @@ export function computeAnomalyIndicators(sessions: SessionData[]): DeviationIndi
     buildIndicator(
       "Avg Velocity", "velocity", sessionAvgVelocity, sorted,
       "m/s", (v) => `${v.toFixed(2)} m/s`,
-      { warning: "Cross-exercise avg — reliable only if exercise selection is consistent across sessions" },
+      {
+        warning: "Cross-exercise avg — reliable only if exercise selection is consistent across sessions",
+        tooltip: {
+          what: "Average concentric velocity across every valid rep in the session.",
+          how: "Mean of average_rep_speed for all reps with a valid exercise name and velocity > 0.",
+          highlights: "A rising trend at the same prescribed load usually means the athlete is getting stronger/fresher. A falling trend can flag fatigue, poor recovery, or a load that's become too heavy for the velocity target.",
+          minimum: "≥1 rep with recorded velocity.",
+        },
+      },
     ),
     buildIndicator(
       "ROM Consistency", "romConsistency", sessionRomConsistency, sorted,

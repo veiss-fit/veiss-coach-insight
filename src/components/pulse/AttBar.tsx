@@ -8,7 +8,7 @@ export function AttBar({ pct, width = 60, accent }: AttBarProps) {
   const tone = pct >= 85 ? "var(--good)" : pct >= 70 ? "var(--warn)" : "var(--bad)";
   return (
     <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-      <span className="mono" style={{ fontSize: 12, color: "var(--ink-0)", minWidth: 28, textAlign: "right" }}>
+      <span className="mono" style={{ fontSize: 12.5, color: "var(--ink-0)", minWidth: 28, textAlign: "right" }}>
         {pct}%
       </span>
       <div style={{ width, height: 4, background: "var(--surface-sunk)", borderRadius: 999, overflow: "hidden" }}>

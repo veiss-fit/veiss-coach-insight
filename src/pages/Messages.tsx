@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { TopNav } from "@/components/TopNav";
 import { PageHeader } from "@/components/pulse/PageHeader";
 import { LoadError } from "@/components/pulse/LoadError";
+import { AthletePicker } from "@/components/pulse/AthletePicker";
 import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -38,9 +39,7 @@ export default function Messages() {
 
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
-  const [priority, setPriority] = useState<"normal" | "urgent">("normal");
-  const [recipientMode, setRecipientMode] = useState<"groups" | "individuals">("groups");
-  const [groups, setGroups] = useState<string[]>(["all"]);
+  const [sendLater, setSendLater] = useState(false);
   const [selectedAthleteIds, setSelectedAthleteIds] = useState<string[]>([]);
   const [athleteGroupFilter, setAthleteGroupFilter] = useState("all");
   const [scheduledDate, setScheduledDate] = useState<Date>();
@@ -92,44 +91,14 @@ export default function Messages() {
     loadData();
   }, [loadData]);
 
-  const groupSizes = useMemo(() => {
-    const sizes = new Map<string, number>();
-    athletes.forEach((a) => {
-      if (a.team_id) sizes.set(a.team_id, (sizes.get(a.team_id) || 0) + 1);
-    });
-    return sizes;
-  }, [athletes]);
-
-  const recipientIds = useMemo(() => {
-    if (recipientMode === "individuals") return selectedAthleteIds;
-    if (groups.includes("all")) return athletes.map((a) => a.id);
-    return athletes.filter((a) => a.team_id && groups.includes(a.team_id)).map((a) => a.id);
-  }, [recipientMode, selectedAthleteIds, groups, athletes]);
-
-  const toggleGroup = (id: string) => {
-    if (id === "all") return setGroups(["all"]);
-    setGroups((prev) => {
-      const base = prev.filter((g) => g !== "all");
-      const next = base.includes(id) ? base.filter((g) => g !== id) : [...base, id];
-      return next.length ? next : ["all"];
-    });
-  };
-
   const toggleAthlete = (id: string) => {
     setSelectedAthleteIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
 
-  const filteredAthletesForPicker = useMemo(
-    () => athletes.filter((a) => athleteGroupFilter === "all" || a.team_id === athleteGroupFilter),
-    [athletes, athleteGroupFilter]
-  );
-
   const resetForm = () => {
     setTitle("");
     setBody("");
-    setPriority("normal");
-    setRecipientMode("groups");
-    setGroups(["all"]);
+    setSendLater(false);
     setSelectedAthleteIds([]);
     setAthleteGroupFilter("all");
     setScheduledDate(undefined);
@@ -140,8 +109,8 @@ export default function Messages() {
     if (titleError) return toast.error(titleError);
     const messageError = Validators.announcementMessage(body);
     if (messageError) return toast.error(messageError);
-    if (recipientIds.length === 0) {
-      return toast.error(recipientMode === "individuals" ? "Select at least one athlete" : "No athletes in the selected groups");
+    if (selectedAthleteIds.length === 0) {
+      return toast.error("Select at least one athlete");
     }
     if (!user?.id) return toast.error("User not authenticated");
 
@@ -149,11 +118,11 @@ export default function Messages() {
     try {
       const result = await sendMessage(
         user.id,
-        recipientIds,
+        selectedAthleteIds,
         title.trim(),
         body.trim(),
         "announcement",
-        priority,
+        "normal",
         scheduledDate
       );
       if (result.success) {
@@ -209,7 +178,6 @@ export default function Messages() {
         <LoadingOverlay isLoading={sending} fullScreen message="Sending announcement..." />
 
         <PageHeader
-          eyebrow="Coach"
           title="Messages"
           subtitle="Send announcements to athletes and keep a record of what went out."
         />
@@ -262,180 +230,71 @@ export default function Messages() {
             </div>
 
             <div>
-              <div className="v-label" style={{ marginBottom: 8 }}>Priority</div>
+              <div className="v-label" style={{ marginBottom: 8 }}>When</div>
               <div className="row" style={{ gap: 8 }}>
-                {([["normal", "Normal"], ["urgent", "Urgent"]] as const).map(([id, label]) => (
+                {([[false, "Send Now"], [true, "Send Later"]] as const).map(([later, label]) => (
                   <button
-                    key={id}
-                    onClick={() => setPriority(id)}
+                    key={label}
+                    onClick={() => {
+                      setSendLater(later);
+                      if (!later) setScheduledDate(undefined);
+                    }}
                     className="v-btn"
                     style={{
                       height: 32,
                       fontSize: 12.5,
                       flex: 1,
                       justifyContent: "center",
-                      background: priority === id ? (id === "urgent" ? "var(--bad-soft)" : "var(--ink-0)") : "var(--surface-1)",
-                      color: priority === id ? (id === "urgent" ? "var(--bad)" : "#fff") : "var(--ink-1)",
-                      borderColor: priority === id ? (id === "urgent" ? "var(--bad)" : "var(--ink-0)") : "var(--line-1)",
+                      background: sendLater === later ? "var(--ink-0)" : "var(--surface-1)",
+                      color: sendLater === later ? "#fff" : "var(--ink-1)",
+                      borderColor: sendLater === later ? "var(--ink-0)" : "var(--line-1)",
                     }}
                   >
-                    {priority === id && <Check size={12} strokeWidth={1.5} />}
+                    {sendLater === later && <Check size={12} strokeWidth={1.5} />}
                     {label}
                   </button>
                 ))}
               </div>
-              {priority === "urgent" && (
-                <div style={{ marginTop: 10, padding: "9px 12px", background: "var(--bad-soft)", border: "1px solid var(--bad)", borderRadius: 7, fontSize: 11.5, color: "var(--bad)" }}>
-                  Urgent announcements are highlighted in the athlete app and trigger a push notification.
-                </div>
-              )}
-            </div>
-
-            <div>
-              <div className="row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
-                <div className="v-label">
-                  Recipients · {recipientIds.length} athlete{recipientIds.length !== 1 ? "s" : ""}
-                </div>
-                <div className="row" style={{ gap: 4, background: "var(--surface-sunk)", padding: 3, borderRadius: 8 }}>
-                  {([["groups", "Groups"], ["individuals", "Individuals"]] as const).map(([id, label]) => (
-                    <button
-                      key={id}
-                      onClick={() => setRecipientMode(id)}
-                      className="v-btn"
-                      style={{
-                        height: 24,
-                        fontSize: 11,
-                        border: "none",
-                        background: recipientMode === id ? "var(--surface-1)" : "transparent",
-                        color: recipientMode === id ? "var(--ink-0)" : "var(--ink-2)",
-                        boxShadow: recipientMode === id ? "0 1px 2px rgba(7,16,31,0.08)" : "none",
-                      }}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {recipientMode === "groups" ? (
-                <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
-                  {[{ id: "all", name: "All groups" } as GroupRow, ...groupsList].map((g) => {
-                    const on = groups.includes(g.id);
-                    const size = g.id !== "all" ? groupSizes.get(g.id) ?? 0 : null;
-                    return (
-                      <button
-                        key={g.id}
-                        onClick={() => toggleGroup(g.id)}
-                        className="v-btn"
-                        style={{
-                          height: 30,
-                          fontSize: 12,
-                          gap: 5,
-                          background: on ? "var(--ink-0)" : "var(--surface-1)",
-                          color: on ? "#fff" : "var(--ink-1)",
-                          borderColor: on ? "var(--ink-0)" : "var(--line-1)",
-                        }}
-                      >
-                        {g.id !== "all" && <span style={{ width: 6, height: 6, borderRadius: 999, background: "var(--ink-3)" }} />}
-                        {g.name}
-                        {size != null && <span className="mono" style={{ opacity: 0.6, fontSize: 10.5, marginLeft: 2 }}>{size}</span>}
+              {sendLater && (
+                <div className="row" style={{ gap: 8, marginTop: 8 }}>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button className="v-btn" style={{ height: 32 }}>
+                        <CalendarIcon size={12} strokeWidth={1.5} />
+                        {scheduledDate ? format(scheduledDate, "PPP") : "Choose a date"}
                       </button>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="v-card flush" style={{ overflow: "hidden" }}>
-                  <div className="row" style={{ padding: 10, gap: 8, flexWrap: "wrap", borderBottom: "1px solid var(--line-0)", background: "var(--surface-2)" }}>
-                    <select
-                      className="v-input"
-                      value={athleteGroupFilter}
-                      onChange={(e) => setAthleteGroupFilter(e.target.value)}
-                      style={{ height: 30, minWidth: 130, fontSize: 12 }}
-                    >
-                      <option value="all">All groups</option>
-                      {groupsList.map((g) => (
-                        <option key={g.id} value={g.id}>{g.name}</option>
-                      ))}
-                    </select>
-                    <button
-                      className="v-btn"
-                      style={{ height: 30, fontSize: 11.5 }}
-                      onClick={() => setSelectedAthleteIds(filteredAthletesForPicker.map((a) => a.id))}
-                    >
-                      Select all ({filteredAthletesForPicker.length})
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={scheduledDate}
+                        onSelect={setScheduledDate}
+                        disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
+                        initialFocus
+                        className="p-3 pointer-events-auto"
+                      />
+                    </PopoverContent>
+                  </Popover>
+                  {scheduledDate && (
+                    <button className="v-btn ghost" style={{ height: 32, width: 32, padding: 0, justifyContent: "center" }} onClick={() => setScheduledDate(undefined)} title="Clear date">
+                      <X size={12} strokeWidth={1.5} />
                     </button>
-                    <button className="v-btn ghost" style={{ height: 30, fontSize: 11.5 }} onClick={() => setSelectedAthleteIds([])}>
-                      Clear
-                    </button>
-                  </div>
-                  <div className="v-scroll" style={{ maxHeight: 220, overflow: "auto" }}>
-                    {filteredAthletesForPicker.length === 0 ? (
-                      <div style={{ textAlign: "center", padding: "24px 0", color: "var(--ink-3)", fontSize: 12.5 }}>No athletes found</div>
-                    ) : (
-                      filteredAthletesForPicker.map((a) => {
-                        const on = selectedAthleteIds.includes(a.id);
-                        return (
-                          <label
-                            key={a.id}
-                            className="row"
-                            style={{
-                              gap: 10,
-                              padding: "8px 12px",
-                              borderBottom: "1px solid var(--line-0)",
-                              cursor: "pointer",
-                              background: on ? "var(--brand-soft)" : "transparent",
-                            }}
-                          >
-                            <span
-                              style={{
-                                width: 16, height: 16, borderRadius: 5, flexShrink: 0,
-                                display: "flex", alignItems: "center", justifyContent: "center",
-                                border: "1.5px solid " + (on ? "var(--brand)" : "var(--line-2)"),
-                                background: on ? "var(--brand)" : "var(--surface-1)",
-                                color: "var(--brand-ink)",
-                              }}
-                            >
-                              {on && <Check size={11} strokeWidth={2} />}
-                            </span>
-                            <input type="checkbox" checked={on} onChange={() => toggleAthlete(a.id)} style={{ display: "none" }} />
-                            <span className="grow ellipsis" style={{ fontSize: 12.5, color: "var(--ink-0)" }}>{a.name}</span>
-                            <span className="v-meta mono" style={{ fontSize: 10.5, color: "var(--ink-3)", flexShrink: 0 }}>{a.group || "—"}</span>
-                          </label>
-                        );
-                      })
-                    )}
-                  </div>
+                  )}
                 </div>
               )}
             </div>
 
             <div>
-              <div className="v-label" style={{ marginBottom: 8 }}>Schedule (optional)</div>
-              <div className="row" style={{ gap: 8 }}>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <button className="v-btn" style={{ height: 32 }}>
-                      <CalendarIcon size={12} strokeWidth={1.5} />
-                      {scheduledDate ? format(scheduledDate, "PPP") : "Send immediately"}
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="single"
-                      selected={scheduledDate}
-                      onSelect={setScheduledDate}
-                      disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
-                      initialFocus
-                      className="p-3 pointer-events-auto"
-                    />
-                  </PopoverContent>
-                </Popover>
-                {scheduledDate && (
-                  <button className="v-btn ghost" style={{ height: 32, width: 32, padding: 0, justifyContent: "center" }} onClick={() => setScheduledDate(undefined)} title="Clear schedule">
-                    <X size={12} strokeWidth={1.5} />
-                  </button>
-                )}
-              </div>
+              <AthletePicker
+                athletes={athletes}
+                groupsList={groupsList}
+                selected={selectedAthleteIds}
+                onToggle={toggleAthlete}
+                onBulk={setSelectedAthleteIds}
+                filterGroup={athleteGroupFilter}
+                setFilterGroup={setAthleteGroupFilter}
+                loading={loading}
+              />
             </div>
 
             <div className="row" style={{ justifyContent: "flex-end", gap: 8, borderTop: "1px solid var(--line-0)", paddingTop: 16 }}>
@@ -454,7 +313,7 @@ export default function Messages() {
                 <div className="v-h2">Recent announcements</div>
                 <div className="v-meta" style={{ marginTop: 2 }}>
                   Last {sent.length} sent ·{" "}
-                  <Link to="/history" style={{ color: "var(--ink-2)", textDecoration: "underline" }}>full history</Link>
+                  <Link to="/send-programming?tab=history" style={{ color: "var(--ink-2)", textDecoration: "underline" }}>full history</Link>
                 </div>
               </div>
             </div>
@@ -465,13 +324,12 @@ export default function Messages() {
                 </div>
               ) : (
                 sent.map((msg) => {
-                  const urgent = msg.priority === "urgent";
                   const pendingScheduled = msg.isDelivered === false && msg.scheduledAt;
                   return (
                     <div key={msg.id} className="v-card padded" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                       <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
                         <div className="row" style={{ gap: 10, minWidth: 0 }}>
-                          <span className="v-avatar" style={{ background: urgent ? "var(--bad-soft)" : "var(--navy-tint)", color: urgent ? "var(--bad)" : "var(--navy)" }}>
+                          <span className="v-avatar">
                             <Megaphone size={13} strokeWidth={1.5} />
                           </span>
                           <div style={{ minWidth: 0 }}>
@@ -485,7 +343,6 @@ export default function Messages() {
                         </div>
                         <div className="row" style={{ gap: 6, flexShrink: 0 }}>
                           {pendingScheduled && <span className="v-chip" data-tone="info">Scheduled</span>}
-                          {urgent && <span className="v-chip" data-tone="bad">Urgent</span>}
                         </div>
                       </div>
                       <div style={{ fontSize: 12.5, color: "var(--ink-2)", lineHeight: 1.5, paddingLeft: 38 }}>{msg.content}</div>

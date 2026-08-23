@@ -11,6 +11,8 @@ interface KpiTileProps {
   footnote?: string;
   sparkData?: number[];
   sparkTarget?: number;
+  /** Labels for the start/end of the sparkline's time span, e.g. ["8 wks ago", "this wk"]. */
+  sparkAxisLabels?: [string, string];
   accent?: string;
 }
 
@@ -24,6 +26,7 @@ export function KpiTile({
   footnote,
   sparkData,
   sparkTarget,
+  sparkAxisLabels,
   accent,
 }: KpiTileProps) {
   return (
@@ -42,6 +45,12 @@ export function KpiTile({
       {sparkData && (
         <div style={{ marginTop: 4 }}>
           <Sparkline data={sparkData} target={sparkTarget} stroke={accent || "var(--ink-0)"} fill="transparent" />
+          {sparkAxisLabels && (
+            <div className="row" style={{ justifyContent: "space-between", marginTop: 2 }}>
+              <span className="v-mute2" style={{ fontSize: 9.5 }}>{sparkAxisLabels[0]}</span>
+              <span className="v-mute2" style={{ fontSize: 9.5 }}>{sparkAxisLabels[1]}</span>
+            </div>
+          )}
         </div>
       )}
     </div>

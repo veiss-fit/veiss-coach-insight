@@ -268,11 +268,10 @@ const Profile = () => {
       <div style={{ padding: "20px 28px 40px", maxWidth: 1060, margin: "0 auto", width: "100%" }} className="space-y-6">
         <div className="flex items-end justify-between" style={{ paddingBottom: 4 }}>
           <div>
-            <div className="v-label" style={{ marginBottom: 4 }}>Coach</div>
             <h1 className="v-h1">Profile</h1>
             <p className="v-meta" style={{ marginTop: 4, fontSize: 13 }}>Manage your account information.</p>
           </div>
-          <button className="v-btn" onClick={() => navigate("/")}>
+          <button className="v-btn" style={{ height: 36, fontSize: 13, padding: "0 16px" }} onClick={() => navigate("/")}>
             Back to dashboard
           </button>
         </div>

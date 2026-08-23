@@ -188,7 +188,15 @@ function SessionsTab({ sessions }: { sessions: SessionData[] }) {
 // ─── Readiness tab ────────────────────────────────────────────────────────────
 
 function ReadinessTab({ athlete, sessions, indicators }: { athlete: PlayerWithStats; sessions: SessionData[]; indicators: DeviationIndicator[] }) {
-  const drops = sessions
+  // getPlayerSessions orders newest-first, so picking "the last drop-off value"
+  // without re-sorting grabbed the OLDEST session's number, not the most recent
+  // one — this is almost certainly what produced a visibly-wrong readiness score
+  // during the walkthrough (D44). Sort chronologically first, same convention
+  // athleteSummaryUtils.ts uses everywhere else, so "last" really means latest.
+  const chronological = [...sessions].sort(
+    (a, b) => new Date(a.startedAt ?? a.createdAt).getTime() - new Date(b.startedAt ?? b.createdAt).getTime()
+  );
+  const drops = chronological
     .map((s) => sessionVelocityDropoff(s))
     .filter((v): v is number => v != null);
   const drop = drops.length ? Math.round(drops[drops.length - 1]) : 0;
@@ -531,7 +539,7 @@ export default function AthleteDashboard() {
   const [groupMetrics, setGroupMetrics] = useState<RosterMetricsResult | null>(null);
   const [notes, setNotes] = useState<CoachNote[]>([]);
   const [coachDbId, setCoachDbId] = useState<string | null>(null);
-  const [tab, setTab] = useState("performance");
+  const [tab, setTab] = useState("readiness");
 
   const loadData = useCallback(async () => {
     if (!user?.id || !id) return;
@@ -728,7 +736,7 @@ export default function AthleteDashboard() {
         <main style={{ padding: "48px 28px", maxWidth: 720, margin: "0 auto", width: "100%", textAlign: "center" }}>
           <div className="v-h2">Athlete not found</div>
           <p className="v-meta" style={{ marginTop: 8 }}>This athlete doesn't exist or isn't in your roster.</p>
-          <Link to="/" className="v-btn" style={{ marginTop: 16, display: "inline-flex" }}>← Back to dashboard</Link>
+          <Link to="/" className="v-btn" style={{ marginTop: 16, display: "inline-flex", height: 36, fontSize: 13, padding: "0 16px" }}>← Back to dashboard</Link>
         </main>
       </div>
     );
@@ -822,9 +830,9 @@ export default function AthleteDashboard() {
             <div style={{ minWidth: 0 }}>
               <UnderlineTabs
                 tabs={[
+                  { id: "readiness", label: "Readiness" },
                   { id: "performance", label: "Performance" },
                   { id: "sessions", label: "Sessions", count: sessions.length },
-                  { id: "readiness", label: "Readiness" },
                   { id: "programming", label: "Programming", count: plans.length },
                 ]}
                 active={tab}

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { format } from 'date-fns'
+import { format, startOfDay } from 'date-fns'
 import { Plus, Trash2, Send, X, Check, Copy, Dumbbell, Pencil } from 'lucide-react'
 import { toast } from 'sonner'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
@@ -16,6 +16,8 @@ import { PageHeader } from '@/components/pulse/PageHeader'
 import { LoadError } from '@/components/pulse/LoadError'
 import { Avatar } from '@/components/pulse/Avatar'
 import { LoadRecChip } from '@/components/pulse/chips'
+import { AthletePicker } from '@/components/pulse/AthletePicker'
+import { HistoryPanel } from '@/components/pulse/HistoryPanel'
 import { DragCalendar } from '@/components/pulse/DragCalendar'
 import { VelocityZoneSlider } from '@/components/pulse/VelocityZoneSlider'
 import { supabase } from '@/lib/supabase'
@@ -23,14 +25,32 @@ import { supabase } from '@/lib/supabase'
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const EXERCISE_LIBRARY = [
-  'Back Squat', 'Front Squat', 'Romanian Deadlift', 'Trap Bar Deadlift',
-  'Bench Press', 'Incline Bench Press', 'Overhead Press', 'Push Press',
-  'Power Clean', 'Hang Clean', 'Box Jump', 'Broad Jump',
-  'Bulgarian Split Squat', 'Single Leg RDL', 'Pull-ups', 'Barbell Row',
-  'Nordic Curl', 'Hip Thrust', 'Med Ball Throw', 'Sled Push',
+  // Squat pattern
+  'Back Squat', 'Front Squat', 'Box Squat', 'Safety Bar Squat', 'Overhead Squat',
+  'Zercher Squat', 'Split Squat', 'Bulgarian Split Squat', 'Goblet Squat', 'Hack Squat',
+  // Hinge pattern
+  'Deadlift', 'Romanian Deadlift', 'Trap Bar Deadlift', 'Sumo Deadlift', 'Stiff-Leg Deadlift',
+  'Single Leg RDL', 'Good Morning', 'Hip Thrust', 'Rack Pull',
+  // Upper body press
+  'Bench Press', 'Incline Bench Press', 'Decline Bench Press', 'Close-Grip Bench Press',
+  'Floor Press', 'Overhead Press', 'Push Press', 'Split Jerk',
+  // Upper body pull
+  'Barbell Row', 'Pendlay Row', 'T-Bar Row', 'Pull-ups', 'Chin-ups', 'Face Pull',
+  // Olympic lifts
+  'Power Clean', 'Hang Clean', 'Squat Clean', 'Clean Pull', 'Power Snatch',
+  'Hang Snatch', 'Squat Snatch', 'Snatch Pull', 'Clean and Jerk',
+  // Plyo / speed
+  'Box Jump', 'Broad Jump', 'Depth Jump', 'Med Ball Throw', 'Med Ball Slam',
+  'Sled Push', 'Sled Pull',
+  // Accessory / single-leg
+  'Walking Lunge', 'Reverse Lunge', 'Step-Up', 'Nordic Curl', 'Glute Ham Raise',
+  'Calf Raise', "Farmer's Carry",
 ]
 
 const toKey = (d: Date) => format(d, 'yyyy-MM-dd')
+
+/** Default program name so the field is never blank — the coach can still overwrite it. */
+const defaultWorkoutName = () => `Program — ${format(new Date(), 'MMM d')}`
 
 interface BuilderExercise {
   name: string
@@ -47,7 +67,7 @@ const fromTemplateExercise = (ex: TemplateExercise): BuilderExercise => ({
   reps: ex.reps ?? 5,
   weight: 0,
   weightUnit: 'lbs',
-  targetVelocity: ex.targetVelocity ?? null,
+  targetVelocity: ex.targetVelocity ?? 0.75,
 })
 
 // ─── Exercise editor card (builder) ──────────────────────────────────────────
@@ -59,8 +79,58 @@ interface ExerciseCardProps {
   onRemove: (idx: number) => void
 }
 
+const EXERCISE_LIBRARY_LOWER = new Set(EXERCISE_LIBRARY.map(e => e.toLowerCase()))
+
+/**
+ * Exercise-name field with a filtered, capped suggestion dropdown instead of a
+ * native <datalist> — with ~57 library entries, the browser's own datalist UI
+ * just dumps the entire list as one long unstyled scrollbox. Custom names are
+ * still freely allowed; unrecognized ones get a warning (1RM tracking is keyed
+ * by exact name, so inconsistent spelling splits it across "two" exercises).
+ */
+function ExerciseNameInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const trimmed = value.trim()
+  const suggestions = trimmed.length > 0
+    ? EXERCISE_LIBRARY.filter(e => e.toLowerCase().includes(trimmed.toLowerCase())).slice(0, 6)
+    : []
+  const unrecognized = trimmed.length > 0 && !EXERCISE_LIBRARY_LOWER.has(trimmed.toLowerCase())
+
+  return (
+    <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+      <input
+        className="v-input"
+        placeholder="Exercise name"
+        value={value}
+        onChange={e => { onChange(e.target.value); setOpen(true) }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        style={{ height: 32, width: '100%' }}
+      />
+      {open && suggestions.length > 0 && (
+        <div className="v-card v-pop" style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, zIndex: 20, padding: 4, maxHeight: 216, overflow: 'auto' }}>
+          {suggestions.map(s => (
+            <div
+              key={s}
+              className="v-menuitem"
+              style={{ padding: '7px 10px', fontSize: 12.5 }}
+              onMouseDown={e => { e.preventDefault(); onChange(s); setOpen(false) }}
+            >
+              {s}
+            </div>
+          ))}
+        </div>
+      )}
+      {unrecognized && (
+        <div className="v-meta" style={{ fontSize: 11, color: 'var(--warn)', marginTop: 6 }}>
+          Not in the exercise library — double-check spelling. Inconsistent names split 1RM tracking for the same lift.
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ExerciseCard({ ex, idx, onChange, onRemove }: ExerciseCardProps) {
-  const velocityOn = ex.targetVelocity != null
   const set = <K extends keyof BuilderExercise>(field: K, v: BuilderExercise[K]) =>
     onChange(idx, { ...ex, [field]: v })
 
@@ -70,14 +140,7 @@ function ExerciseCard({ ex, idx, onChange, onRemove }: ExerciseCardProps) {
         <span className="v-avatar" style={{ width: 22, height: 22, fontSize: 10.5, background: 'var(--brand-soft)', color: 'var(--brand-ink)' }}>
           {idx + 1}
         </span>
-        <input
-          className="v-input grow"
-          list="ex-library"
-          placeholder="Exercise name"
-          value={ex.name}
-          onChange={e => set('name', e.target.value)}
-          style={{ height: 32 }}
-        />
+        <ExerciseNameInput value={ex.name} onChange={v => set('name', v)} />
         <button
           className="v-btn ghost"
           style={{ width: 30, padding: 0, justifyContent: 'center', color: 'var(--bad)' }}
@@ -113,109 +176,9 @@ function ExerciseCard({ ex, idx, onChange, onRemove }: ExerciseCardProps) {
             <option value="kg">kg</option>
           </select>
         </div>
-        <button
-          className="v-btn"
-          style={{ height: 30, marginLeft: 'auto', fontSize: 11.5 }}
-          onClick={() => set('targetVelocity', velocityOn ? null : 0.75)}
-        >
-          {velocityOn ? <X size={12} strokeWidth={1.5} /> : <Plus size={12} strokeWidth={1.5} />}
-          Velocity target
-        </button>
       </div>
-      {velocityOn && (
-        <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line-0)' }}>
-          <VelocityZoneSlider value={ex.targetVelocity ?? 0.75} onChange={v => set('targetVelocity', v)} showInfo />
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── Athlete picker ───────────────────────────────────────────────────────────
-
-interface AthletePickerProps {
-  athletes: PlayerWithStats[]
-  groupsList: Array<{ id: string; name: string }>
-  selected: string[]
-  onToggle: (id: string) => void
-  onBulk: (ids: string[]) => void
-  filterGroup: string
-  setFilterGroup: (id: string) => void
-  loading: boolean
-}
-
-function AthletePicker({ athletes, groupsList, selected, onToggle, onBulk, filterGroup, setFilterGroup, loading }: AthletePickerProps) {
-  const list = athletes.filter(a => filterGroup === 'all' || a.team_id === filterGroup)
-  return (
-    <div className="v-card flush" style={{ overflow: 'hidden' }}>
-      <div style={{ padding: 14, borderBottom: '1px solid var(--line-0)', background: 'var(--surface-2)' }}>
-        <div className="v-label" style={{ marginBottom: 8 }}>
-          Recipients{selected.length > 0 ? ` · ${selected.length} selected` : ''}
-        </div>
-        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-          <select
-            className="v-input"
-            value={filterGroup}
-            onChange={e => setFilterGroup(e.target.value)}
-            style={{ height: 32, minWidth: 150 }}
-          >
-            <option value="all">All groups</option>
-            {groupsList.map(g => (
-              <option key={g.id} value={g.id}>{g.name}</option>
-            ))}
-          </select>
-          <button className="v-btn" style={{ height: 32, fontSize: 12 }} onClick={() => onBulk(list.map(a => a.id))}>
-            Select all ({list.length})
-          </button>
-          <button className="v-btn ghost" style={{ height: 32, fontSize: 12 }} onClick={() => onBulk([])}>
-            Clear
-          </button>
-        </div>
-      </div>
-      <div className="v-scroll" style={{ maxHeight: 320, overflow: 'auto' }}>
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--ink-3)', fontSize: 12.5 }}>Loading athletes…</div>
-        ) : list.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--ink-3)', fontSize: 12.5 }}>No athletes found</div>
-        ) : (
-          list.map(a => {
-            const on = selected.includes(a.id)
-            return (
-              <label
-                key={a.id}
-                className="row"
-                style={{
-                  gap: 10,
-                  padding: '9px 14px',
-                  borderBottom: '1px solid var(--line-0)',
-                  cursor: 'pointer',
-                  background: on ? 'var(--brand-soft)' : 'transparent',
-                }}
-              >
-                <span
-                  style={{
-                    width: 17, height: 17, borderRadius: 5, flexShrink: 0,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    border: '1.5px solid ' + (on ? 'var(--brand)' : 'var(--line-2)'),
-                    background: on ? 'var(--brand)' : 'var(--surface-1)',
-                    color: 'var(--brand-ink)',
-                  }}
-                >
-                  {on && <Check size={12} strokeWidth={2} />}
-                </span>
-                <input type="checkbox" checked={on} onChange={() => onToggle(a.id)} style={{ display: 'none' }} />
-                <Avatar name={a.name} />
-                <div className="grow" style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 500, fontSize: 13 }}>{a.name}</div>
-                  <div className="v-meta mono" style={{ fontSize: 10.5, color: 'var(--ink-3)' }}>
-                    {a.jersey_number != null ? `#${a.jersey_number} · ` : ''}{a.group || '—'}
-                  </div>
-                </div>
-                <LoadRecChip rec={a.loadRec} />
-              </label>
-            )
-          })
-        )}
+      <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line-0)' }}>
+        <VelocityZoneSlider value={ex.targetVelocity ?? 0.75} onChange={v => set('targetVelocity', v)} showInfo />
       </div>
     </div>
   )
@@ -316,14 +279,7 @@ function TemplateEditorDialog({ open, initial, onSave, onClose }: TemplateEditor
                   <div key={i} className="v-card" style={{ padding: 12 }}>
                     <div className="row" style={{ gap: 8 }}>
                       <span className="v-avatar" style={{ width: 22, height: 22, fontSize: 10.5, background: 'var(--brand-soft)', color: 'var(--brand-ink)' }}>{i + 1}</span>
-                      <input
-                        className="v-input grow"
-                        list="ex-library"
-                        placeholder="Exercise name"
-                        value={ex.name}
-                        onChange={e => update(i, { name: e.target.value })}
-                        style={{ height: 32 }}
-                      />
+                      <ExerciseNameInput value={ex.name} onChange={v => update(i, { name: v })} />
                       <button
                         className="v-btn ghost"
                         style={{ width: 30, padding: 0, justifyContent: 'center', color: 'var(--bad)' }}
@@ -438,10 +394,11 @@ function TemplatesTab({ onUse }: TemplatesTabProps) {
           No templates yet — create one to speed up programming.
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 16 }}>
+        <div className="v-scroll" style={{ maxHeight: 720, overflow: 'auto', paddingRight: 4 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 16, alignItems: 'start' }}>
           {templates.map(t => (
-            <div key={t.id} className="v-card padded" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div key={t.id} className="v-card padded" style={{ display: 'flex', flexDirection: 'column', gap: 12, height: 280 }}>
+              <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start', flexShrink: 0 }}>
                 <div style={{ minWidth: 0 }}>
                   <div className="v-h3">{t.name}</div>
                   <span className="v-chip" data-tone="neutral" style={{ marginTop: 6 }}>
@@ -481,10 +438,18 @@ function TemplatesTab({ onUse }: TemplatesTabProps) {
               </div>
 
               {t.description && (
-                <div className="v-meta" style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--ink-2)' }}>{t.description}</div>
+                <div
+                  className="v-meta ellipsis"
+                  style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--ink-2)', flexShrink: 0 }}
+                >
+                  {t.description}
+                </div>
               )}
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, borderTop: '1px solid var(--line-0)', paddingTop: 10 }}>
+              <div
+                className="v-scroll"
+                style={{ display: 'flex', flexDirection: 'column', gap: 6, borderTop: '1px solid var(--line-0)', paddingTop: 10, flex: 1, minHeight: 0, overflowY: 'auto' }}
+              >
                 {t.exercises.map((e, i) => {
                   const zone = e.targetVelocity != null ? zoneOf(e.targetVelocity) : null
                   return (
@@ -510,7 +475,7 @@ function TemplatesTab({ onUse }: TemplatesTabProps) {
                 })}
               </div>
 
-              <div className="row" style={{ justifyContent: 'space-between', marginTop: 'auto', paddingTop: 4 }}>
+              <div className="row" style={{ justifyContent: 'space-between', paddingTop: 4, flexShrink: 0 }}>
                 <span className="v-meta mono" style={{ fontSize: 10.5, color: 'var(--ink-3)' }}>
                   edited {t.lastModified.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                 </span>
@@ -520,6 +485,7 @@ function TemplatesTab({ onUse }: TemplatesTabProps) {
               </div>
             </div>
           ))}
+        </div>
         </div>
       )}
 
@@ -540,12 +506,13 @@ const SendProgramming = () => {
   const { user } = useAuth()
   const { templates } = useTemplates()
   const [searchParams, setSearchParams] = useSearchParams()
-  const tab = searchParams.get('tab') === 'templates' ? 'templates' : 'build'
-  const setTab = (t: 'build' | 'templates') =>
-    setSearchParams(t === 'templates' ? { tab: 'templates' } : {}, { replace: true })
+  const tabParam = searchParams.get('tab')
+  const tab = tabParam === 'templates' ? 'templates' : tabParam === 'history' ? 'history' : 'build'
+  const setTab = (t: 'build' | 'templates' | 'history') =>
+    setSearchParams(t === 'build' ? {} : { tab: t }, { replace: true })
 
-  const [workoutName, setWorkoutName] = useState('')
-  const [selectedDates, setSelectedDates] = useState<Date[]>([])
+  const [workoutName, setWorkoutName] = useState(defaultWorkoutName)
+  const [selectedDates, setSelectedDates] = useState<Date[]>([startOfDay(new Date())])
   const [selectedTemplateIds, setSelectedTemplateIds] = useState<string[]>([])
   const [exercises, setExercises] = useState<BuilderExercise[]>([])
   const [selectedAthletes, setSelectedAthletes] = useState<string[]>([])
@@ -623,11 +590,11 @@ const SendProgramming = () => {
     setExercises(p => p.map((e, idx) => (idx === i ? v : e)))
   const removeExercise = (i: number) => setExercises(p => p.filter((_, idx) => idx !== i))
   const addExercise = () =>
-    setExercises(p => [...p, { name: '', sets: 3, reps: 5, weight: 0, weightUnit: 'lbs', targetVelocity: null }])
+    setExercises(p => [...p, { name: '', sets: 3, reps: 5, weight: 0, weightUnit: 'lbs', targetVelocity: 0.75 }])
 
   const resetBuilder = () => {
-    setWorkoutName('')
-    setSelectedDates([])
+    setWorkoutName(defaultWorkoutName())
+    setSelectedDates([startOfDay(new Date())])
     setSelectedTemplateIds([])
     setExercises([])
     setSelectedAthletes([])
@@ -722,19 +689,15 @@ const SendProgramming = () => {
   return (
     <div className="v-app">
       <TopNav />
-      <datalist id="ex-library">
-        {EXERCISE_LIBRARY.map(e => <option key={e} value={e} />)}
-      </datalist>
       <LoadingOverlay isLoading={sending} fullScreen message="Sending programming..." />
 
       <main style={{ padding: '20px 28px 0', maxWidth: 1320, margin: '0 auto', width: '100%', flex: 1, display: 'flex', flexDirection: 'column' }}>
         <PageHeader
-          eyebrow="Coach"
           title="Programming"
           subtitle="Assign velocity-based workouts to athletes across one or more dates."
           actions={
             <div className="row" style={{ gap: 4, background: 'var(--surface-sunk)', padding: 3, borderRadius: 9 }}>
-              {([['build', 'New programming'], ['templates', 'Templates']] as const).map(([id, label]) => (
+              {([['build', 'New programming'], ['templates', 'Templates'], ['history', 'History']] as const).map(([id, label]) => (
                 <button
                   key={id}
                   onClick={() => setTab(id)}
@@ -767,6 +730,8 @@ const SendProgramming = () => {
           )}
           {tab === 'templates' ? (
             <TemplatesTab onUse={useTemplate} />
+          ) : tab === 'history' ? (
+            <HistoryPanel />
           ) : (
             <>
               <div style={{ display: 'grid', gridTemplateColumns: '380px 1fr', gap: 32, alignItems: 'start' }}>
@@ -783,7 +748,18 @@ const SendProgramming = () => {
                     />
                   </div>
                   <div>
-                    <div className="v-label" style={{ marginBottom: 2 }}>Schedule dates</div>
+                    <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
+                      <div className="v-label" style={{ marginBottom: 2 }}>Schedule dates</div>
+                      {sortedDates.length > 0 && (
+                        <button
+                          className="v-btn ghost"
+                          style={{ height: 22, fontSize: 11 }}
+                          onClick={() => setSelectedDates([])}
+                        >
+                          Clear all
+                        </button>
+                      )}
+                    </div>
                     <div className="v-meta" style={{ fontSize: 11.5, marginBottom: 10 }}>
                       Click to toggle · hold &amp; drag to select a span.
                     </div>
