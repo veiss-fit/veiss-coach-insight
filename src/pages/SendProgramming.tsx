@@ -52,23 +52,41 @@ const toKey = (d: Date) => format(d, 'yyyy-MM-dd')
 /** Default program name so the field is never blank — the coach can still overwrite it. */
 const defaultWorkoutName = () => `Program — ${format(new Date(), 'MMM d')}`
 
-interface BuilderExercise {
-  name: string
-  sets: number
+interface SetSpec {
   reps: number
-  weight: number
-  weightUnit: 'lbs' | 'kg'
   targetVelocity: number | null
 }
 
-const fromTemplateExercise = (ex: TemplateExercise): BuilderExercise => ({
-  name: ex.name,
-  sets: ex.sets ?? 3,
-  reps: ex.reps ?? 5,
-  weight: 0,
-  weightUnit: 'lbs',
-  targetVelocity: ex.targetVelocity ?? 0.75,
-})
+interface BuilderExercise {
+  name: string
+  /** One entry per set — the source of truth for both the count and each set's reps/velocity. */
+  perSet: SetSpec[]
+  weight: number
+  weightUnit: 'lbs' | 'kg'
+  /** UI-only: false = one Reps field + one velocity slider apply to every set (default). */
+  customized: boolean
+}
+
+const DEFAULT_SET: SetSpec = { reps: 5, targetVelocity: 0.75 }
+
+const makeUniformSets = (count: number, template: SetSpec = DEFAULT_SET): SetSpec[] =>
+  Array.from({ length: Math.max(1, count) }, () => ({ ...template }))
+
+const fromTemplateExercise = (ex: TemplateExercise): BuilderExercise => {
+  if (ex.perSet && ex.perSet.length > 0) {
+    const perSet = ex.perSet.map(s => ({ reps: s.reps ?? 5, targetVelocity: s.targetVelocity ?? null }))
+    const varies = perSet.some(s => s.reps !== perSet[0].reps || s.targetVelocity !== perSet[0].targetVelocity)
+    return { name: ex.name, perSet, weight: 0, weightUnit: 'lbs', customized: varies }
+  }
+  // Template saved before per-set support existed — synthesize a uniform set list.
+  return {
+    name: ex.name,
+    perSet: makeUniformSets(ex.sets ?? 3, { reps: ex.reps ?? 5, targetVelocity: ex.targetVelocity ?? 0.75 }),
+    weight: 0,
+    weightUnit: 'lbs',
+    customized: false,
+  }
+}
 
 // ─── Exercise editor card (builder) ──────────────────────────────────────────
 
@@ -130,9 +148,145 @@ function ExerciseNameInput({ value, onChange }: { value: string; onChange: (v: s
   )
 }
 
+/** Small square on/off checkbox matching the app's existing checkbox pattern. */
+function MiniCheckbox({ on }: { on: boolean }) {
+  return (
+    <span
+      style={{
+        width: 15, height: 15, borderRadius: 4, flexShrink: 0,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        border: '1.5px solid ' + (on ? 'var(--brand)' : 'var(--line-2)'),
+        background: on ? 'var(--brand)' : 'var(--surface-1)',
+        color: 'var(--brand-ink)',
+      }}
+    >
+      {on && <Check size={11} strokeWidth={2.5} />}
+    </span>
+  )
+}
+
+/**
+ * One compact row for a single set's reps + target velocity. The velocity is a
+ * clickable pill rather than its own inline slider — clicking it selects that
+ * set, which drives the shared VelocityZoneSlider panel rendered alongside the
+ * whole list (see SetVelocityPanel). Only one set is selected at a time.
+ */
+function SetRow({
+  index, spec, isSelected, onSelect, onChange,
+}: {
+  index: number
+  spec: SetSpec
+  isSelected: boolean
+  onSelect: () => void
+  onChange: (patch: Partial<SetSpec>) => void
+}) {
+  const zone = zoneOf(spec.targetVelocity ?? 0)
+  return (
+    <div className="row" style={{ gap: 10, alignItems: 'center' }}>
+      <span className="v-mute2 mono" style={{ width: 42, fontSize: 11.5, flexShrink: 0 }}>Set {index + 1}</span>
+      <input
+        className="v-input mono"
+        type="number"
+        min={1}
+        max={100}
+        value={spec.reps}
+        onChange={e => onChange({ reps: e.target.value === '' ? 0 : Number(e.target.value) })}
+        style={{ width: 52, height: 28 }}
+        title="Reps"
+      />
+      <span className="v-mute2" style={{ fontSize: 10.5 }}>reps @</span>
+      <button
+        type="button"
+        onClick={onSelect}
+        className="v-chip"
+        style={{
+          background: zone.color,
+          color: '#fff',
+          fontSize: 11,
+          border: 'none',
+          cursor: 'pointer',
+          boxShadow: isSelected ? '0 0 0 2px var(--surface-0), 0 0 0 4px var(--ink-2)' : 'none',
+        }}
+      >
+        {(spec.targetVelocity ?? 0).toFixed(2)} m/s
+      </button>
+    </div>
+  )
+}
+
+/**
+ * Sits to the right of the set list, separated by a hairline divider. Shows the
+ * full VelocityZoneSlider bound to whichever set's pill was last clicked, titled
+ * "Set N Target Velocity"; before anything's been clicked it shows a placeholder
+ * instead of guessing which set to edit.
+ */
+function SetVelocityPanel({
+  selectedIndex, spec, onChange,
+}: {
+  selectedIndex: number | null
+  spec: SetSpec | null
+  onChange: (patch: Partial<SetSpec>) => void
+}) {
+  if (selectedIndex === null || !spec) {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          textAlign: 'center',
+          height: '100%',
+          minHeight: 150,
+          padding: '0 8px',
+        }}
+      >
+        <span className="v-mute2" style={{ fontSize: 11.5, lineHeight: 1.5 }}>
+          Click a velocity pill on the left to set that set's target
+        </span>
+      </div>
+    )
+  }
+  return (
+    <VelocityZoneSlider
+      value={spec.targetVelocity ?? 0.75}
+      onChange={v => onChange({ targetVelocity: v })}
+      showInfo
+      label={`Set ${selectedIndex + 1} Target Velocity`}
+    />
+  )
+}
+
 function ExerciseCard({ ex, idx, onChange, onRemove }: ExerciseCardProps) {
   const set = <K extends keyof BuilderExercise>(field: K, v: BuilderExercise[K]) =>
     onChange(idx, { ...ex, [field]: v })
+
+  // Which set's velocity panel is showing — at most one at a time across the list.
+  const [selectedSetIdx, setSelectedSetIdx] = useState<number | null>(null)
+
+  const setCount = (n: number) => {
+    const count = Math.max(1, Math.min(20, n))
+    if (count === ex.perSet.length) return
+    const next = count > ex.perSet.length
+      ? [...ex.perSet, ...Array.from({ length: count - ex.perSet.length }, () => ({ ...ex.perSet[ex.perSet.length - 1] }))]
+      : ex.perSet.slice(0, count)
+    set('perSet', next)
+    if (selectedSetIdx !== null && selectedSetIdx >= count) setSelectedSetIdx(null)
+  }
+
+  const updateSet = (setIdx: number, patch: Partial<SetSpec>) =>
+    set('perSet', ex.perSet.map((s, i) => (i === setIdx ? { ...s, ...patch } : s)))
+
+  // In uniform mode, the single Reps/velocity fields read set 1 and write to every set.
+  const uniformReps = ex.perSet[0]?.reps ?? 5
+  const uniformVelocity = ex.perSet[0]?.targetVelocity ?? 0.75
+  const setUniform = (patch: Partial<SetSpec>) => set('perSet', ex.perSet.map(s => ({ ...s, ...patch })))
+
+  const toggleCustomized = () => {
+    // Collapsing back to uniform applies set 1's values to every set, so nothing
+    // is silently lost — the coach can always re-expand to see what they had.
+    if (ex.customized) set('perSet', makeUniformSets(ex.perSet.length, ex.perSet[0]))
+    set('customized', !ex.customized)
+  }
 
   return (
     <div className="v-card" style={{ padding: 12 }}>
@@ -151,47 +305,237 @@ function ExerciseCard({ ex, idx, onChange, onRemove }: ExerciseCardProps) {
         </button>
       </div>
       <div className="row" style={{ gap: 10, marginTop: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-        {([['sets', 'Sets'], ['reps', 'Reps'], ['weight', 'Weight']] as const).map(([f, label]) => (
-          <div key={f} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span className="v-label" style={{ fontSize: 9 }}>{label}</span>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span className="v-label" style={{ fontSize: 9 }}>Sets</span>
+          <input
+            className="v-input mono"
+            type="number"
+            min={1}
+            max={20}
+            value={ex.perSet.length}
+            onChange={e => setCount(e.target.value === '' ? 1 : Number(e.target.value))}
+            style={{ width: 64, height: 30 }}
+          />
+        </div>
+        {!ex.customized && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span className="v-label" style={{ fontSize: 9 }}>Reps</span>
             <input
               className="v-input mono"
               type="number"
-              min={0}
-              value={ex[f]}
-              onChange={e => set(f, e.target.value === '' ? 0 : Number(e.target.value))}
+              min={1}
+              max={100}
+              value={uniformReps}
+              onChange={e => setUniform({ reps: e.target.value === '' ? 0 : Number(e.target.value) })}
               style={{ width: 64, height: 30 }}
             />
           </div>
-        ))}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <span className="v-label" style={{ fontSize: 9 }}>Unit</span>
-          <select
-            className="v-input"
-            value={ex.weightUnit}
-            onChange={e => set('weightUnit', e.target.value as 'lbs' | 'kg')}
-            style={{ height: 30, width: 60 }}
-          >
-            <option value="lbs">lbs</option>
-            <option value="kg">kg</option>
-          </select>
+        )}
+        <label
+          className="row"
+          style={{ marginLeft: 'auto', gap: 7, cursor: 'pointer', fontSize: 11.5, color: 'var(--ink-2)' }}
+          onClick={toggleCustomized}
+        >
+          <MiniCheckbox on={!ex.customized} />
+          Same for every set
+        </label>
+      </div>
+
+      {!ex.customized ? (
+        <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line-0)' }}>
+          <VelocityZoneSlider value={uniformVelocity} onChange={v => setUniform({ targetVelocity: v })} showInfo />
         </div>
-      </div>
-      <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line-0)' }}>
-        <VelocityZoneSlider value={ex.targetVelocity ?? 0.75} onChange={v => set('targetVelocity', v)} showInfo />
-      </div>
+      ) : (
+        <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line-0)', display: 'flex', gap: 16 }}>
+          <div style={{ flex: '0 0 auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {ex.perSet.map((s, i) => (
+              <SetRow
+                key={i}
+                index={i}
+                spec={s}
+                isSelected={selectedSetIdx === i}
+                onSelect={() => setSelectedSetIdx(i)}
+                onChange={patch => updateSet(i, patch)}
+              />
+            ))}
+          </div>
+          <div style={{ width: 1, alignSelf: 'stretch', background: 'var(--line-0)', flexShrink: 0 }} />
+          <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+            <SetVelocityPanel
+              selectedIndex={selectedSetIdx}
+              spec={selectedSetIdx !== null ? ex.perSet[selectedSetIdx] ?? null : null}
+              onChange={patch => selectedSetIdx !== null && updateSet(selectedSetIdx, patch)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
 // ─── Template editor dialog (create / edit) ──────────────────────────────────
 
-type EditorExercise = TemplateExercise & { showVelocity: boolean }
+interface EditorExercise {
+  name: string
+  perSet: SetSpec[]
+  customized: boolean
+  showVelocity: boolean
+}
 
-const toEditorExercise = (ex: TemplateExercise): EditorExercise => ({
-  ...ex,
-  showVelocity: ex.targetVelocity != null,
-})
+const toEditorExercise = (ex: TemplateExercise): EditorExercise => {
+  if (ex.perSet && ex.perSet.length > 0) {
+    const perSet = ex.perSet.map(s => ({ reps: s.reps ?? 5, targetVelocity: s.targetVelocity ?? null }))
+    const varies = perSet.some(s => s.reps !== perSet[0].reps || s.targetVelocity !== perSet[0].targetVelocity)
+    return { name: ex.name, perSet, customized: varies, showVelocity: perSet.some(s => s.targetVelocity != null) }
+  }
+  // Template saved before per-set support existed — synthesize a uniform set list.
+  return {
+    name: ex.name,
+    perSet: makeUniformSets(ex.sets ?? 3, { reps: ex.reps ?? 5, targetVelocity: ex.targetVelocity ?? 0.75 }),
+    customized: false,
+    showVelocity: ex.targetVelocity != null,
+  }
+}
+
+/** One compact template exercise row — mirrors ExerciseCard's per-set editing. */
+function TemplateExerciseRow({
+  ex, idx, onChange, onRemove,
+}: {
+  ex: EditorExercise
+  idx: number
+  onChange: (idx: number, patch: Partial<EditorExercise>) => void
+  onRemove: (idx: number) => void
+}) {
+  const [selectedSetIdx, setSelectedSetIdx] = useState<number | null>(null)
+
+  const setCount = (n: number) => {
+    const count = Math.max(1, Math.min(20, n))
+    if (count === ex.perSet.length) return
+    const next = count > ex.perSet.length
+      ? [...ex.perSet, ...Array.from({ length: count - ex.perSet.length }, () => ({ ...ex.perSet[ex.perSet.length - 1] }))]
+      : ex.perSet.slice(0, count)
+    onChange(idx, { perSet: next })
+    if (selectedSetIdx !== null && selectedSetIdx >= count) setSelectedSetIdx(null)
+  }
+  const updateSet = (si: number, patch: Partial<SetSpec>) =>
+    onChange(idx, { perSet: ex.perSet.map((s, i) => (i === si ? { ...s, ...patch } : s)) })
+  const uniformReps = ex.perSet[0]?.reps ?? 5
+  const uniformVelocity = ex.perSet[0]?.targetVelocity ?? 0.75
+  const setUniform = (patch: Partial<SetSpec>) => onChange(idx, { perSet: ex.perSet.map(s => ({ ...s, ...patch })) })
+  const toggleCustomized = () => {
+    if (ex.customized) onChange(idx, { perSet: makeUniformSets(ex.perSet.length, ex.perSet[0]), customized: false })
+    else onChange(idx, { customized: true })
+  }
+  const toggleVelocity = () =>
+    ex.showVelocity
+      ? onChange(idx, { showVelocity: false })
+      : onChange(idx, { showVelocity: true, perSet: ex.perSet.map(s => ({ ...s, targetVelocity: s.targetVelocity ?? 0.75 })) })
+
+  return (
+    <div className="v-card" style={{ padding: 12 }}>
+      <div className="row" style={{ gap: 8 }}>
+        <span className="v-avatar" style={{ width: 22, height: 22, fontSize: 10.5, background: 'var(--brand-soft)', color: 'var(--brand-ink)' }}>{idx + 1}</span>
+        <ExerciseNameInput value={ex.name} onChange={v => onChange(idx, { name: v })} />
+        <button
+          className="v-btn ghost"
+          style={{ width: 30, padding: 0, justifyContent: 'center', color: 'var(--bad)' }}
+          onClick={() => onRemove(idx)}
+        >
+          <Trash2 size={12} strokeWidth={1.5} />
+        </button>
+      </div>
+      <div className="row" style={{ gap: 10, marginTop: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span className="v-label" style={{ fontSize: 9 }}>Sets</span>
+          <input
+            className="v-input mono"
+            type="number"
+            min={1}
+            max={20}
+            value={ex.perSet.length}
+            onChange={e => setCount(e.target.value === '' ? 1 : Number(e.target.value))}
+            style={{ width: 64, height: 30 }}
+          />
+        </div>
+        {!ex.customized && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span className="v-label" style={{ fontSize: 9 }}>Reps</span>
+            <input
+              className="v-input mono"
+              type="number"
+              min={1}
+              max={100}
+              value={uniformReps}
+              onChange={e => setUniform({ reps: e.target.value === '' ? 0 : Number(e.target.value) })}
+              style={{ width: 64, height: 30 }}
+            />
+          </div>
+        )}
+        <button className="v-btn" style={{ height: 30, fontSize: 11.5 }} onClick={toggleVelocity}>
+          {ex.showVelocity ? <X size={12} strokeWidth={1.5} /> : <Plus size={12} strokeWidth={1.5} />}
+          Velocity target
+        </button>
+        <label
+          className="row"
+          style={{ marginLeft: 'auto', gap: 7, cursor: 'pointer', fontSize: 11.5, color: 'var(--ink-2)' }}
+          onClick={toggleCustomized}
+        >
+          <MiniCheckbox on={!ex.customized} />
+          Same for every set
+        </label>
+      </div>
+
+      {ex.customized ? (
+        ex.showVelocity ? (
+          <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line-0)', display: 'flex', gap: 16 }}>
+            <div style={{ flex: '0 0 auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {ex.perSet.map((s, i) => (
+                <SetRow
+                  key={i}
+                  index={i}
+                  spec={s}
+                  isSelected={selectedSetIdx === i}
+                  onSelect={() => setSelectedSetIdx(i)}
+                  onChange={patch => updateSet(i, patch)}
+                />
+              ))}
+            </div>
+            <div style={{ width: 1, alignSelf: 'stretch', background: 'var(--line-0)', flexShrink: 0 }} />
+            <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+              <SetVelocityPanel
+                selectedIndex={selectedSetIdx}
+                spec={selectedSetIdx !== null ? ex.perSet[selectedSetIdx] ?? null : null}
+                onChange={patch => selectedSetIdx !== null && updateSet(selectedSetIdx, patch)}
+              />
+            </div>
+          </div>
+        ) : (
+          <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line-0)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {ex.perSet.map((s, i) => (
+              <div key={i} className="row" style={{ gap: 10, alignItems: 'center' }}>
+                <span className="v-mute2 mono" style={{ width: 42, fontSize: 11.5, flexShrink: 0 }}>Set {i + 1}</span>
+                <input
+                  className="v-input mono"
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={s.reps}
+                  onChange={e => updateSet(i, { reps: e.target.value === '' ? 0 : Number(e.target.value) })}
+                  style={{ width: 52, height: 28 }}
+                />
+                <span className="v-mute2" style={{ fontSize: 10.5 }}>reps</span>
+              </div>
+            ))}
+          </div>
+        )
+      ) : ex.showVelocity && (
+        <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line-0)' }}>
+          <VelocityZoneSlider value={uniformVelocity} onChange={v => setUniform({ targetVelocity: v })} showInfo />
+        </div>
+      )}
+    </div>
+  )
+}
 
 interface TemplateEditorDialogProps {
   open: boolean
@@ -221,10 +565,20 @@ function TemplateEditorDialog({ open, initial, onSave, onClose }: TemplateEditor
     if (exercises.length === 0) return toast.error('Add at least one exercise')
     const incomplete = exercises.findIndex(ex => !ex.name.trim())
     if (incomplete !== -1) return toast.error(`Exercise ${incomplete + 1} is missing a name`)
-    const clean = exercises.map(({ showVelocity, ...ex }) => ({
-      ...ex,
-      targetVelocity: showVelocity ? ex.targetVelocity : undefined,
-    }))
+    const clean: TemplateExercise[] = exercises.map(ex => {
+      const perSet = ex.perSet.map(s => ({
+        reps: s.reps,
+        targetVelocity: ex.showVelocity ? (s.targetVelocity ?? undefined) : undefined,
+      }))
+      const first = perSet[0]
+      return {
+        name: ex.name,
+        sets: perSet.length,
+        reps: first?.reps,
+        targetVelocity: ex.showVelocity ? (first?.targetVelocity ?? undefined) : undefined,
+        perSet,
+      }
+    })
     onSave({ name: name.trim(), description: description.trim(), exercises: clean })
   }
 
@@ -264,7 +618,7 @@ function TemplateEditorDialog({ open, initial, onSave, onClose }: TemplateEditor
               <button
                 className="v-btn"
                 style={{ fontSize: 12 }}
-                onClick={() => setExercises(p => [...p, { name: '', sets: 3, reps: 5, showVelocity: false }])}
+                onClick={() => setExercises(p => [...p, { name: '', perSet: makeUniformSets(3, { reps: 5, targetVelocity: null }), customized: false, showVelocity: false }])}
               >
                 <Plus size={12} strokeWidth={1.5} />Add
               </button>
@@ -276,52 +630,13 @@ function TemplateEditorDialog({ open, initial, onSave, onClose }: TemplateEditor
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {exercises.map((ex, i) => (
-                  <div key={i} className="v-card" style={{ padding: 12 }}>
-                    <div className="row" style={{ gap: 8 }}>
-                      <span className="v-avatar" style={{ width: 22, height: 22, fontSize: 10.5, background: 'var(--brand-soft)', color: 'var(--brand-ink)' }}>{i + 1}</span>
-                      <ExerciseNameInput value={ex.name} onChange={v => update(i, { name: v })} />
-                      <button
-                        className="v-btn ghost"
-                        style={{ width: 30, padding: 0, justifyContent: 'center', color: 'var(--bad)' }}
-                        onClick={() => setExercises(p => p.filter((_, idx) => idx !== i))}
-                      >
-                        <Trash2 size={12} strokeWidth={1.5} />
-                      </button>
-                    </div>
-                    <div className="row" style={{ gap: 10, marginTop: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                      {([['sets', 'Sets'], ['reps', 'Reps']] as const).map(([f, label]) => (
-                        <div key={f} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                          <span className="v-label" style={{ fontSize: 9 }}>{label}</span>
-                          <input
-                            className="v-input mono"
-                            type="number"
-                            min={0}
-                            value={ex[f] ?? ''}
-                            placeholder="—"
-                            onChange={e => update(i, { [f]: e.target.value === '' ? undefined : Number(e.target.value) })}
-                            style={{ width: 64, height: 30 }}
-                          />
-                        </div>
-                      ))}
-                      <button
-                        className="v-btn"
-                        style={{ height: 30, marginLeft: 'auto', fontSize: 11.5 }}
-                        onClick={() =>
-                          ex.showVelocity
-                            ? update(i, { showVelocity: false, targetVelocity: undefined })
-                            : update(i, { showVelocity: true, targetVelocity: ex.targetVelocity ?? 0.75 })
-                        }
-                      >
-                        {ex.showVelocity ? <X size={12} strokeWidth={1.5} /> : <Plus size={12} strokeWidth={1.5} />}
-                        Velocity target
-                      </button>
-                    </div>
-                    {ex.showVelocity && (
-                      <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line-0)' }}>
-                        <VelocityZoneSlider value={ex.targetVelocity ?? 0.75} onChange={v => update(i, { targetVelocity: v })} showInfo />
-                      </div>
-                    )}
-                  </div>
+                  <TemplateExerciseRow
+                    key={i}
+                    ex={ex}
+                    idx={i}
+                    onChange={(idx, patch) => update(idx, patch)}
+                    onRemove={idx => setExercises(p => p.filter((_, x) => x !== idx))}
+                  />
                 ))}
               </div>
             )}
@@ -451,6 +766,8 @@ function TemplatesTab({ onUse }: TemplatesTabProps) {
                 style={{ display: 'flex', flexDirection: 'column', gap: 6, borderTop: '1px solid var(--line-0)', paddingTop: 10, flex: 1, minHeight: 0, overflowY: 'auto' }}
               >
                 {t.exercises.map((e, i) => {
+                  const varies = !!e.perSet && e.perSet.length > 1 &&
+                    e.perSet.some(s => s.reps !== e.perSet![0].reps || s.targetVelocity !== e.perSet![0].targetVelocity)
                   const zone = e.targetVelocity != null ? zoneOf(e.targetVelocity) : null
                   return (
                     <div key={i} className="row" style={{ justifyContent: 'space-between', fontSize: 12 }}>
@@ -460,15 +777,15 @@ function TemplatesTab({ onUse }: TemplatesTabProps) {
                       </span>
                       <span className="row" style={{ gap: 8, flexShrink: 0 }}>
                         <span className="mono v-mute2" style={{ fontSize: 11 }}>
-                          {e.sets != null && e.reps != null ? `${e.sets}×${e.reps}` : '—'}
+                          {e.sets != null && e.reps != null ? `${e.sets}×${e.reps}${varies ? ' (varies)' : ''}` : '—'}
                         </span>
-                        {zone && e.targetVelocity != null ? (
+                        {!varies && zone && e.targetVelocity != null ? (
                           <span className="v-chip" style={{ background: zone.color, color: '#fff', fontSize: 10 }}>
                             {e.targetVelocity.toFixed(2)}
                           </span>
-                        ) : (
+                        ) : !varies ? (
                           <span className="mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}>—</span>
-                        )}
+                        ) : null}
                       </span>
                     </div>
                   )
@@ -590,7 +907,7 @@ const SendProgramming = () => {
     setExercises(p => p.map((e, idx) => (idx === i ? v : e)))
   const removeExercise = (i: number) => setExercises(p => p.filter((_, idx) => idx !== i))
   const addExercise = () =>
-    setExercises(p => [...p, { name: '', sets: 3, reps: 5, weight: 0, weightUnit: 'lbs', targetVelocity: 0.75 }])
+    setExercises(p => [...p, { name: '', perSet: makeUniformSets(3), weight: 0, weightUnit: 'lbs', customized: false }])
 
   const resetBuilder = () => {
     setWorkoutName(defaultWorkoutName())
@@ -612,16 +929,25 @@ const SendProgramming = () => {
       const ex = exercises[i]
       const err =
         Validators.exerciseName(ex.name) ||
-        Validators.workoutSets(ex.sets) ||
-        Validators.workoutReps(ex.reps)
+        Validators.workoutSets(ex.perSet.length) ||
+        Validators.workoutWeight(ex.weight)
       if (err) { toast.error(`Exercise ${i + 1}: ${err}`); return }
+      for (let s = 0; s < ex.perSet.length; s++) {
+        const repsErr = Validators.workoutReps(ex.perSet[s].reps)
+        if (repsErr) { toast.error(`Exercise ${i + 1}, Set ${s + 1}: ${repsErr}`); return }
+      }
     }
 
     try {
       setSending(true)
       const planData = {
         workoutName,
-        exercises: exercises.map(ex => ({ ...ex, targetVelocity: ex.targetVelocity ?? 0 })),
+        exercises: exercises.map(ex => ({
+          name: ex.name,
+          weight: ex.weight,
+          weightUnit: ex.weightUnit,
+          perSet: ex.perSet.map(s => ({ reps: s.reps, targetVelocity: s.targetVelocity ?? 0 })),
+        })),
         notes: 'Assigned by Coach',
       }
 

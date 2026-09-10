@@ -9,13 +9,17 @@ interface WorkoutPlanWithPlayer extends WorkoutPlan {
   players: { full_name: string | null } | null;
 }
 
+export interface WorkoutSetSpec {
+  reps: number;
+  targetVelocity: number | null;
+}
+
 export interface WorkoutExercise {
   name: string;
-  sets: number;
-  reps: number;
+  /** One entry per set — reps and target velocity can differ set to set. */
+  perSet: WorkoutSetSpec[];
   weight?: number;
   weightUnit?: 'lbs' | 'kg';
-  targetVelocity: number;
 }
 
 export interface WorkoutPlanData {
@@ -50,14 +54,24 @@ export const sendWorkoutPlan = async (
         ].join('-')
       : scheduledDate;
 
-    const exercisesArray = planData.exercises.map(ex => ({
-      name: ex.name,
-      sets: ex.sets,
-      reps: ex.reps,
-      weight: ex.weight ?? 0,
-      weightUnit: ex.weightUnit ?? 'lbs',
-      targetVelocity: ex.targetVelocity,
-    }));
+    // The mobile app currently reads a flat sets/reps/targetVelocity per exercise
+    // (confirmed via a mobile-repo audit) and doesn't yet understand per-set data.
+    // Keep those flat fields mirroring the FIRST set so it keeps showing a sensible
+    // prescription unmodified, while `perSet` carries the full breakdown for when
+    // the mobile app is updated to read it.
+    const exercisesArray = planData.exercises.map(ex => {
+      const perSet = ex.perSet.map(s => ({ reps: s.reps, targetVelocity: s.targetVelocity }));
+      const first = perSet[0] ?? { reps: 0, targetVelocity: null };
+      return {
+        name: ex.name,
+        weight: ex.weight ?? 0,
+        weightUnit: ex.weightUnit ?? 'lbs',
+        sets: perSet.length,
+        reps: first.reps,
+        targetVelocity: first.targetVelocity ?? 0,
+        perSet,
+      };
+    });
 
     // Create workout plan records for each player
     const workoutPlans = playerIds.map((playerId) => ({

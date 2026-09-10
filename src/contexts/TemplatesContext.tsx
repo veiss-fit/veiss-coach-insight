@@ -2,11 +2,19 @@ import { createContext, useContext, useState, useEffect, ReactNode } from 'react
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 
+export interface WorkoutSetSpec {
+  reps?: number
+  targetVelocity?: number
+}
+
 export interface WorkoutExercise {
   name: string
+  /** Legacy flat fields — kept so templates saved before per-set support still load. */
   sets?: number
   reps?: number
   targetVelocity?: number
+  /** One entry per set. Present on templates saved after per-set support shipped. */
+  perSet?: WorkoutSetSpec[]
 }
 
 export interface WorkoutTemplate {
