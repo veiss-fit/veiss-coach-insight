@@ -2,9 +2,9 @@ import { ChevronRight } from "lucide-react";
 import { format } from "date-fns";
 import type { PlayerWithStats } from "@/services/playersService";
 import type { RosterAthleteMetrics } from "@/services/rosterMetricsService";
+import { targetsPct, ZERO_TARGETS } from "@/lib/targetEvaluation";
 import { Avatar } from "./Avatar";
 import { AttBar } from "./AttBar";
-import { Delta } from "./Delta";
 import { GroupChip } from "./chips";
 
 interface PulseAthleteTableProps {
@@ -23,7 +23,7 @@ export function PulseAthleteTable({ athletes, metricsByPlayer, showAdvanced, onS
           <th>Athlete</th>
           <th>Group</th>
           <th>Attendance</th>
-          <th>Velocity</th>
+          <th>Targets reached</th>
           {showAdvanced && <th>ROM</th>}
           {showAdvanced && <th>Tempo</th>}
           <th>Last session</th>
@@ -40,7 +40,8 @@ export function PulseAthleteTable({ athletes, metricsByPlayer, showAdvanced, onS
         ) : (
           athletes.map((a) => {
             const m = metricsByPlayer.get(a.id);
-            const vel = m?.recentVel ?? a.avgVelocity;
+            const targets = m?.targetsReached ?? ZERO_TARGETS;
+            const pct = targetsPct(targets);
             return (
               <tr key={a.id} onClick={() => onSelect?.(a)}>
                 <td>
@@ -61,12 +62,14 @@ export function PulseAthleteTable({ athletes, metricsByPlayer, showAdvanced, onS
                 </td>
                 <td><AttBar pct={a.attendance} /></td>
                 <td>
-                  <div className="row" style={{ gap: 8 }}>
-                    <span className="mono" style={{ fontSize: 12.5, color: "var(--ink-0)" }}>
-                      {vel > 0 ? vel.toFixed(2) : "—"}
-                    </span>
-                    <Delta value={m?.velDelta ?? null} fontSize={11} />
-                  </div>
+                  {pct != null ? (
+                    <div className="row" style={{ gap: 6, alignItems: "baseline" }}>
+                      <span className="mono" style={{ fontSize: 12.5, color: "var(--ink-0)" }}>{pct}%</span>
+                      <span className="v-mute2 mono" style={{ fontSize: 10.5 }}>{targets.inTarget}/{targets.withTarget}</span>
+                    </div>
+                  ) : (
+                    <span className="v-mute2 mono" style={{ fontSize: 12.5 }}>No targets set</span>
+                  )}
                 </td>
                 {showAdvanced && (
                   <td>

@@ -14,25 +14,15 @@ import { AthleteCard, NextPlanInfo } from "@/components/pulse/AthleteCard";
 import { PulseAthleteTable } from "@/components/pulse/AthleteTable";
 import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { useAuth } from "@/contexts/AuthContext";
-import { getPlayersWithStatsByCoach, getCoachTeamIds, getCoachGroups, CoachGroup, PlayerWithStats } from "@/services/playersService";
-import { getCoachDashboardStats, DashboardStats } from "@/services/statsService";
+import { getPlayersWithStatsByCoach, getCoachGroups, CoachGroup, PlayerWithStats } from "@/services/playersService";
 import { getRosterMetrics, RosterMetricsResult } from "@/services/rosterMetricsService";
 import { getUpcomingWorkoutPlans } from "@/services/workoutPlansService";
 import { deliverScheduledMessages } from "@/services/messagesService";
 import { flagsFor, priorityScore, isFlagged } from "@/lib/rosterFlags";
+import { classifyLoadRec, targetsPct } from "@/lib/targetEvaluation";
 
-const EMPTY_STATS: DashboardStats = {
-  totalSessions: 0,
-  activeAthletes: 0,
-  avgAttendance: 0,
-  totalTeams: 0,
-  avgTeamLoad: 0,
-  topPerformer: "N/A",
-  lowestAttendance: 0,
-};
-
-type SortMode = "name" | "velocity";
-const SORT_LABELS: Record<SortMode, string> = { name: "Name (A-Z)", velocity: "Velocity" };
+type SortMode = "name" | "targets";
+const SORT_LABELS: Record<SortMode, string> = { name: "Name (A-Z)", targets: "Targets reached" };
 
 /** Checkbox-style row for the filter/columns dropdowns. */
 function CheckRow({ label, on, onClick }: { label: string; on: boolean; onClick: () => void }) {
@@ -65,7 +55,6 @@ const Index = () => {
   const [athletes, setAthletes] = useState<PlayerWithStats[]>([]);
   const [coachGroups, setCoachGroups] = useState<CoachGroup[]>([]);
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState<DashboardStats>(EMPTY_STATS);
   const [roster, setRoster] = useState<RosterMetricsResult | null>(null);
   const [nextPlans, setNextPlans] = useState<Map<string, NextPlanInfo>>(new Map());
 
@@ -89,14 +78,15 @@ const Index = () => {
     try {
       setLoading(true);
       const coachUserId = user?.id ?? "";
-      const teamIds = coachUserId ? await getCoachTeamIds(coachUserId) : [];
-      const [players, dashboardStats, groups] = await Promise.all([
+      // teamIds is resolved as part of scoping the roster query itself
+      // (getPlayersWithStatsByCoach → getCoachTeamIds internally); no separate
+      // dashboard-stats fetch is needed anymore — attendance now comes from
+      // the same rosterMetrics pipeline as its own trend (see below).
+      const [players, groups] = await Promise.all([
         getPlayersWithStatsByCoach(coachUserId),
-        getCoachDashboardStats(teamIds),
         coachUserId ? getCoachGroups(coachUserId) : Promise.resolve([]),
       ]);
       setAthletes(players);
-      setStats(dashboardStats);
       setCoachGroups(groups);
 
       // Batched roster series + upcoming plans (fixed query count, not per-player).
@@ -130,7 +120,6 @@ const Index = () => {
       console.error("Error loading data:", error);
       toast.error(`Failed to load dashboard data: ${error instanceof Error ? error.message : "Unknown error"}`);
       setAthletes([]);
-      setStats(EMPTY_STATS);
       setRoster(null);
     } finally {
       setLoading(false);
@@ -188,10 +177,11 @@ const Index = () => {
       return true;
     });
     return [...list].sort((a, b) => {
-      if (sortMode === "velocity") {
-        const va = metricsByPlayer.get(a.id)?.recentVel ?? a.avgVelocity;
-        const vb = metricsByPlayer.get(b.id)?.recentVel ?? b.avgVelocity;
-        return vb - va;
+      if (sortMode === "targets") {
+        // No-targets-set athletes sort last, not first (a null pct isn't "0").
+        const pa = targetsPct(metricsByPlayer.get(a.id)?.targetsReached ?? { inTarget: 0, withTarget: 0 }) ?? -1;
+        const pb = targetsPct(metricsByPlayer.get(b.id)?.targetsReached ?? { inTarget: 0, withTarget: 0 }) ?? -1;
+        return pb - pa;
       }
       return a.name.localeCompare(b.name);
     });
@@ -206,17 +196,24 @@ const Index = () => {
   );
 
   // ── Derived: KPI values ────────────────────────────────────────────────────
-  const teamVelNow = team && team.velSeries.length ? team.velSeries[team.velSeries.length - 1] : null;
-  const teamVelPrev = team && team.velSeries.length > 1 ? team.velSeries[team.velSeries.length - 2] : null;
   const attNow = team && team.attSeries.length ? team.attSeries[team.attSeries.length - 1] : null;
   const attPrev = team && team.attSeries.length > 1 ? team.attSeries[team.attSeries.length - 2] : null;
+  const targetsNow = team && team.targetsReachedSeries.length ? team.targetsReachedSeries[team.targetsReachedSeries.length - 1] : null;
+  const targetsPrev = team && team.targetsReachedSeries.length > 1 ? team.targetsReachedSeries[team.targetsReachedSeries.length - 2] : null;
 
+  // Four buckets, not three — "No target set" is a distinct state from
+  // "Maintain" (one means "on pace", the other means "nothing to evaluate").
+  // Bucketed via the same classifyLoadRec the chip uses, so this can't drift
+  // out of sync with what the chip actually renders the way the old
+  // strict-equality version did.
   const loadMix = useMemo(() => {
-    const mix = { Increase: 0, Maintain: 0, Decrease: 0 };
+    const mix = { increase: 0, maintain: 0, decrease: 0, noTarget: 0 };
     for (const a of athletes) {
-      if (a.loadRec === "Increase") mix.Increase++;
-      else if (a.loadRec === "Decrease") mix.Decrease++;
-      else mix.Maintain++;
+      const bucket = classifyLoadRec(a.loadRec);
+      if (bucket === "increase") mix.increase++;
+      else if (bucket === "decrease") mix.decrease++;
+      else if (bucket === "no-target") mix.noTarget++;
+      else mix.maintain++; // maintain / new / unknown
     }
     return mix;
   }, [athletes]);
@@ -250,7 +247,7 @@ const Index = () => {
         <section style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 24 }}>
           <KpiTile
             label="Avg attendance"
-            value={stats.avgAttendance}
+            value={team?.avgAttendance ?? 0}
             unit="%"
             delta={attNow != null && attPrev != null ? attNow - attPrev : null}
             deltaSuffix="pt"
@@ -261,12 +258,13 @@ const Index = () => {
             accent="var(--brand)"
           />
           <KpiTile
-            label="Team avg velocity"
-            value={teamVelNow != null ? teamVelNow.toFixed(2) : "—"}
-            unit="m/s"
-            delta={teamVelNow != null && teamVelPrev != null ? +(teamVelNow - teamVelPrev).toFixed(2) : null}
-            footnote="roster average · weekly"
-            sparkData={team && team.velSeries.length > 1 ? team.velSeries : undefined}
+            label="Targets reached"
+            value={team && team.targetsReached.withTarget > 0 ? Math.round((team.targetsReached.inTarget / team.targetsReached.withTarget) * 100) : "No targets set"}
+            unit={team && team.targetsReached.withTarget > 0 ? "%" : undefined}
+            delta={targetsNow != null && targetsPrev != null ? targetsNow - targetsPrev : null}
+            deltaSuffix="pt"
+            footnote={team && team.targetsReached.withTarget > 0 ? `${team.targetsReached.inTarget}/${team.targetsReached.withTarget} reps in target` : "assign a target velocity to start tracking"}
+            sparkData={team && team.targetsReachedSeries.length > 1 ? team.targetsReachedSeries : undefined}
             sparkAxisLabels={["8 wks ago", "this wk"]}
             accent="var(--brand)"
           />
@@ -291,18 +289,20 @@ const Index = () => {
                 size={80}
                 thickness={11}
                 segments={[
-                  { value: loadMix.Increase, color: "var(--good)" },
-                  { value: loadMix.Maintain, color: "var(--ink-3)" },
-                  { value: loadMix.Decrease, color: "var(--warn)" },
+                  { value: loadMix.increase, color: "var(--good)" },
+                  { value: loadMix.maintain, color: "var(--ink-3)" },
+                  { value: loadMix.decrease, color: "var(--warn)" },
+                  { value: loadMix.noTarget, color: "var(--ink-4)" },
                 ]}
-                centerValue={loadMix.Maintain}
-                centerLabel="on plan"
+                centerValue={loadMix.maintain}
+                centerLabel="maintain"
               />
               <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 11.5 }}>
                 {[
-                  { c: "var(--good)", l: "Increase", v: loadMix.Increase },
-                  { c: "var(--ink-3)", l: "Maintain", v: loadMix.Maintain },
-                  { c: "var(--warn)", l: "Reduce", v: loadMix.Decrease },
+                  { c: "var(--good)", l: "Increase", v: loadMix.increase },
+                  { c: "var(--ink-3)", l: "Maintain", v: loadMix.maintain },
+                  { c: "var(--warn)", l: "Reduce", v: loadMix.decrease },
+                  { c: "var(--ink-4)", l: "No target", v: loadMix.noTarget },
                 ].map((s) => (
                   <div key={s.l} className="row" style={{ gap: 6 }}>
                     <span style={{ width: 8, height: 8, borderRadius: 2, background: s.c }} />

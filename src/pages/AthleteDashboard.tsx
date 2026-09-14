@@ -28,6 +28,11 @@ import {
 } from "@/lib/athleteSummaryUtils";
 import { flagsFor, lastDaysFor } from "@/lib/rosterFlags";
 import { SESSIONS_TARGET } from "@/lib/vbtZones";
+import {
+  TargetsReached, ZERO_TARGETS, addTargets, evaluateRepsAgainstTargets, targetsPct,
+  buildTargetsForExercises, mergeTargetMaps, PlanExerciseLike, ExerciseTargetRange,
+  normalizeExerciseName,
+} from "@/lib/targetEvaluation";
 
 // ─── Derivation helpers ───────────────────────────────────────────────────────
 
@@ -38,6 +43,29 @@ const mean = (xs: number[]): number | null => (xs.length ? xs.reduce((a, b) => a
 function sessionAvgROM(s: SessionData): number | null {
   const roms = s.exercises.map((e) => e.avgROM).filter((v) => v > 0);
   return mean(roms);
+}
+
+/** date (YYYY-MM-DD) → { exercise name → target range }, from this athlete's plan history. */
+function buildTargetsByDate(plans: PlanRow[]): Map<string, Map<string, ExerciseTargetRange>> {
+  const byDate = new Map<string, Map<string, ExerciseTargetRange>>();
+  for (const plan of plans) {
+    const exercises = Array.isArray(plan.exercises) ? (plan.exercises as PlanExerciseLike[]) : [];
+    const dayMap = buildTargetsForExercises(exercises);
+    if (dayMap.size === 0) continue;
+    const existing = byDate.get(plan.date);
+    byDate.set(plan.date, existing ? mergeTargetMaps([existing, dayMap]) : dayMap);
+  }
+  return byDate;
+}
+
+/** Evaluate every rep in a session against that date's plan targets. */
+function evaluateSessionTargets(s: SessionData, targetsByDate: Map<string, Map<string, ExerciseTargetRange>>): TargetsReached {
+  const dayTargets = targetsByDate.get(s.date);
+  if (!dayTargets) return ZERO_TARGETS;
+  const reps = s.exercises.flatMap((ex) =>
+    ex.repData.filter((r) => r.velocity > 0).map((r) => ({ exerciseName: ex.name, velocity: r.velocity }))
+  );
+  return evaluateRepsAgainstTargets(reps, dayTargets);
 }
 
 interface PlanRow {
@@ -71,35 +99,34 @@ const METRIC_FN: Record<string, (s: SessionData) => number | null> = {
 
 // ─── Sessions tab ─────────────────────────────────────────────────────────────
 
-function SessionExerciseTrace({ exercise }: { exercise: ExerciseData }) {
+function SessionExerciseTrace({ exercise, target }: { exercise: ExerciseData; target: ExerciseTargetRange | null }) {
   const reps = [...exercise.repData]
     .filter((r) => r.velocity > 0)
     .sort((a, b) => a.setNumber - b.setNumber || a.repNumber - b.repNumber)
-    .map((r) => ({ set: r.setNumber, rep: r.repNumber, vel: r.velocity }));
+    .map((r) => ({ set: r.setNumber, rep: r.repNumber, vel: r.velocity, weight: r.weight }));
 
   const vels = reps.map((r) => r.vel);
   const sets = new Set(reps.map((r) => r.set)).size;
-  const target = exercise.targetVelocityMin > 0 ? exercise.targetVelocityMin : null;
 
   if (reps.length === 0) return <div className="v-meta" style={{ padding: "12px 0" }}>No rep data recorded for this exercise.</div>;
 
   return (
     <>
-      <RepTraceChart reps={reps} target={target} />
+      <RepTraceChart reps={reps} target={target} weightUnit={exercise.weightUnit} />
       <div className="row" style={{ marginTop: 10, gap: 24, fontSize: 11.5, color: "var(--ink-2)", flexWrap: "wrap" }}>
         <span className="mono">{reps.length} reps · {sets} set{sets !== 1 ? "s" : ""}</span>
         <span className="mono">peak {Math.max(...vels).toFixed(2)} m/s</span>
         <span className="mono">low {Math.min(...vels).toFixed(2)} m/s</span>
-        {exercise.weight > 0 && <span className="mono">{exercise.weight} {exercise.weightUnit}</span>}
       </div>
     </>
   );
 }
 
-function SessionsTab({ sessions }: { sessions: SessionData[] }) {
+function SessionsTab({ sessions, plans }: { sessions: SessionData[]; plans: PlanRow[] }) {
   const [openId, setOpenId] = useState<string | null>(sessions[0]?.id ?? null);
   const [exerciseIdx, setExerciseIdx] = useState(0);
   const sorted = useMemo(() => [...sessions].sort((a, b) => sessionTime(b) - sessionTime(a)), [sessions]);
+  const targetsByDate = useMemo(() => buildTargetsByDate(plans), [plans]);
 
   if (sorted.length === 0) {
     return <div className="v-card padded v-meta" style={{ textAlign: "center", padding: "48px 16px" }}>No sessions logged yet.</div>;
@@ -174,7 +201,10 @@ function SessionsTab({ sessions }: { sessions: SessionData[] }) {
                       ))}
                     </div>
                   </div>
-                  <SessionExerciseTrace exercise={exercise} />
+                  <SessionExerciseTrace
+                    exercise={exercise}
+                    target={targetsByDate.get(s.date)?.get(normalizeExerciseName(exercise.name)) ?? null}
+                  />
                 </div>
               )}
             </div>
@@ -550,7 +580,10 @@ export default function AthleteDashboard() {
       setAthlete(found);
       if (!found) return;
 
-      const peers = roster.filter((p) => p.team_id && p.team_id === found.team_id);
+      // Exclude the athlete being viewed from their own "group average" — otherwise
+      // the comparison is partly against themself, understating how different they
+      // really are from peers (worst on small groups).
+      const peers = roster.filter((p) => p.team_id && p.team_id === found.team_id && p.id !== found.id);
       setGroupPeers(peers);
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -591,15 +624,13 @@ export default function AthleteDashboard() {
     () => sorted.map((s) => sessionAvgVelocity(s)).filter((v): v is number => v != null),
     [sorted]
   );
+  // Still used by InsightRail's "vs group average" comparison — the KPI-strip
+  // headline was replaced by Targets Reached (see athleteTargets below), but
+  // this raw average remains a legitimate secondary/comparative number.
   const recentVel = useMemo(() => {
     const m = mean(sessionVels.slice(-3));
     return m != null ? +m.toFixed(2) : null;
   }, [sessionVels]);
-  const velDelta = useMemo(() => {
-    if (sessionVels.length < 5) return null;
-    const prior = mean(sessionVels.slice(0, -3));
-    return recentVel != null && prior != null ? +(recentVel - prior).toFixed(2) : null;
-  }, [sessionVels, recentVel]);
 
   const dropSeries = useMemo(
     () => sorted.map((s) => sessionVelocityDropoff(s)).filter((v): v is number => v != null),
@@ -616,6 +647,26 @@ export default function AthleteDashboard() {
     (d: Date, weeks: number) => weeks - 1 - differenceInCalendarWeeks(now, d, { weekStartsOn: 1 }),
     [now]
   );
+
+  // Targets Reached — replaces cross-exercise average velocity as the headline
+  // KPI (see CALCULATIONS.md). Built from this athlete's own plan history
+  // (target_velocity_min/max per exercise) rather than a new roundtrip, since
+  // `sessions`/`plans` are already fetched above.
+  const targetsByDate = useMemo(() => buildTargetsByDate(plans), [plans]);
+  const athleteTargets = useMemo(
+    () => sorted.reduce((acc, s) => addTargets(acc, evaluateSessionTargets(s, targetsByDate)), { ...ZERO_TARGETS }),
+    [sorted, targetsByDate]
+  );
+  const targetsSeries8 = useMemo(() => {
+    const WEEKS = 8;
+    const buckets: TargetsReached[] = Array.from({ length: WEEKS }, () => ({ ...ZERO_TARGETS }));
+    for (const s of sorted) {
+      const w = weekIdx(new Date(s.startedAt ?? s.createdAt), WEEKS);
+      if (w < 0 || w >= WEEKS) continue;
+      buckets[w] = addTargets(buckets[w], evaluateSessionTargets(s, targetsByDate));
+    }
+    return buckets.map((t) => targetsPct(t));
+  }, [sorted, targetsByDate, weekIdx]);
 
   const velTrend12 = useMemo<VelTrendPoint[]>(() => {
     const WEEKS = 12;
@@ -650,33 +701,52 @@ export default function AthleteDashboard() {
 
   const sessionsThisWeek = weekly8.length ? weekly8[weekly8.length - 1].v : 0;
 
-  const { fvPoints, fvUnit } = useMemo(() => {
-    const points: FVPoint[] = [];
-    let unit = "lbs";
+  // Load–velocity points, grouped per exercise — a load-velocity relationship
+  // only means something within ONE exercise (squat load vs. bench load don't
+  // belong on the same regression line), so this is scoped to whichever
+  // exercise is selected below rather than blended across all of them. Weight
+  // is the mean of that SET's own logged reps, not one flat exercise-level
+  // number, so ramping/pyramid sets each plot at their real load.
+  const fvByExercise = useMemo(() => {
+    const map = new Map<string, { points: FVPoint[]; unit: string }>();
     const cutoff = subDays(now, 56);
     const recentCutoff = subDays(now, 14);
     for (const s of sorted) {
       const when = new Date(s.startedAt ?? s.createdAt);
       if (when < cutoff) continue;
       for (const ex of s.exercises) {
-        if (!(ex.weight > 0)) continue;
-        unit = ex.weightUnit || unit;
-        const bySet = new Map<number, number[]>();
+        const bySet = new Map<number, { vels: number[]; weights: number[] }>();
         for (const r of ex.repData) {
-          if (r.velocity > 0) {
-            const list = bySet.get(r.setNumber);
-            if (list) list.push(r.velocity);
-            else bySet.set(r.setNumber, [r.velocity]);
-          }
+          if (r.velocity <= 0) continue;
+          let bucket = bySet.get(r.setNumber);
+          if (!bucket) { bucket = { vels: [], weights: [] }; bySet.set(r.setNumber, bucket); }
+          bucket.vels.push(r.velocity);
+          if (r.weight > 0) bucket.weights.push(r.weight);
         }
-        for (const vels of bySet.values()) {
+        for (const { vels, weights } of bySet.values()) {
+          if (weights.length === 0) continue; // no load recorded for this set — nothing to plot on a load axis
           const v = mean(vels);
-          if (v != null) points.push({ exercise: ex.name, load: ex.weight, vel: +v.toFixed(2), recent: when >= recentCutoff });
+          const load = mean(weights);
+          if (v == null || load == null) continue;
+          const entry = map.get(ex.name) ?? { points: [] as FVPoint[], unit: ex.weightUnit };
+          entry.points.push({ exercise: ex.name, load: +load.toFixed(1), vel: +v.toFixed(2), recent: when >= recentCutoff });
+          entry.unit = ex.weightUnit;
+          map.set(ex.name, entry);
         }
       }
     }
-    return { fvPoints: points.slice(-120), fvUnit: unit };
+    for (const entry of map.values()) entry.points = entry.points.slice(-60);
+    return map;
   }, [sorted, now]);
+
+  const fvExerciseOptions = useMemo(
+    () => [...fvByExercise.entries()].sort((a, b) => b[1].points.length - a[1].points.length).map(([name]) => name),
+    [fvByExercise]
+  );
+  const [fvExercisePick, setFvExercisePick] = useState<string | null>(null);
+  const fvExercise = fvExercisePick && fvByExercise.has(fvExercisePick) ? fvExercisePick : fvExerciseOptions[0] ?? null;
+  const fvPoints = fvExercise ? fvByExercise.get(fvExercise)!.points : [];
+  const fvUnit = fvExercise ? fvByExercise.get(fvExercise)!.unit : "lbs";
 
   const exRange = useMemo<ExerciseRangeRow[]>(() => {
     const cutoff = subDays(now, 28);
@@ -785,13 +855,11 @@ export default function AthleteDashboard() {
           {/* KPI strip */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, padding: "20px 0" }}>
             <KpiTile
-              label="Avg velocity"
-              value={recentVel != null ? recentVel.toFixed(2) : athlete.avgVelocity > 0 ? athlete.avgVelocity.toFixed(2) : "—"}
-              unit="m/s"
-              delta={velDelta}
-              footnote="last 3 sessions vs prior"
-              sparkData={sessionVels.length > 1 ? sessionVels.slice(-8) : undefined}
-              sparkTarget={0.75}
+              label="Targets reached"
+              value={athleteTargets.withTarget > 0 ? `${Math.round((athleteTargets.inTarget / athleteTargets.withTarget) * 100)}` : "No targets set"}
+              unit={athleteTargets.withTarget > 0 ? "%" : undefined}
+              footnote={athleteTargets.withTarget > 0 ? `${athleteTargets.inTarget}/${athleteTargets.withTarget} reps in target` : "assign a target velocity to start tracking"}
+              sparkData={targetsSeries8.filter((v): v is number => v != null).length > 1 ? targetsSeries8.filter((v): v is number => v != null) : undefined}
               accent="var(--brand)"
             />
             <KpiTile
@@ -845,16 +913,41 @@ export default function AthleteDashboard() {
                     <div className="v-card padded" style={{ minWidth: 0 }}>
                       <div style={{ marginBottom: 12 }}>
                         <div className="v-h2">12-week velocity trend</div>
-                        <div className="v-meta" style={{ marginTop: 2 }}>Weekly average across all logged sets. Band shows the prescribed working range.</div>
+                        <div className="v-meta" style={{ marginTop: 2 }}>
+                          Weekly average across every logged set, all exercises blended — a real per-exercise target
+                          band isn't meaningful here since this line mixes exercises. See "Per-exercise velocity
+                          range" below, or the Targets Reached KPI above, for target-anchored numbers.
+                        </div>
                       </div>
-                      <VelocityTrendChart data={velTrend12} target={[0.55, 0.85]} />
+                      <VelocityTrendChart data={velTrend12} />
                     </div>
 
                     <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 16 }}>
                       <div className="v-card padded" style={{ minWidth: 0 }}>
-                        <div style={{ marginBottom: 12 }}>
-                          <div className="v-h2">Load–velocity profile</div>
-                          <div className="v-meta" style={{ marginTop: 2 }}>Each dot is one set, last 8 weeks. Recent sets darker.</div>
+                        <div className="row" style={{ justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+                          <div>
+                            <div className="v-h2">Load–velocity profile</div>
+                            <div className="v-meta" style={{ marginTop: 2 }}>Each dot is one set, last 8 weeks. Recent sets darker. One exercise at a time — load-velocity only means something within a single lift.</div>
+                          </div>
+                          {fvExerciseOptions.length > 1 && (
+                            <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+                              {fvExerciseOptions.map((name) => (
+                                <button
+                                  key={name}
+                                  className="v-btn"
+                                  onClick={() => setFvExercisePick(name)}
+                                  style={{
+                                    height: 24, fontSize: 11,
+                                    background: name === fvExercise ? "var(--ink-0)" : "transparent",
+                                    color: name === fvExercise ? "#fff" : "var(--ink-1)",
+                                    borderColor: name === fvExercise ? "var(--ink-0)" : "transparent",
+                                  }}
+                                >
+                                  {name}
+                                </button>
+                              ))}
+                            </div>
+                          )}
                         </div>
                         <ForceVelocityChart data={fvPoints} unitLabel={fvUnit} />
                       </div>
@@ -893,7 +986,7 @@ export default function AthleteDashboard() {
                   </div>
                 )}
 
-                {tab === "sessions" && <SessionsTab sessions={sessions} />}
+                {tab === "sessions" && <SessionsTab sessions={sessions} plans={plans} />}
                 {tab === "readiness" && <ReadinessTab athlete={athlete} sessions={sessions} indicators={indicators} />}
                 {tab === "programming" && <ProgrammingTab plans={plans} />}
               </div>

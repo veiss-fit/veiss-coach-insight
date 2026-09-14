@@ -22,21 +22,22 @@ export interface RepData {
   rom: number;       // rom_mm
   tempo: number;     // concentric_duration_s
   eccentric: number; // eccentric_duration_s
+  /** This rep's own logged load — weight can legitimately change set to set
+   *  (ramping/pyramid sets), so it's carried per-rep rather than once per
+   *  exercise. See CALCULATIONS.md re: weightUnit being an unverified 'lbs'
+   *  assumption (the reps table has no unit column to check it against). */
+  weight: number;
 }
 
 export interface ExerciseData {
   id: string;
   name: string;
-  sets: number;
-  reps: number;
-  weight: number;
+  /** Exercise-level — the reps table has no unit column, so this is an
+   *  app-wide assumption, not something read from data. See CALCULATIONS.md. */
   weightUnit: 'lbs' | 'kg';
   avgVelocity: number;
   avgROM: number;    // NEW
   avgTempo: number;  // NEW
-  peakVelocity: number;
-  targetVelocityMin: number;
-  targetVelocityMax: number;
   repData: RepData[];
 }
 
@@ -135,16 +136,10 @@ export const getSessionExercises = async (sessionId: string): Promise<ExerciseDa
         .map((w) => ({
           id: `${sessionId}-${w.exercise_name}`,
           name: w.exercise_name,
-          sets: (w.metrics as any)?.totalSets ?? 0,
-          reps: (w.metrics as any)?.totalReps ?? 0,
-          weight: (w.metrics as any)?.averageWeight ?? 0,
-          weightUnit: 'lbs',
+          weightUnit: 'lbs' as const,
           avgVelocity: 0,
           avgROM: 0,
           avgTempo: 0,
-          peakVelocity: 0,
-          targetVelocityMin: 0,
-          targetVelocityMax: 0,
           repData: [],
         }));
     }
@@ -167,11 +162,6 @@ export const getSessionExercises = async (sessionId: string): Promise<ExerciseDa
 
     // 3. Process each exercise group
     exerciseMap.forEach((exerciseReps, exerciseName) => {
-      const sets = Math.max(...exerciseReps.map(r => r.set_number));
-      // Calculate real counts based on the actual algorithm output
-      const totalRepsAcrossAllSets = exerciseReps.length;
-      const weight = exerciseReps[0]?.weight || 0;
-
       // Extract Bare Metrics for calculation
       const velocities = exerciseReps.map(r => Number(r.average_rep_speed)).filter(v => v > 0);
       const roms = exerciseReps.map(r => Number(r.rom_mm)).filter(v => v > 0);
@@ -190,13 +180,8 @@ export const getSessionExercises = async (sessionId: string): Promise<ExerciseDa
         ? parseFloat((tempos.reduce((a, b) => a + b, 0) / tempos.length).toFixed(2))
         : 0;
 
-      const peakVelocity = velocities.length > 0 ? Math.max(...velocities) : 0;
-
-      // Logic for target zones (Standard VBT defaults)
-      const targetVelocityMin = Math.max(0.1, avgVelocity - 0.15);
-      const targetVelocityMax = avgVelocity + 0.15;
-
-      // 4. Map the repData (The Bare Metrics)
+      // 4. Map the repData (The Bare Metrics) — weight travels per-rep so sets
+      // with different loads (ramping/pyramid) each show their own true value.
       const repData: RepData[] = exerciseReps.map((rep) => ({
         repNumber: rep.rep_number,
         setNumber: rep.set_number, // We keep the set number separate now for better graphing
@@ -204,21 +189,16 @@ export const getSessionExercises = async (sessionId: string): Promise<ExerciseDa
         rom: Number(rep.rom_mm) || 0,
         tempo: Number(rep.concentric_duration_s) || 0,
         eccentric: Number(rep.eccentric_duration_s) || 0,
+        weight: Number(rep.weight) || 0,
       }));
 
       exercises.push({
         id: `${sessionId}-${exerciseName}`,
         name: exerciseName,
-        sets,
-        reps: Math.round(totalRepsAcrossAllSets / sets), // Estimated reps per set
-        weight: weight || 0,
         weightUnit: 'lbs',
         avgVelocity,
         avgROM,   // NEW: Used in UI summary
         avgTempo, // NEW: Used in UI summary
-        peakVelocity: parseFloat(peakVelocity.toFixed(2)),
-        targetVelocityMin: parseFloat(targetVelocityMin.toFixed(2)),
-        targetVelocityMax: parseFloat(targetVelocityMax.toFixed(2)),
         repData,
       });
     });

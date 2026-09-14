@@ -83,7 +83,11 @@ function sampleStdDev(vals: number[], m: number): number {
   );
 }
 
-function isValidExerciseName(name: string | null | undefined): name is string {
+// Exported so rosterMetricsService can apply the same artifact-name filter when
+// it reimplements this module's per-exercise partitioning over raw DB rows
+// (roster-wide queries can't reuse the functions below directly — they operate
+// on already-shaped SessionData, not raw rep rows).
+export function isValidExerciseName(name: string | null | undefined): name is string {
   if (!name) return false;
   if ((name.match(/[a-zA-Z]/g) ?? []).length < 2) return false;
   if (ARTIFACT_EXERCISE_NAMES.has(name)) return false;
@@ -230,19 +234,11 @@ export function sessionVolume(s: SessionData): number | null {
   let total = 0;
   for (const exercise of s.exercises) {
     if (!isValidExerciseName(exercise.name)) continue;
-    const weight = exercise.weight ?? 0;
-    const bySet = new Map<number, RepData[]>();
+    // Each rep carries its own logged weight (loads can vary set to set), so
+    // this sums true per-rep load rather than assuming one flat weight for
+    // the whole exercise.
     for (const rep of exercise.repData) {
-      const setNum = rep.setNumber ?? 1;
-      if (!bySet.has(setNum)) bySet.set(setNum, []);
-      bySet.get(setNum)!.push(rep);
-    }
-    for (const reps of bySet.values()) {
-      if (weight > 0) {
-        total += reps.length * weight; // sets × reps × weight per set
-      } else {
-        total += reps.length;          // bodyweight: count reps only
-      }
+      total += rep.weight > 0 ? rep.weight : 1; // bodyweight rep: count it, not zero it out
     }
   }
   return total > 0 ? total : null;
@@ -455,9 +451,10 @@ export function computeRecentSessions(sessions: SessionData[], count = 5): Recen
       id: s.id,
       date: s.date,
       exerciseNames: s.exercises.map((e) => e.name).filter(isValidExerciseName),
+      // True distinct set count (not the old Math.max(set_number) estimate).
       totalSets: s.exercises
         .filter((e) => isValidExerciseName(e.name))
-        .reduce((sum, e) => sum + e.sets, 0),
+        .reduce((sum, e) => sum + new Set(e.repData.map((r) => r.setNumber)).size, 0),
       totalReps: s.exercises
         .filter((e) => isValidExerciseName(e.name))
         .reduce((sum, e) => sum + e.repData.length, 0),

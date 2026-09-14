@@ -20,6 +20,16 @@ export interface WorkoutExercise {
   perSet: WorkoutSetSpec[];
   weight?: number;
   weightUnit?: 'lbs' | 'kg';
+  /**
+   * Coach-entered target velocity RANGE for this exercise (m/s) — distinct
+   * from perSet[].targetVelocity, which is a single prescribed point value
+   * per set. This range is what "Targets Reached" evaluates logged reps
+   * against (see src/lib/targetEvaluation.ts); both optional, and both must
+   * be set for the exercise to count as targeted. Data entry only — never
+   * derived/inferred.
+   */
+  targetVelocityMin?: number | null;
+  targetVelocityMax?: number | null;
 }
 
 export interface WorkoutPlanData {
@@ -70,6 +80,10 @@ export const sendWorkoutPlan = async (
         reps: first.reps,
         targetVelocity: first.targetVelocity ?? 0,
         perSet,
+        // Only written when both bounds are set — a one-sided range isn't
+        // evaluable (see targetEvaluation.buildTargetsForExercises).
+        targetVelocityMin: ex.targetVelocityMin ?? null,
+        targetVelocityMax: ex.targetVelocityMax ?? null,
       };
     });
 

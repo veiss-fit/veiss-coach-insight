@@ -65,6 +65,14 @@ interface BuilderExercise {
   weightUnit: 'lbs' | 'kg'
   /** UI-only: false = one Reps field + one velocity slider apply to every set (default). */
   customized: boolean
+  /**
+   * Optional target velocity RANGE (m/s) for this exercise — what "Targets
+   * Reached" evaluates logged reps against. Distinct from perSet[].targetVelocity
+   * (a single prescribed point per set, shown on the slider above). Both
+   * optional; both must be set for the exercise to count as targeted.
+   */
+  targetVelocityMin: number | null
+  targetVelocityMax: number | null
 }
 
 const DEFAULT_SET: SetSpec = { reps: 5, targetVelocity: 0.75 }
@@ -73,10 +81,12 @@ const makeUniformSets = (count: number, template: SetSpec = DEFAULT_SET): SetSpe
   Array.from({ length: Math.max(1, count) }, () => ({ ...template }))
 
 const fromTemplateExercise = (ex: TemplateExercise): BuilderExercise => {
+  const targetVelocityMin = ex.targetVelocityMin ?? null
+  const targetVelocityMax = ex.targetVelocityMax ?? null
   if (ex.perSet && ex.perSet.length > 0) {
     const perSet = ex.perSet.map(s => ({ reps: s.reps ?? 5, targetVelocity: s.targetVelocity ?? null }))
     const varies = perSet.some(s => s.reps !== perSet[0].reps || s.targetVelocity !== perSet[0].targetVelocity)
-    return { name: ex.name, perSet, weight: 0, weightUnit: 'lbs', customized: varies }
+    return { name: ex.name, perSet, weight: 0, weightUnit: 'lbs', customized: varies, targetVelocityMin, targetVelocityMax }
   }
   // Template saved before per-set support existed — synthesize a uniform set list.
   return {
@@ -85,6 +95,8 @@ const fromTemplateExercise = (ex: TemplateExercise): BuilderExercise => {
     weight: 0,
     weightUnit: 'lbs',
     customized: false,
+    targetVelocityMin,
+    targetVelocityMax,
   }
 }
 
@@ -162,6 +174,54 @@ function MiniCheckbox({ on }: { on: boolean }) {
     >
       {on && <Check size={11} strokeWidth={2.5} />}
     </span>
+  )
+}
+
+/**
+ * Optional target-velocity-range inputs (m/s) — what "Targets Reached" scores
+ * an athlete's logged reps against. Deliberately just two plain number fields:
+ * no slider, no zone picker — data entry only, and both are optional.
+ */
+function TargetRangeInputs({
+  min, max, onChange,
+}: {
+  min: number | null
+  max: number | null
+  onChange: (patch: { targetVelocityMin?: number | null; targetVelocityMax?: number | null }) => void
+}) {
+  const parse = (raw: string): number | null => (raw === '' ? null : Number(raw))
+  return (
+    <div className="row" style={{ gap: 10, alignItems: 'flex-end' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <span className="v-label" style={{ fontSize: 9 }}>Target min (m/s)</span>
+        <input
+          className="v-input mono"
+          type="number"
+          step={0.05}
+          min={0}
+          placeholder="optional"
+          value={min ?? ''}
+          onChange={e => onChange({ targetVelocityMin: parse(e.target.value) })}
+          style={{ width: 96, height: 30 }}
+        />
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <span className="v-label" style={{ fontSize: 9 }}>Target max (m/s)</span>
+        <input
+          className="v-input mono"
+          type="number"
+          step={0.05}
+          min={0}
+          placeholder="optional"
+          value={max ?? ''}
+          onChange={e => onChange({ targetVelocityMax: parse(e.target.value) })}
+          style={{ width: 96, height: 30 }}
+        />
+      </div>
+      {min != null && max != null && min > max && (
+        <span className="v-meta" style={{ fontSize: 11, color: 'var(--warn)' }}>min is above max</span>
+      )}
+    </div>
   )
 }
 
@@ -341,6 +401,14 @@ function ExerciseCard({ ex, idx, onChange, onRemove }: ExerciseCardProps) {
         </label>
       </div>
 
+      <div style={{ marginTop: 10 }}>
+        <TargetRangeInputs
+          min={ex.targetVelocityMin}
+          max={ex.targetVelocityMax}
+          onChange={patch => onChange(idx, { ...ex, ...patch })}
+        />
+      </div>
+
       {!ex.customized ? (
         <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line-0)' }}>
           <VelocityZoneSlider value={uniformVelocity} onChange={v => setUniform({ targetVelocity: v })} showInfo />
@@ -380,13 +448,17 @@ interface EditorExercise {
   perSet: SetSpec[]
   customized: boolean
   showVelocity: boolean
+  targetVelocityMin: number | null
+  targetVelocityMax: number | null
 }
 
 const toEditorExercise = (ex: TemplateExercise): EditorExercise => {
+  const targetVelocityMin = ex.targetVelocityMin ?? null
+  const targetVelocityMax = ex.targetVelocityMax ?? null
   if (ex.perSet && ex.perSet.length > 0) {
     const perSet = ex.perSet.map(s => ({ reps: s.reps ?? 5, targetVelocity: s.targetVelocity ?? null }))
     const varies = perSet.some(s => s.reps !== perSet[0].reps || s.targetVelocity !== perSet[0].targetVelocity)
-    return { name: ex.name, perSet, customized: varies, showVelocity: perSet.some(s => s.targetVelocity != null) }
+    return { name: ex.name, perSet, customized: varies, showVelocity: perSet.some(s => s.targetVelocity != null), targetVelocityMin, targetVelocityMax }
   }
   // Template saved before per-set support existed — synthesize a uniform set list.
   return {
@@ -394,6 +466,8 @@ const toEditorExercise = (ex: TemplateExercise): EditorExercise => {
     perSet: makeUniformSets(ex.sets ?? 3, { reps: ex.reps ?? 5, targetVelocity: ex.targetVelocity ?? 0.75 }),
     customized: false,
     showVelocity: ex.targetVelocity != null,
+    targetVelocityMin,
+    targetVelocityMax,
   }
 }
 
@@ -483,6 +557,14 @@ function TemplateExerciseRow({
           <MiniCheckbox on={!ex.customized} />
           Same for every set
         </label>
+      </div>
+
+      <div style={{ marginTop: 10 }}>
+        <TargetRangeInputs
+          min={ex.targetVelocityMin}
+          max={ex.targetVelocityMax}
+          onChange={patch => onChange(idx, patch)}
+        />
       </div>
 
       {ex.customized ? (
@@ -577,6 +659,8 @@ function TemplateEditorDialog({ open, initial, onSave, onClose }: TemplateEditor
         reps: first?.reps,
         targetVelocity: ex.showVelocity ? (first?.targetVelocity ?? undefined) : undefined,
         perSet,
+        targetVelocityMin: ex.targetVelocityMin,
+        targetVelocityMax: ex.targetVelocityMax,
       }
     })
     onSave({ name: name.trim(), description: description.trim(), exercises: clean })
@@ -618,7 +702,7 @@ function TemplateEditorDialog({ open, initial, onSave, onClose }: TemplateEditor
               <button
                 className="v-btn"
                 style={{ fontSize: 12 }}
-                onClick={() => setExercises(p => [...p, { name: '', perSet: makeUniformSets(3, { reps: 5, targetVelocity: null }), customized: false, showVelocity: false }])}
+                onClick={() => setExercises(p => [...p, { name: '', perSet: makeUniformSets(3, { reps: 5, targetVelocity: null }), customized: false, showVelocity: false, targetVelocityMin: null, targetVelocityMax: null }])}
               >
                 <Plus size={12} strokeWidth={1.5} />Add
               </button>
@@ -907,7 +991,7 @@ const SendProgramming = () => {
     setExercises(p => p.map((e, idx) => (idx === i ? v : e)))
   const removeExercise = (i: number) => setExercises(p => p.filter((_, idx) => idx !== i))
   const addExercise = () =>
-    setExercises(p => [...p, { name: '', perSet: makeUniformSets(3), weight: 0, weightUnit: 'lbs', customized: false }])
+    setExercises(p => [...p, { name: '', perSet: makeUniformSets(3), weight: 0, weightUnit: 'lbs', customized: false, targetVelocityMin: null, targetVelocityMax: null }])
 
   const resetBuilder = () => {
     setWorkoutName(defaultWorkoutName())
@@ -932,6 +1016,9 @@ const SendProgramming = () => {
         Validators.workoutSets(ex.perSet.length) ||
         Validators.workoutWeight(ex.weight)
       if (err) { toast.error(`Exercise ${i + 1}: ${err}`); return }
+      if (ex.targetVelocityMin != null && ex.targetVelocityMax != null && ex.targetVelocityMin > ex.targetVelocityMax) {
+        toast.error(`Exercise ${i + 1}: target min can't be above target max`); return
+      }
       for (let s = 0; s < ex.perSet.length; s++) {
         const repsErr = Validators.workoutReps(ex.perSet[s].reps)
         if (repsErr) { toast.error(`Exercise ${i + 1}, Set ${s + 1}: ${repsErr}`); return }
@@ -947,6 +1034,8 @@ const SendProgramming = () => {
           weight: ex.weight,
           weightUnit: ex.weightUnit,
           perSet: ex.perSet.map(s => ({ reps: s.reps, targetVelocity: s.targetVelocity ?? 0 })),
+          targetVelocityMin: ex.targetVelocityMin,
+          targetVelocityMax: ex.targetVelocityMax,
         })),
         notes: 'Assigned by Coach',
       }

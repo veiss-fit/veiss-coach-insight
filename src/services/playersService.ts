@@ -1,5 +1,9 @@
 import { supabase } from '@/lib/supabase';
 import { getAttendanceSummary, WorkoutPlanLike, WorkoutSessionLike } from '@/lib/workoutAttendance';
+import {
+  buildTargetsForExercises, mergeTargetMaps, computeLoadRecommendation,
+  ExerciseTargetRange, ExerciseSessionMean, PlanExerciseLike,
+} from '@/lib/targetEvaluation';
 import { Database } from '@/types/database';
 
 type Player = Database['public']['Tables']['players']['Row'];
@@ -13,8 +17,7 @@ export interface PlayerWithStats extends Player {
   avgVelocity: number;
   attendance: number;
   loadRec: string;
-  engagement: 'High' | 'Moderate' | 'Low';
-  
+
   // ✅ PHASE 22 NEW METRICS
   avgROM: number;
   avgTempo: number;
@@ -210,13 +213,18 @@ export const getPlayersByTeamId = async (teamId: string): Promise<PlayerWithStat
       .single() as { data: { user_id: string | null } | null; error: any };
 
     if (playerError || !player) {
-      return { avgVelocity: 0, attendance: 0, loadRec: 'New', engagement: 'Moderate' as const, avgROM: 0, avgTempo: 0, lastWorkout: null };
+      return { avgVelocity: 0, attendance: 0, loadRec: 'New' as const, avgROM: 0, avgTempo: 0, lastWorkout: null };
     }
 
-    const { data: workoutPlans } = await supabase
+    // Full plan history (no date filter) — target_velocity_min/max live on
+    // exercises here and the load recommendation needs to be able to look back
+    // as far as a targeted exercise was last actually trained.
+    const { data: workoutPlans } = await (supabase as any)
       .from('workout_plans')
-      .select('date, title, is_completed')
-      .eq('player_id', playerId);
+      .select('date, title, is_completed, exercises')
+      .eq('player_id', playerId) as {
+        data: Array<Pick<WorkoutPlan, 'date' | 'title' | 'is_completed'> & { exercises: unknown }> | null;
+      };
 
     const sessionOwnerIds = Array.from(new Set([playerId, player.user_id].filter(Boolean) as string[]));
 
@@ -240,25 +248,34 @@ export const getPlayersByTeamId = async (teamId: string): Promise<PlayerWithStat
     const { data: sessions } = sessionOwnerIds.length > 0
       ? await supabase
           .from('sessions')
-          .select('id')
+          .select('id, created_at')
           .in('user_id', sessionOwnerIds)
           .gte('created_at', thirtyDaysAgo.toISOString())
-      : { data: [] as Pick<Session, 'id'>[] };
+      : { data: [] as Pick<Session, 'id' | 'created_at'>[] };
 
-    const totalSessions = sessions?.length || 0;
     let avgVelocity = 0;
     let avgROM = 0;
     let avgTempo = 0;
+    const exerciseSessionMeans: ExerciseSessionMean[] = [];
 
     if (sessions && sessions.length > 0) {
       const sessionIds = sessions.map(s => s.id);
-      
-      // Pull ALL Phase 22 metrics
+      const sessionDateById = new Map<string, string>(
+        sessions.map((s): [string, string] => [s.id, s.created_at.slice(0, 10)])
+      );
+
+      // Pull ALL Phase 22 metrics, plus exercise_name/session_id so per-exercise
+      // means can be grouped for the load recommendation (Part 2 #9).
       const { data: reps } = await (supabase as any)
         .from('reps')
-        .select('average_rep_speed, rom_mm, concentric_duration_s, eccentric_duration_s')
+        .select('session_id, exercise_name, average_rep_speed, rom_mm, concentric_duration_s, eccentric_duration_s')
         .in('session_id', sessionIds)
-        .not('average_rep_speed', 'is', null) as { data: Array<{ average_rep_speed: number | null; rom_mm: number | null; concentric_duration_s: number | null }> | null };
+        .not('average_rep_speed', 'is', null) as {
+          data: Array<{
+            session_id: string; exercise_name: string | null;
+            average_rep_speed: number | null; rom_mm: number | null; concentric_duration_s: number | null;
+          }> | null
+        };
 
       if (reps && reps.length > 0) {
         const totalV = reps.reduce((sum, r) => sum + (Number(r.average_rep_speed) || 0), 0);
@@ -268,6 +285,30 @@ export const getPlayersByTeamId = async (teamId: string): Promise<PlayerWithStat
         avgVelocity = parseFloat((totalV / reps.length).toFixed(2));
         avgROM = Math.round(totalR / reps.length);
         avgTempo = parseFloat((totalC / reps.length).toFixed(2));
+
+        // Group by (session, exercise) → mean velocity, for the load-rec rule.
+        const bySessionExercise = new Map<string, number[]>();
+        for (const r of reps) {
+          const v = Number(r.average_rep_speed);
+          if (!(v > 0) || !r.exercise_name) continue;
+          const key = `${r.session_id}::${r.exercise_name}`;
+          const list = bySessionExercise.get(key);
+          if (list) list.push(v); else bySessionExercise.set(key, [v]);
+        }
+        for (const [key, vels] of bySessionExercise) {
+          // session_id is a UUID (never contains "::"), so splitting on the
+          // first occurrence safely handles exercise names with punctuation.
+          const sep = key.indexOf('::');
+          const sessionId = key.slice(0, sep);
+          const exerciseName = key.slice(sep + 2);
+          const date = sessionDateById.get(sessionId);
+          if (!date) continue;
+          exerciseSessionMeans.push({
+            sessionDate: date,
+            exerciseName,
+            avgVelocity: vels.reduce((a, b) => a + b, 0) / vels.length,
+          });
+        }
       }
     }
 
@@ -286,12 +327,19 @@ export const getPlayersByTeamId = async (teamId: string): Promise<PlayerWithStat
     );
     const attendance = attendanceSummary.attendancePercent;
 
-    // Improved Load Recommendation (Velocity Based Training Logic)
-    let loadRec = 'Maintain';
-    if (avgVelocity > 0) {
-      if (avgVelocity > 0.85) loadRec = 'Increase Load (+5%)'; 
-      else if (avgVelocity < 0.40) loadRec = 'Fatigue: Decrease Load (-10%)';
+    // Load recommendation — driven entirely by coach-set target_velocity_min/max
+    // on the plan exercise itself (see src/lib/targetEvaluation.ts). No fallback
+    // to a global velocity threshold: an untargeted exercise reports "No target
+    // set" rather than guessing.
+    const targetsByDate = new Map<string, Map<string, ExerciseTargetRange>>();
+    for (const plan of workoutPlans ?? []) {
+      const exercises = Array.isArray(plan.exercises) ? (plan.exercises as PlanExerciseLike[]) : [];
+      const dayMap = buildTargetsForExercises(exercises);
+      if (dayMap.size === 0) continue;
+      const existing = targetsByDate.get(plan.date);
+      targetsByDate.set(plan.date, existing ? mergeTargetMaps([existing, dayMap]) : dayMap);
     }
+    const loadRec = computeLoadRecommendation(exerciseSessionMeans, targetsByDate, (allSessions ?? []).length > 0);
 
     return {
       avgVelocity,
@@ -300,11 +348,10 @@ export const getPlayersByTeamId = async (teamId: string): Promise<PlayerWithStat
       avgROM,
       avgTempo,
       lastWorkout,
-      engagement: (attendance >= 90 && avgVelocity >= 0.7) ? 'High' : 'Moderate',
     };
   } catch (error) {
     console.error(error);
-    return { avgVelocity: 0, attendance: 0, loadRec: 'Error', engagement: 'Low' as const, avgROM: 0, avgTempo: 0, lastWorkout: null };
+    return { avgVelocity: 0, attendance: 0, loadRec: 'New' as const, avgROM: 0, avgTempo: 0, lastWorkout: null };
   }
 };
 

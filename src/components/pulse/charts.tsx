@@ -5,6 +5,8 @@ import { useState, useRef, useEffect } from "react";
  * token-driven, hover crosshairs). No chart library on purpose (Q10).
  */
 
+const mean = (xs: number[]): number => xs.reduce((a, b) => a + b, 0) / xs.length;
+
 function useMeasuredWidth<T extends HTMLElement>(fallback: number) {
   const ref = useRef<T>(null);
   const [width, setWidth] = useState(fallback);
@@ -28,12 +30,16 @@ export interface VelTrendPoint {
 
 interface VelocityTrendChartProps {
   data: VelTrendPoint[];
+  /** Optional — draws a shaded target band + dashed bounds. Only pass a range
+   *  that's actually true for every point on this line; a blended
+   *  cross-exercise series (like the 12-week trend) has no single real target,
+   *  so it should be omitted rather than filled with a placeholder range. */
   target?: [number, number];
   accent?: string;
   height?: number;
 }
 
-export function VelocityTrendChart({ data, target = [0.55, 0.85], accent = "var(--brand)", height = 220 }: VelocityTrendChartProps) {
+export function VelocityTrendChart({ data, target, accent = "var(--brand)", height = 220 }: VelocityTrendChartProps) {
   const { ref, width: w } = useMeasuredWidth<HTMLDivElement>(800);
   const [hover, setHover] = useState<number | null>(null);
 
@@ -44,8 +50,8 @@ export function VelocityTrendChart({ data, target = [0.55, 0.85], accent = "var(
   if (data.length < 2) return <div ref={ref} className="v-meta" style={{ height, display: "flex", alignItems: "center", justifyContent: "center" }}>Not enough sessions yet.</div>;
 
   const values = data.map((d) => d.v);
-  const mn = Math.min(...values, target[0]) - 0.05;
-  const mx = Math.max(...values, target[1]) + 0.05;
+  const mn = Math.min(...values, ...(target ? [target[0]] : [])) - 0.05;
+  const mx = Math.max(...values, ...(target ? [target[1]] : [])) + 0.05;
   const range = mx - mn || 0.1;
 
   const toX = (i: number) => PL + (i / (data.length - 1)) * cW;
@@ -71,10 +77,14 @@ export function VelocityTrendChart({ data, target = [0.55, 0.85], accent = "var(
             <text x={PL - 8} y={toY(t) + 3} textAnchor="end" fontSize="10" fontFamily="var(--font-mono)" fill="var(--ink-3)">{t.toFixed(2)}</text>
           </g>
         ))}
-        <rect x={PL} y={toY(target[1])} width={cW} height={toY(target[0]) - toY(target[1])} fill={accent} opacity="0.08" />
-        <line x1={PL} x2={PL + cW} y1={toY(target[1])} y2={toY(target[1])} stroke={accent} strokeDasharray="3 3" strokeWidth="0.8" opacity="0.5" />
-        <line x1={PL} x2={PL + cW} y1={toY(target[0])} y2={toY(target[0])} stroke={accent} strokeDasharray="3 3" strokeWidth="0.8" opacity="0.5" />
-        <text x={PL + cW - 4} y={toY(target[1]) - 4} textAnchor="end" fontSize="9.5" fontFamily="var(--font-mono)" fill={accent}>target band</text>
+        {target && (
+          <>
+            <rect x={PL} y={toY(target[1])} width={cW} height={toY(target[0]) - toY(target[1])} fill={accent} opacity="0.08" />
+            <line x1={PL} x2={PL + cW} y1={toY(target[1])} y2={toY(target[1])} stroke={accent} strokeDasharray="3 3" strokeWidth="0.8" opacity="0.5" />
+            <line x1={PL} x2={PL + cW} y1={toY(target[0])} y2={toY(target[0])} stroke={accent} strokeDasharray="3 3" strokeWidth="0.8" opacity="0.5" />
+            <text x={PL + cW - 4} y={toY(target[1]) - 4} textAnchor="end" fontSize="9.5" fontFamily="var(--font-mono)" fill={accent}>target band</text>
+          </>
+        )}
 
         <path d={area} fill={accent} fillOpacity="0.12" />
         <path d={path} stroke={accent} strokeWidth="2" fill="none" strokeLinejoin="round" strokeLinecap="round" />
@@ -245,11 +255,16 @@ export interface RepTracePoint {
   set: number;
   rep: number;
   vel: number;
+  /** This rep's own logged load — omitted (undefined) when not recorded. */
+  weight?: number;
 }
 
 interface RepTraceChartProps {
   reps: RepTracePoint[];
-  target?: number | null;
+  /** Real coach-set target range for this exercise instance, or null when
+   *  none was assigned — draw no line/band in that case rather than guessing. */
+  target?: { min: number; max: number } | null;
+  weightUnit?: string;
   accent?: string;
   /** Height of a single set's bar row (rows stack vertically, one per set). */
   rowHeight?: number;
@@ -260,15 +275,15 @@ interface RepTraceChartProps {
  * single velocity scale (with gridlines + tick labels) so bar heights stay
  * comparable and readable across sets; hovering a bar shows its exact value.
  */
-export function RepTraceChart({ reps, target, accent = "var(--brand)", rowHeight = 140 }: RepTraceChartProps) {
+export function RepTraceChart({ reps, target, weightUnit, accent = "var(--brand)", rowHeight = 140 }: RepTraceChartProps) {
   const { ref, width: w } = useMeasuredWidth<HTMLDivElement>(400);
   const [hover, setHover] = useState<{ set: number; idx: number } | null>(null);
   if (reps.length === 0) return <div ref={ref} style={{ height: rowHeight }} />;
 
   const vels = reps.map((r) => r.vel);
   const tgt = target ?? null;
-  const mn = Math.min(...vels, tgt != null ? tgt - 0.1 : Infinity) - 0.03;
-  const mx = Math.max(...vels, tgt != null ? tgt + 0.1 : -Infinity) + 0.03;
+  const mn = Math.min(...vels, tgt != null ? tgt.min - 0.1 : Infinity) - 0.03;
+  const mx = Math.max(...vels, tgt != null ? tgt.max + 0.1 : -Infinity) + 0.03;
   const range = mx - mn || 0.1;
 
   const setOrder: number[] = [];
@@ -290,14 +305,15 @@ export function RepTraceChart({ reps, target, accent = "var(--brand)", rowHeight
 
   const yFor = (v: number) => PT + cH - ((v - mn) / range) * cH;
   const ticks = [mn + range * 0.15, mn + range * 0.5, mn + range * 0.85];
-  const targetY = tgt != null ? yFor(tgt) : null;
+  const targetYMin = tgt != null ? yFor(tgt.min) : null;
+  const targetYMax = tgt != null ? yFor(tgt.max) : null;
 
   return (
     // No overflow:hidden here — the hover tooltip intentionally pops up above its row.
     <div ref={ref} style={{ width: "100%", minWidth: 0 }}>
       {tgt != null && (
         <div className="row" style={{ justifyContent: "flex-end", marginBottom: 4 }}>
-          <span className="mono" style={{ fontSize: 9.5, color: accent }}>target {tgt.toFixed(2)} m/s</span>
+          <span className="mono" style={{ fontSize: 9.5, color: accent }}>target {tgt.min.toFixed(2)}–{tgt.max.toFixed(2)} m/s</span>
         </div>
       )}
       <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -306,9 +322,16 @@ export function RepTraceChart({ reps, target, accent = "var(--brand)", rowHeight
           const bw = (cW / setReps.length) * 0.6;
           const step = cW / setReps.length;
           const hoveredRep = hover?.set === setNum ? setReps[hover.idx] : null;
+          const setWeights = setReps.map((r) => r.weight).filter((v): v is number => v != null && v > 0);
+          const setWeight = setWeights.length ? mean(setWeights) : null;
           return (
             <div key={setNum} className="row" style={{ gap: 0, alignItems: "center", position: "relative" }}>
-              <span className="mono v-mute2" style={{ width: LABEL_W, flexShrink: 0, fontSize: 9.5 }}>Set {setNum}</span>
+              <span className="mono v-mute2" style={{ width: LABEL_W, flexShrink: 0, fontSize: 9.5 }}>
+                Set {setNum}
+                {setWeight != null && (
+                  <span style={{ display: "block", fontSize: 8.5, marginTop: 2 }}>{Math.round(setWeight)} {weightUnit ?? "lbs"}</span>
+                )}
+              </span>
               <svg width={AXIS_W + cW} height={rowHeight} style={{ display: "block", flexShrink: 0, overflow: "visible" }}>
                 {ticks.map((t, i) => (
                   <g key={i}>
@@ -318,8 +341,12 @@ export function RepTraceChart({ reps, target, accent = "var(--brand)", rowHeight
                     </text>
                   </g>
                 ))}
-                {targetY != null && (
-                  <line x1={AXIS_W} x2={AXIS_W + cW} y1={targetY} y2={targetY} stroke={accent} strokeWidth="0.8" strokeDasharray="3 3" opacity="0.6" />
+                {targetYMin != null && targetYMax != null && (
+                  <>
+                    <rect x={AXIS_W} y={targetYMax} width={cW} height={targetYMin - targetYMax} fill={accent} opacity="0.08" />
+                    <line x1={AXIS_W} x2={AXIS_W + cW} y1={targetYMin} y2={targetYMin} stroke={accent} strokeWidth="0.8" strokeDasharray="3 3" opacity="0.6" />
+                    <line x1={AXIS_W} x2={AXIS_W + cW} y1={targetYMax} y2={targetYMax} stroke={accent} strokeWidth="0.8" strokeDasharray="3 3" opacity="0.6" />
+                  </>
                 )}
                 <line x1={AXIS_W} x2={AXIS_W + cW} y1={PT + cH} y2={PT + cH} stroke="var(--line-2)" strokeWidth="1.2" />
                 {setReps.map((r, i) => {
@@ -327,8 +354,8 @@ export function RepTraceChart({ reps, target, accent = "var(--brand)", rowHeight
                   const barH = Math.max(MIN_BAR_H, ((r.vel - mn) / range) * cH);
                   const yv = PT + cH - barH;
                   const isHover = hover?.set === setNum && hover.idx === i;
-                  const belowTarget = tgt != null && r.vel < tgt - 0.05;
-                  const tone = belowTarget ? "var(--warn)" : accent;
+                  const outOfRange = tgt != null && (r.vel < tgt.min || r.vel > tgt.max);
+                  const tone = outOfRange ? "var(--warn)" : accent;
                   return (
                     <rect
                       key={i}
@@ -360,7 +387,7 @@ export function RepTraceChart({ reps, target, accent = "var(--brand)", rowHeight
                   <div style={{ fontWeight: 600 }}>Rep {hoveredRep.rep} · {hoveredRep.vel.toFixed(2)} m/s</div>
                   {tgt != null && (
                     <div style={{ color: "rgba(255,255,255,0.65)", fontSize: 10 }}>
-                      {hoveredRep.vel >= tgt ? "at or above" : "below"} target
+                      {hoveredRep.vel < tgt.min ? "below target" : hoveredRep.vel > tgt.max ? "above target" : "in target"}
                     </div>
                   )}
                 </div>
