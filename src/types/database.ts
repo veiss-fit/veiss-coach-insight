@@ -255,9 +255,6 @@ export interface Database {
           notes: string | null;
           is_completed: boolean;
           is_template: boolean; // true = saved template, false = sent to player
-          /** True when this assigned plan is part of a rehab/return-to-play
-           *  process (migration 009). Not meaningful on templates. */
-          is_rehab: boolean;
           completed_at: string | null;
           session_id: string | null; // linked session row, set when athlete completes
           created_at: string;
@@ -274,7 +271,6 @@ export interface Database {
           notes?: string | null;
           is_completed?: boolean;
           is_template?: boolean;
-          is_rehab?: boolean;
           completed_at?: string | null;
           session_id?: string | null;
           created_at?: string;
@@ -291,7 +287,6 @@ export interface Database {
           notes?: string | null;
           is_completed?: boolean;
           is_template?: boolean;
-          is_rehab?: boolean;
           completed_at?: string | null;
           session_id?: string | null;
           created_at?: string;

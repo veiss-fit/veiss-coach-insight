@@ -3,8 +3,9 @@ import type { PlayerWithStats } from "@/services/playersService";
 import type { RosterAthleteMetrics } from "@/services/rosterMetricsService";
 import { flagsFor, lastDaysFor } from "@/lib/rosterFlags";
 import { SESSIONS_TARGET } from "@/lib/vbtZones";
-import { targetsPct, ZERO_TARGETS } from "@/lib/targetEvaluation";
 import { Avatar } from "./Avatar";
+import { Delta } from "./Delta";
+import { Sparkline } from "./Sparkline";
 import { MiniBars } from "./MiniBars";
 import { LoadRecChip } from "./chips";
 
@@ -24,8 +25,7 @@ interface AthleteCardProps {
 export function AthleteCard({ athlete, metrics, nextPlan, onSelect }: AthleteCardProps) {
   const flag = flagsFor(athlete, metrics)[0];
   const lastDays = lastDaysFor(athlete, metrics);
-  const targets = metrics?.targetsReached ?? ZERO_TARGETS;
-  const pct = targetsPct(targets);
+  const vel = metrics?.recentVel ?? athlete.avgVelocity;
 
   return (
     <div
@@ -48,18 +48,13 @@ export function AthleteCard({ athlete, metrics, nextPlan, onSelect }: AthleteCar
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
         <div>
-          <div className="v-label" style={{ fontSize: 9.5 }}>Targets reached</div>
-          {pct != null ? (
-            <>
-              <div className="row" style={{ gap: 6, alignItems: "baseline" }}>
-                <span className="num" style={{ fontSize: 17, fontWeight: 600 }}>{pct}%</span>
-              </div>
-              <div className="v-meta mono" style={{ fontSize: 10.5, color: "var(--ink-3)" }}>
-                {targets.inTarget}/{targets.withTarget} reps
-              </div>
-            </>
-          ) : (
-            <div className="v-mute2" style={{ fontSize: 12.5, marginTop: 2 }}>No targets set</div>
+          <div className="v-label" style={{ fontSize: 9.5 }}>Velocity</div>
+          <div className="row" style={{ gap: 6, alignItems: "baseline" }}>
+            <span className="num" style={{ fontSize: 17, fontWeight: 600 }}>{vel > 0 ? vel.toFixed(2) : "—"}</span>
+            <Delta value={metrics?.velDelta ?? null} />
+          </div>
+          {metrics && metrics.velSeries.length >= 2 && (
+            <Sparkline data={metrics.velSeries} stroke="var(--brand)" fill="transparent" height={20} />
           )}
         </div>
         <div>

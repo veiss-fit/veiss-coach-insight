@@ -27,11 +27,6 @@ import {
 } from "@/lib/athleteSummaryUtils";
 import { flagsFor, lastDaysFor } from "@/lib/rosterFlags";
 import { SESSIONS_TARGET } from "@/lib/vbtZones";
-import {
-  TargetsReached, ZERO_TARGETS, addTargets, evaluateRepsAgainstTargets, targetsPct,
-  buildTargetsForExercises, mergeTargetMaps, PlanExerciseLike, ExerciseTargetRange,
-  normalizeExerciseName,
-} from "@/lib/targetEvaluation";
 
 // ─── Derivation helpers ───────────────────────────────────────────────────────
 
@@ -44,36 +39,12 @@ function sessionAvgROM(s: SessionData): number | null {
   return mean(roms);
 }
 
-/** date (YYYY-MM-DD) → { exercise name → target range }, from this athlete's plan history. */
-function buildTargetsByDate(plans: PlanRow[]): Map<string, Map<string, ExerciseTargetRange>> {
-  const byDate = new Map<string, Map<string, ExerciseTargetRange>>();
-  for (const plan of plans) {
-    const exercises = Array.isArray(plan.exercises) ? (plan.exercises as PlanExerciseLike[]) : [];
-    const dayMap = buildTargetsForExercises(exercises);
-    if (dayMap.size === 0) continue;
-    const existing = byDate.get(plan.date);
-    byDate.set(plan.date, existing ? mergeTargetMaps([existing, dayMap]) : dayMap);
-  }
-  return byDate;
-}
-
-/** Evaluate every rep in a session against that date's plan targets. */
-function evaluateSessionTargets(s: SessionData, targetsByDate: Map<string, Map<string, ExerciseTargetRange>>): TargetsReached {
-  const dayTargets = targetsByDate.get(s.date);
-  if (!dayTargets) return ZERO_TARGETS;
-  const reps = s.exercises.flatMap((ex) =>
-    ex.repData.filter((r) => r.velocity > 0).map((r) => ({ exerciseName: ex.name, velocity: r.velocity }))
-  );
-  return evaluateRepsAgainstTargets(reps, dayTargets);
-}
-
 interface PlanRow {
   id: string;
   date: string;
   title: string | null;
   exercises: unknown;
   is_completed: boolean | null;
-  is_rehab?: boolean | null;
 }
 
 type PlanStatus = "completed" | "missed" | "queued";
@@ -99,7 +70,7 @@ const METRIC_FN: Record<string, (s: SessionData) => number | null> = {
 
 // ─── Sessions tab ─────────────────────────────────────────────────────────────
 
-function SessionExerciseTrace({ exercise, target }: { exercise: ExerciseData; target: ExerciseTargetRange | null }) {
+function SessionExerciseTrace({ exercise }: { exercise: ExerciseData }) {
   const reps = [...exercise.repData]
     .filter((r) => r.velocity > 0)
     .sort((a, b) => a.setNumber - b.setNumber || a.repNumber - b.repNumber)
@@ -112,7 +83,7 @@ function SessionExerciseTrace({ exercise, target }: { exercise: ExerciseData; ta
 
   return (
     <>
-      <RepTraceChart reps={reps} target={target} weightUnit={exercise.weightUnit} />
+      <RepTraceChart reps={reps} weightUnit={exercise.weightUnit} />
       <div className="row" style={{ marginTop: 10, gap: 24, fontSize: 11.5, color: "var(--ink-2)", flexWrap: "wrap" }}>
         <span className="mono">{reps.length} reps · {sets} set{sets !== 1 ? "s" : ""}</span>
         <span className="mono">peak {Math.max(...vels).toFixed(2)} m/s</span>
@@ -122,11 +93,10 @@ function SessionExerciseTrace({ exercise, target }: { exercise: ExerciseData; ta
   );
 }
 
-function SessionsTab({ sessions, plans }: { sessions: SessionData[]; plans: PlanRow[] }) {
+function SessionsTab({ sessions }: { sessions: SessionData[] }) {
   const [openId, setOpenId] = useState<string | null>(sessions[0]?.id ?? null);
   const [exerciseIdx, setExerciseIdx] = useState(0);
   const sorted = useMemo(() => [...sessions].sort((a, b) => sessionTime(b) - sessionTime(a)), [sessions]);
-  const targetsByDate = useMemo(() => buildTargetsByDate(plans), [plans]);
   // Period rollup — last 7 days, gated the same way as the per-session number
   // (sessions that don't individually clear the coverage bar are excluded,
   // not averaged in). Named distinctly from the unrelated "Weekly volume"
@@ -221,10 +191,7 @@ function SessionsTab({ sessions, plans }: { sessions: SessionData[]; plans: Plan
                       ))}
                     </div>
                   </div>
-                  <SessionExerciseTrace
-                    exercise={exercise}
-                    target={targetsByDate.get(s.date)?.get(normalizeExerciseName(exercise.name)) ?? null}
-                  />
+                  <SessionExerciseTrace exercise={exercise} />
                 </div>
               )}
             </div>
@@ -445,98 +412,6 @@ function ProgrammingTab({ plans }: { plans: PlanRow[] }) {
   );
 }
 
-// ─── RTP (return-to-play) tab ────────────────────────────────────────────────
-
-/**
- * Single athlete, single exercise, no team/peer comparison — a chronological
- * velocity trend restricted to sessions matching a plan the coach explicitly
- * tagged is_rehab (migration 009). Session ↔ plan matching is the same
- * same-day convention used everywhere else in this app (attendance, target
- * matching): a session counts as "rehab" when its date matches at least one
- * is_rehab plan for this athlete. Exercise names are already canonicalized
- * upstream (sessionsService.ts groups reps by canonicalizeExerciseName), so
- * the confirmed Squat/Squats and rdl aliases are already merged here.
- */
-function RtpTab({ sessions, plans }: { sessions: SessionData[]; plans: PlanRow[] }) {
-  const [exercisePick, setExercisePick] = useState<string | null>(null);
-
-  const rehabDates = useMemo(
-    () => new Set(plans.filter((p) => p.is_rehab).map((p) => p.date)),
-    [plans]
-  );
-  const rehabSessions = useMemo(
-    () => [...sessions].filter((s) => rehabDates.has(s.date)).sort((a, b) => sessionTime(a) - sessionTime(b)),
-    [sessions, rehabDates]
-  );
-
-  const byExercise = useMemo(() => {
-    const map = new Map<string, VelTrendPoint[]>();
-    for (const s of rehabSessions) {
-      for (const ex of s.exercises) {
-        if (!(ex.avgVelocity > 0)) continue;
-        const list = map.get(ex.name) ?? [];
-        list.push({ label: format(new Date(s.date + "T12:00:00"), "MMM d"), v: ex.avgVelocity, n: ex.repData.length });
-        map.set(ex.name, list);
-      }
-    }
-    return map;
-  }, [rehabSessions]);
-
-  const exerciseOptions = useMemo(
-    () => [...byExercise.entries()].sort((a, b) => b[1].length - a[1].length).map(([name]) => name),
-    [byExercise]
-  );
-  const exercise = exercisePick && byExercise.has(exercisePick) ? exercisePick : exerciseOptions[0] ?? null;
-  const points = exercise ? byExercise.get(exercise)! : [];
-
-  if (rehabSessions.length === 0) {
-    return (
-      <div className="v-card padded v-meta" style={{ textAlign: "center", padding: "48px 16px" }}>
-        No rehab-tagged sessions yet. Mark a plan as "Rehab / return-to-play" when assigning it to start tracking this view.
-      </div>
-    );
-  }
-
-  return (
-    <div className="v-card padded">
-      <div className="row" style={{ justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
-        <div>
-          <div className="v-h2">Return-to-play trend</div>
-          <div className="v-meta" style={{ marginTop: 2 }}>
-            {rehabSessions.length} rehab-tagged session{rehabSessions.length !== 1 ? "s" : ""} · one exercise at a time, no team comparison.
-          </div>
-        </div>
-        {exerciseOptions.length > 1 && (
-          <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
-            {exerciseOptions.map((name) => (
-              <button
-                key={name}
-                className="v-btn"
-                onClick={() => setExercisePick(name)}
-                style={{
-                  height: 24, fontSize: 11,
-                  background: name === exercise ? "var(--ink-0)" : "transparent",
-                  color: name === exercise ? "#fff" : "var(--ink-1)",
-                  borderColor: name === exercise ? "var(--ink-0)" : "transparent",
-                }}
-              >
-                {name}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-      {points.length >= 2 ? (
-        <VelocityTrendChart data={points} />
-      ) : (
-        <div className="v-meta" style={{ textAlign: "center", padding: "24px 0" }}>
-          Only one rehab-tagged session logged for {exercise} so far — need at least 2 to draw a trend.
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ─── Insight rail ─────────────────────────────────────────────────────────────
 
 /**
@@ -691,25 +566,19 @@ export default function AthleteDashboard() {
     [now]
   );
 
-  // Targets Reached — replaces cross-exercise average velocity as the headline
-  // KPI (see CALCULATIONS.md). Built from this athlete's own plan history
-  // (target_velocity_min/max per exercise) rather than a new roundtrip, since
-  // `sessions`/`plans` are already fetched above.
-  const targetsByDate = useMemo(() => buildTargetsByDate(plans), [plans]);
-  const athleteTargets = useMemo(
-    () => sorted.reduce((acc, s) => addTargets(acc, evaluateSessionTargets(s, targetsByDate)), { ...ZERO_TARGETS }),
-    [sorted, targetsByDate]
+  const sessionVels = useMemo(
+    () => sorted.map((s) => sessionAvgVelocity(s)).filter((v): v is number => v != null),
+    [sorted]
   );
-  const targetsSeries8 = useMemo(() => {
-    const WEEKS = 8;
-    const buckets: TargetsReached[] = Array.from({ length: WEEKS }, () => ({ ...ZERO_TARGETS }));
-    for (const s of sorted) {
-      const w = weekIdx(new Date(s.startedAt ?? s.createdAt), WEEKS);
-      if (w < 0 || w >= WEEKS) continue;
-      buckets[w] = addTargets(buckets[w], evaluateSessionTargets(s, targetsByDate));
-    }
-    return buckets.map((t) => targetsPct(t));
-  }, [sorted, targetsByDate, weekIdx]);
+  const recentVel = useMemo(() => {
+    const m = mean(sessionVels.slice(-3));
+    return m != null ? +m.toFixed(2) : null;
+  }, [sessionVels]);
+  const velDelta = useMemo(() => {
+    if (sessionVels.length < 5) return null;
+    const prior = mean(sessionVels.slice(0, -3));
+    return recentVel != null && prior != null ? +(recentVel - prior).toFixed(2) : null;
+  }, [sessionVels, recentVel]);
 
   const velTrend12 = useMemo<VelTrendPoint[]>(() => {
     const WEEKS = 12;
@@ -888,11 +757,13 @@ export default function AthleteDashboard() {
           {/* KPI strip */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, padding: "20px 0" }}>
             <KpiTile
-              label="Targets reached"
-              value={athleteTargets.withTarget > 0 ? `${Math.round((athleteTargets.inTarget / athleteTargets.withTarget) * 100)}` : "No targets set"}
-              unit={athleteTargets.withTarget > 0 ? "%" : undefined}
-              footnote={athleteTargets.withTarget > 0 ? `${athleteTargets.inTarget}/${athleteTargets.withTarget} reps in target` : "assign a target velocity to start tracking"}
-              sparkData={targetsSeries8.filter((v): v is number => v != null).length > 1 ? targetsSeries8.filter((v): v is number => v != null) : undefined}
+              label="Avg velocity"
+              value={recentVel != null ? recentVel.toFixed(2) : athlete.avgVelocity > 0 ? athlete.avgVelocity.toFixed(2) : "—"}
+              unit="m/s"
+              delta={velDelta}
+              footnote="last 3 sessions vs prior"
+              sparkData={sessionVels.length > 1 ? sessionVels.slice(-8) : undefined}
+              sparkTarget={0.75}
               accent="var(--brand)"
             />
             <KpiTile
@@ -935,7 +806,6 @@ export default function AthleteDashboard() {
                   { id: "performance", label: "Performance" },
                   { id: "sessions", label: "Sessions", count: sessions.length },
                   { id: "programming", label: "Programming", count: plans.length },
-                  { id: "rtp", label: "RTP" },
                 ]}
                 active={tab}
                 onChange={setTab}
@@ -1020,10 +890,9 @@ export default function AthleteDashboard() {
                   </div>
                 )}
 
-                {tab === "sessions" && <SessionsTab sessions={sessions} plans={plans} />}
+                {tab === "sessions" && <SessionsTab sessions={sessions} />}
                 {tab === "readiness" && <ReadinessTab athlete={athlete} sessions={sessions} indicators={indicators} />}
                 {tab === "programming" && <ProgrammingTab plans={plans} />}
-                {tab === "rtp" && <RtpTab sessions={sessions} plans={plans} />}
               </div>
             </div>
 

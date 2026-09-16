@@ -20,25 +20,12 @@ export interface WorkoutExercise {
   perSet: WorkoutSetSpec[];
   weight?: number;
   weightUnit?: 'lbs' | 'kg';
-  /**
-   * Coach-entered target velocity RANGE for this exercise (m/s) — distinct
-   * from perSet[].targetVelocity, which is a single prescribed point value
-   * per set. This range is what "Targets Reached" evaluates logged reps
-   * against (see src/lib/targetEvaluation.ts); both optional, and both must
-   * be set for the exercise to count as targeted. Data entry only — never
-   * derived/inferred.
-   */
-  targetVelocityMin?: number | null;
-  targetVelocityMax?: number | null;
 }
 
 export interface WorkoutPlanData {
   workoutName: string;
   exercises: WorkoutExercise[];
   notes?: string;
-  /** Marks this plan as part of a rehab/return-to-play process (migration
-   *  009). Drives the athlete-detail RTP trend view via same-day matching. */
-  isRehab?: boolean;
 }
 
 /**
@@ -83,10 +70,6 @@ export const sendWorkoutPlan = async (
         reps: first.reps,
         targetVelocity: first.targetVelocity ?? 0,
         perSet,
-        // Only written when both bounds are set — a one-sided range isn't
-        // evaluable (see targetEvaluation.buildTargetsForExercises).
-        targetVelocityMin: ex.targetVelocityMin ?? null,
-        targetVelocityMax: ex.targetVelocityMax ?? null,
       };
     });
 
@@ -101,10 +84,6 @@ export const sendWorkoutPlan = async (
       notes: planData.notes || null,
       is_completed: false,
       is_template: false,
-      // is_rehab intentionally NOT written here yet — migration 009 (adds
-      // workout_plans.is_rehab) has not been applied to the live database.
-      // Writing an unknown column makes Postgres/PostgREST reject the whole
-      // INSERT. Re-add this line only after confirming the migration ran.
     }));
 
     console.log('Inserting workout plans:', workoutPlans);
@@ -180,10 +159,6 @@ export const getPlayerWorkoutPlans = async (
   try {
     const { data, error } = await supabase
       .from('workout_plans')
-      // is_rehab intentionally NOT selected here yet — see the matching note
-      // in sendWorkoutPlan above. Selecting an unknown column makes the whole
-      // query fail, which is what broke every plan from loading. Re-add
-      // `is_rehab` to this list only after confirming migration 009 ran.
       .select('id, player_id, coach_id, date, title, description, exercises, notes, is_completed, is_template, completed_at, session_id, created_at, updated_at')
       .eq('player_id', playerId)
       .order('date', { ascending: false });

@@ -1,11 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { differenceInCalendarWeeks, startOfWeek, subWeeks } from 'date-fns';
 import { isValidExerciseName } from '@/lib/athleteSummaryUtils';
-import {
-  TargetsReached, ZERO_TARGETS, addTargets, evaluateRepsAgainstTargets,
-  buildTargetsForExercises, mergeTargetMaps, PlanExerciseLike, ExerciseTargetRange,
-  canonicalizeExerciseName,
-} from '@/lib/targetEvaluation';
+import { canonicalizeExerciseName } from '@/lib/targetEvaluation';
 
 /**
  * Roster-wide 8-week metric series, fetched with a fixed number of batched
@@ -20,10 +16,7 @@ const MAX_PAGES = 20;
 
 export interface RosterAthleteMetrics {
   playerId: string;
-  /** Weekly avg velocity, oldest → newest. Weeks without sessions carry the previous value.
-   *  Kept for sorting/flagging (rosterFlags.ts, Index.tsx sort-by), but no longer
-   *  shown as a headline number anywhere — see targetsReached below and
-   *  CALCULATIONS.md. */
+  /** Weekly avg velocity, oldest → newest. Weeks without sessions carry the previous value. */
   velSeries: number[];
   /** Sessions logged per week, oldest → newest. */
   sessSeries: number[];
@@ -38,14 +31,6 @@ export interface RosterAthleteMetrics {
    *  sessionVelocityDropoff — see CALCULATIONS.md. */
   dropPct: number | null;
   lastSessionDate: string | null;
-  /** Reps landing inside their exercise's coach-set target range, over the
-   *  8-week window. withTarget === 0 means no targeted exercise was trained —
-   *  render "No targets set", not 0%. */
-  targetsReached: TargetsReached;
-  /** Weekly targets-reached %, oldest → newest, null for weeks with no
-   *  targeted reps (not carried forward — unlike velSeries, a gap here is
-   *  real information: nothing was evaluable that week). */
-  targetsReachedSeries: (number | null)[];
 }
 
 export interface RosterTeamMetrics {
@@ -62,8 +47,6 @@ export interface RosterTeamMetrics {
   sessionsLastWeek: number;
   /** Sessions logged Mon..Sun of the current week. */
   sessionsByDay: number[];
-  targetsReached: TargetsReached;
-  targetsReachedSeries: number[];
 }
 
 export interface RosterMetricsResult {
@@ -78,8 +61,6 @@ const EMPTY_TEAM: RosterTeamMetrics = {
   sessionsThisWeek: 0,
   sessionsLastWeek: 0,
   sessionsByDay: [0, 0, 0, 0, 0, 0, 0],
-  targetsReached: ZERO_TARGETS,
-  targetsReachedSeries: [],
 };
 
 interface SessionRow {
@@ -96,10 +77,8 @@ interface RepRow {
 }
 
 interface PlanRow {
-  player_id: string;
   date: string;
   is_completed: boolean | null;
-  exercises: unknown;
 }
 
 /** Carry-forward fill so sparklines have a continuous line; leading gaps take the first real value. */
@@ -206,40 +185,25 @@ export async function getRosterMetrics(
     }
   }
 
-  // ── 3. Plans for attendance AND target lookups, in one query ─────────────
+  // ── 3. Plans for the attendance series in one query ──────────────────────
   const playerIds = withUser.map((p) => p.id);
-  const { data: plans } = await (supabase as any)
+  const { data: plans } = await supabase
     .from('workout_plans')
-    .select('player_id, date, is_completed, exercises')
+    .select('date, is_completed')
     .in('player_id', playerIds)
     .eq('is_template', false)
     .gte('date', windowStart.toISOString().slice(0, 10))
-    .lte('date', now.toISOString().slice(0, 10)) as { data: PlanRow[] | null };
+    .lte('date', now.toISOString().slice(0, 10));
 
-  const planRows = plans ?? [];
-
-  // player_id → date → { exercise name → target range }
-  const targetsByPlayerDate = new Map<string, Map<string, Map<string, ExerciseTargetRange>>>();
-  for (const plan of planRows) {
-    const exercises = Array.isArray(plan.exercises) ? (plan.exercises as PlanExerciseLike[]) : [];
-    const dayMap = buildTargetsForExercises(exercises);
-    if (dayMap.size === 0) continue;
-    let byDate = targetsByPlayerDate.get(plan.player_id);
-    if (!byDate) { byDate = new Map(); targetsByPlayerDate.set(plan.player_id, byDate); }
-    const existing = byDate.get(plan.date);
-    byDate.set(plan.date, existing ? mergeTargetMaps([existing, dayMap]) : dayMap);
-  }
+  const planRows = (plans ?? []) as PlanRow[];
 
   // ── Per-session aggregates ────────────────────────────────────────────────
   interface SessionAgg {
     userId: string;
-    playerId: string | null;
     createdAt: Date;
-    dateStr: string;
     weekIdx: number; // 0 = oldest bucket … WEEKS-1 = current week
     avgVel: number | null;
     dropPct: number | null;
-    targets: TargetsReached;
   }
 
   const weekIdxOf = (d: Date) =>
@@ -247,22 +211,12 @@ export async function getRosterMetrics(
 
   const sessionAggs: SessionAgg[] = sessionRows.map((s) => {
     const createdAt = new Date(s.created_at);
-    const dateStr = s.created_at.slice(0, 10);
-    const playerId = playerByUser.get(s.user_id) ?? null;
     const reps = repsBySession.get(s.id) ?? [];
     const validReps = reps.filter((r) => r.average_rep_speed != null && r.average_rep_speed > 0);
     const avgVel = mean(validReps.map((r) => r.average_rep_speed as number));
     const dropPct = computeDropPctFromRows(reps);
 
-    const dayTargets = playerId ? targetsByPlayerDate.get(playerId)?.get(dateStr) : undefined;
-    const targets = dayTargets
-      ? evaluateRepsAgainstTargets(
-          validReps.map((r) => ({ exerciseName: r.exercise_name ?? '', velocity: r.average_rep_speed as number })),
-          dayTargets
-        )
-      : ZERO_TARGETS;
-
-    return { userId: s.user_id, playerId, createdAt, dateStr, weekIdx: weekIdxOf(createdAt), avgVel, dropPct, targets };
+    return { userId: s.user_id, createdAt, weekIdx: weekIdxOf(createdAt), avgVel, dropPct };
   });
 
   // ── Per-player series ─────────────────────────────────────────────────────
@@ -273,12 +227,10 @@ export async function getRosterMetrics(
 
     const weeklyVels: (number | null)[] = Array.from({ length: WEEKS }, () => null);
     const sessSeries = Array.from({ length: WEEKS }, () => 0);
-    const targetsWeekly: TargetsReached[] = Array.from({ length: WEEKS }, () => ({ ...ZERO_TARGETS }));
     for (let w = 0; w < WEEKS; w++) {
       const inWeek = own.filter((a) => a.weekIdx === w);
       sessSeries[w] = inWeek.length;
       weeklyVels[w] = mean(inWeek.map((a) => a.avgVel).filter((v): v is number => v != null));
-      targetsWeekly[w] = inWeek.reduce((acc, a) => addTargets(acc, a.targets), { ...ZERO_TARGETS });
     }
 
     const sessionVels = own.map((a) => a.avgVel).filter((v): v is number => v != null);
@@ -289,9 +241,6 @@ export async function getRosterMetrics(
 
     const lastWithDrop = [...own].reverse().find((a) => a.dropPct != null);
 
-    const targetsTotal = own.reduce((acc, a) => addTargets(acc, a.targets), { ...ZERO_TARGETS });
-    const targetsReachedSeries = targetsWeekly.map((t) => (t.withTarget > 0 ? Math.round((t.inTarget / t.withTarget) * 100) : null));
-
     perPlayer.set(p.id, {
       playerId: p.id,
       velSeries: fillSeries(weeklyVels),
@@ -301,8 +250,6 @@ export async function getRosterMetrics(
       velDelta,
       dropPct: lastWithDrop?.dropPct ?? null,
       lastSessionDate: own.length ? own[own.length - 1].createdAt.toISOString() : null,
-      targetsReached: targetsTotal,
-      targetsReachedSeries,
     });
   }
 
@@ -336,14 +283,6 @@ export async function getRosterMetrics(
     }
   }
 
-  const teamTargetsWeekly: TargetsReached[] = Array.from({ length: WEEKS }, (_, w) =>
-    sessionAggs.filter((a) => a.weekIdx === w).reduce((acc, a) => addTargets(acc, a.targets), { ...ZERO_TARGETS })
-  );
-  const teamTargetsTotal = sessionAggs.reduce((acc, a) => addTargets(acc, a.targets), { ...ZERO_TARGETS });
-  const teamTargetsSeries = fillSeries(
-    teamTargetsWeekly.map((t) => (t.withTarget > 0 ? Math.round((t.inTarget / t.withTarget) * 100) : null))
-  );
-
   return {
     perPlayer,
     team: {
@@ -353,8 +292,6 @@ export async function getRosterMetrics(
       sessionsThisWeek: sessionAggs.filter((a) => a.weekIdx === WEEKS - 1).length,
       sessionsLastWeek: sessionAggs.filter((a) => a.weekIdx === WEEKS - 2).length,
       sessionsByDay,
-      targetsReached: teamTargetsTotal,
-      targetsReachedSeries: teamTargetsSeries,
     },
   };
 }

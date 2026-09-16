@@ -19,10 +19,10 @@ import { getRosterMetrics, RosterMetricsResult } from "@/services/rosterMetricsS
 import { getUpcomingWorkoutPlans } from "@/services/workoutPlansService";
 import { deliverScheduledMessages } from "@/services/messagesService";
 import { flagsFor, priorityScore, isFlagged } from "@/lib/rosterFlags";
-import { classifyLoadRec, targetsPct } from "@/lib/targetEvaluation";
+import { classifyLoadRec } from "@/lib/targetEvaluation";
 
-type SortMode = "name" | "targets";
-const SORT_LABELS: Record<SortMode, string> = { name: "Name (A-Z)", targets: "Targets reached" };
+type SortMode = "name" | "velocity";
+const SORT_LABELS: Record<SortMode, string> = { name: "Name (A-Z)", velocity: "Velocity" };
 
 /** Checkbox-style row for the filter/columns dropdowns. */
 function CheckRow({ label, on, onClick }: { label: string; on: boolean; onClick: () => void }) {
@@ -177,11 +177,10 @@ const Index = () => {
       return true;
     });
     return [...list].sort((a, b) => {
-      if (sortMode === "targets") {
-        // No-targets-set athletes sort last, not first (a null pct isn't "0").
-        const pa = targetsPct(metricsByPlayer.get(a.id)?.targetsReached ?? { inTarget: 0, withTarget: 0 }) ?? -1;
-        const pb = targetsPct(metricsByPlayer.get(b.id)?.targetsReached ?? { inTarget: 0, withTarget: 0 }) ?? -1;
-        return pb - pa;
+      if (sortMode === "velocity") {
+        const va = metricsByPlayer.get(a.id)?.recentVel ?? a.avgVelocity;
+        const vb = metricsByPlayer.get(b.id)?.recentVel ?? b.avgVelocity;
+        return vb - va;
       }
       return a.name.localeCompare(b.name);
     });
@@ -196,23 +195,20 @@ const Index = () => {
   );
 
   // ── Derived: KPI values ────────────────────────────────────────────────────
+  const teamVelNow = team && team.velSeries.length ? team.velSeries[team.velSeries.length - 1] : null;
+  const teamVelPrev = team && team.velSeries.length > 1 ? team.velSeries[team.velSeries.length - 2] : null;
   const attNow = team && team.attSeries.length ? team.attSeries[team.attSeries.length - 1] : null;
   const attPrev = team && team.attSeries.length > 1 ? team.attSeries[team.attSeries.length - 2] : null;
-  const targetsNow = team && team.targetsReachedSeries.length ? team.targetsReachedSeries[team.targetsReachedSeries.length - 1] : null;
-  const targetsPrev = team && team.targetsReachedSeries.length > 1 ? team.targetsReachedSeries[team.targetsReachedSeries.length - 2] : null;
 
-  // Four buckets, not three — "No target set" is a distinct state from
-  // "Maintain" (one means "on pace", the other means "nothing to evaluate").
   // Bucketed via the same classifyLoadRec the chip uses, so this can't drift
   // out of sync with what the chip actually renders the way the old
   // strict-equality version did.
   const loadMix = useMemo(() => {
-    const mix = { increase: 0, maintain: 0, decrease: 0, noTarget: 0 };
+    const mix = { increase: 0, maintain: 0, decrease: 0 };
     for (const a of athletes) {
       const bucket = classifyLoadRec(a.loadRec);
       if (bucket === "increase") mix.increase++;
       else if (bucket === "decrease") mix.decrease++;
-      else if (bucket === "no-target") mix.noTarget++;
       else mix.maintain++; // maintain / new / unknown
     }
     return mix;
@@ -258,13 +254,12 @@ const Index = () => {
             accent="var(--brand)"
           />
           <KpiTile
-            label="Targets reached"
-            value={team && team.targetsReached.withTarget > 0 ? Math.round((team.targetsReached.inTarget / team.targetsReached.withTarget) * 100) : "No targets set"}
-            unit={team && team.targetsReached.withTarget > 0 ? "%" : undefined}
-            delta={targetsNow != null && targetsPrev != null ? targetsNow - targetsPrev : null}
-            deltaSuffix="pt"
-            footnote={team && team.targetsReached.withTarget > 0 ? `${team.targetsReached.inTarget}/${team.targetsReached.withTarget} reps in target` : "assign a target velocity to start tracking"}
-            sparkData={team && team.targetsReachedSeries.length > 1 ? team.targetsReachedSeries : undefined}
+            label="Team avg velocity"
+            value={teamVelNow != null ? teamVelNow.toFixed(2) : "—"}
+            unit="m/s"
+            delta={teamVelNow != null && teamVelPrev != null ? +(teamVelNow - teamVelPrev).toFixed(2) : null}
+            footnote="roster average · weekly"
+            sparkData={team && team.velSeries.length > 1 ? team.velSeries : undefined}
             sparkAxisLabels={["8 wks ago", "this wk"]}
             accent="var(--brand)"
           />
@@ -292,17 +287,15 @@ const Index = () => {
                   { value: loadMix.increase, color: "var(--good)" },
                   { value: loadMix.maintain, color: "var(--ink-3)" },
                   { value: loadMix.decrease, color: "var(--warn)" },
-                  { value: loadMix.noTarget, color: "var(--ink-4)" },
                 ]}
                 centerValue={loadMix.maintain}
-                centerLabel="maintain"
+                centerLabel="on plan"
               />
               <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 11.5 }}>
                 {[
                   { c: "var(--good)", l: "Increase", v: loadMix.increase },
                   { c: "var(--ink-3)", l: "Maintain", v: loadMix.maintain },
                   { c: "var(--warn)", l: "Reduce", v: loadMix.decrease },
-                  { c: "var(--ink-4)", l: "No target", v: loadMix.noTarget },
                 ].map((s) => (
                   <div key={s.l} className="row" style={{ gap: 6 }}>
                     <span style={{ width: 8, height: 8, borderRadius: 2, background: s.c }} />

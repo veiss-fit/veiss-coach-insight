@@ -15,11 +15,6 @@ export interface WorkoutExercise {
   targetVelocity?: number
   /** One entry per set. Present on templates saved after per-set support shipped. */
   perSet?: WorkoutSetSpec[]
-  /** Coach-entered target velocity range (m/s) — see workoutPlansService.ts's
-   *  WorkoutExercise for the full explanation. Both optional; a template can
-   *  carry no target, one exercise with a target and others without, etc. */
-  targetVelocityMin?: number | null
-  targetVelocityMax?: number | null
 }
 
 export interface WorkoutTemplate {
