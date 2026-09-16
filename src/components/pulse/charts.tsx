@@ -288,21 +288,46 @@ function niceTicks(min: number, max: number, targetCount = 5): number[] {
   return ticks;
 }
 
+/** Distinct line colors, one per set, cycling if there are more sets than colors. */
+const SET_COLORS = [
+  "#2563eb", // blue
+  "#d97706", // amber
+  "#7c3aed", // violet
+  "#059669", // emerald
+  "#db2777", // pink
+  "#0891b2", // cyan
+  "#b91c1c", // red
+  "#4b5563", // slate
+];
+
 /**
- * One continuous rep-by-rep trace for the whole exercise — a single shared
- * y-axis (velocity) and one set of gridlines, with sets shown as labeled
- * groups along the x-axis rather than N disconnected mini-charts each
- * repeating their own axis/chrome. Bars are colored by target status
- * (in-zone / outside zone) only when a real coach-set target exists for this
- * exercise instance; with no target, every bar is one neutral color so the
- * chart never implies a target that isn't there.
+ * One connected line per set — reps plotted by their position WITHIN the set
+ * (rep 1, 2, 3…), not a global cumulative count, so every set's fatigue curve
+ * starts at the same x and different sets overlay comparably. A single shared
+ * y-axis (velocity, rounded tick increments) spans the whole exercise. Set
+ * toggle chips above the chart show/hide individual lines; a chip's color
+ * matches its line. Target band (when a real target exists) shades the zone
+ * across the full width, and dots get a secondary in-zone/out-of-zone style
+ * on top of their line's color.
  */
 export function RepTraceChart({ reps, target, weightUnit, accent = "var(--brand)", height = 200 }: RepTraceChartProps) {
   const { ref, width: w } = useMeasuredWidth<HTMLDivElement>(400);
-  const [hover, setHover] = useState<{ set: number; idx: number } | null>(null);
+  const [hover, setHover] = useState<{ set: number; rep: number } | null>(null);
+  const [hiddenSets, setHiddenSets] = useState<Set<number>>(new Set());
   if (reps.length === 0) return <div ref={ref} style={{ height }} />;
 
+  const toggleSet = (setNum: number) =>
+    setHiddenSets((prev) => {
+      const next = new Set(prev);
+      if (next.has(setNum)) next.delete(setNum); else next.add(setNum);
+      return next;
+    });
+
   const tgt = target ?? null;
+
+  // Y-scale is fixed to the FULL exercise's range regardless of which sets are
+  // toggled on/off — so hiding a line never rescales the chart out from under
+  // the ones still showing.
   const vels = reps.map((r) => r.vel);
   const rawMn = Math.min(...vels, tgt != null ? tgt.min : Infinity);
   const rawMx = Math.max(...vels, tgt != null ? tgt.max : -Infinity);
@@ -320,48 +345,67 @@ export function RepTraceChart({ reps, target, weightUnit, accent = "var(--brand)
     }
     bySet.get(r.set)!.push(r);
   }
+  setOrder.sort((a, b) => a - b);
 
-  const PL = 36; // left axis label column
-  const PT = 10, PB = 8;
-  const LABEL_H = 30; // set number + weight caption, below the chart
-  const GAP = 18; // px between set groups
-  const cW = Math.max(60, w - PL);
-  const cH = Math.max(40, height - PT - PB - LABEL_H);
-  const MIN_BAR_H = 3;
+  const maxRepsInSet = Math.max(1, ...[...bySet.values()].map((rs) => rs.length));
 
-  const totalReps = reps.length;
-  const totalGaps = Math.max(0, setOrder.length - 1) * GAP;
-  const slot = Math.max(2, (cW - totalGaps) / totalReps);
-  const bw = Math.max(2, slot * 0.6);
-
-  interface SetLayout { setNum: number; reps: RepTracePoint[]; xStart: number; xCenter: number; weightLabel: string }
-  const layout: SetLayout[] = [];
-  let cursor = PL;
-  for (const setNum of setOrder) {
-    const setReps = bySet.get(setNum)!;
-    const groupW = setReps.length * slot;
+  interface SetInfo { setNum: number; reps: RepTracePoint[]; color: string; weightLabel: string }
+  const setInfos: SetInfo[] = setOrder.map((setNum, i) => {
+    const setReps = [...bySet.get(setNum)!].sort((a, b) => a.rep - b.rep);
     const weights = setReps.map((r) => r.weight).filter((v): v is number => v != null && v > 0);
     const weightLabel = weights.length ? `${Math.round(mean(weights))} ${weightUnit ?? "lbs"}` : "no load logged";
-    layout.push({ setNum, reps: setReps, xStart: cursor, xCenter: cursor + groupW / 2, weightLabel });
-    cursor += groupW + GAP;
-  }
+    return { setNum, reps: setReps, color: SET_COLORS[i % SET_COLORS.length], weightLabel };
+  });
 
+  const PL = 36; // left axis label column
+  const PR = 8;
+  const PT = 10, PB = 24; // bottom padding fits the rep-number axis
+  const cW = Math.max(60, w - PL - PR);
+  const cH = Math.max(40, height - PT - PB);
+
+  const xFor = (repIdx: number) =>
+    maxRepsInSet <= 1 ? PL + cW / 2 : PL + ((repIdx - 1) / (maxRepsInSet - 1)) * cW;
   const yFor = (v: number) => PT + cH - ((v - mn) / range) * cH;
   const targetYMin = tgt != null ? yFor(tgt.min) : null;
   const targetYMax = tgt != null ? yFor(tgt.max) : null;
 
-  const hoveredSet = hover != null ? layout.find((s) => s.setNum === hover.set) : null;
-  const hoveredRep = hoveredSet ? hoveredSet.reps[hover!.idx] : null;
-  const hoveredX = hoveredSet ? hoveredSet.xStart + hover!.idx * slot + slot / 2 : 0;
+  const repTicks = Array.from({ length: maxRepsInSet }, (_, i) => i + 1);
+
+  const hoveredSet = hover != null ? setInfos.find((s) => s.setNum === hover.set) : null;
+  const hoveredRep = hoveredSet ? hoveredSet.reps.find((r) => r.rep === hover!.rep) : null;
 
   return (
     // No overflow:hidden here — the hover tooltip intentionally pops up above the chart.
     <div ref={ref} style={{ width: "100%", minWidth: 0, position: "relative" }}>
-      {tgt != null && (
-        <div className="row" style={{ justifyContent: "flex-end", marginBottom: 4 }}>
-          <span className="mono" style={{ fontSize: 9.5, color: accent }}>target {tgt.min.toFixed(2)}–{tgt.max.toFixed(2)} m/s</span>
+      <div className="row" style={{ justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 6 }}>
+        <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+          {setInfos.map((s) => {
+            const on = !hiddenSets.has(s.setNum);
+            return (
+              <button
+                key={s.setNum}
+                type="button"
+                onClick={() => toggleSet(s.setNum)}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 6,
+                  height: 24, padding: "0 9px", borderRadius: 999,
+                  border: `1.5px solid ${s.color}`,
+                  background: on ? s.color : "transparent",
+                  color: on ? "#fff" : s.color,
+                  opacity: on ? 1 : 0.55,
+                  fontSize: 10.5, fontFamily: "var(--font-mono)", cursor: "pointer",
+                }}
+              >
+                Set {s.setNum} — {s.weightLabel}
+              </button>
+            );
+          })}
         </div>
-      )}
+        {tgt != null && (
+          <span className="mono" style={{ fontSize: 9.5, color: accent }}>target {tgt.min.toFixed(2)}–{tgt.max.toFixed(2)} m/s</span>
+        )}
+      </div>
+
       <svg width={w} height={height} style={{ display: "block", overflow: "visible" }}>
         {ticks.map((t, i) => (
           <g key={i}>
@@ -379,56 +423,53 @@ export function RepTraceChart({ reps, target, weightUnit, accent = "var(--brand)
           </>
         )}
         <line x1={PL} x2={PL + cW} y1={PT + cH} y2={PT + cH} stroke="var(--line-2)" strokeWidth="1.2" />
-
-        {layout.map((s, si) => (
-          <g key={s.setNum}>
-            {si > 0 && (
-              <line
-                x1={s.xStart - GAP / 2} x2={s.xStart - GAP / 2}
-                y1={PT} y2={PT + cH}
-                stroke="var(--line-0)" strokeWidth="1" strokeDasharray="2 3"
-              />
-            )}
-            {s.reps.map((r, i) => {
-              const x = s.xStart + i * slot + (slot - bw) / 2;
-              const barH = Math.max(MIN_BAR_H, ((r.vel - mn) / range) * cH);
-              const yv = PT + cH - barH;
-              const isHover = hover?.set === s.setNum && hover.idx === i;
-              const outOfRange = tgt != null && (r.vel < tgt.min || r.vel > tgt.max);
-              // In-zone/outside-zone uses the same good/warn semantic colors as
-              // the rest of the app; no target at all → one neutral color, never
-              // implying a target exists when it doesn't.
-              const tone = tgt == null ? "var(--ink-3)" : outOfRange ? "var(--warn)" : "var(--good)";
-              return (
-                <rect
-                  key={i}
-                  x={x} y={yv} width={bw} height={barH} rx="1.5"
-                  fill={tone}
-                  fillOpacity={isHover ? 1 : 0.85}
-                  stroke={isHover ? tone : "none"}
-                  strokeWidth={isHover ? 1.5 : 0}
-                  style={{ cursor: "pointer" }}
-                  onMouseEnter={() => setHover({ set: s.setNum, idx: i })}
-                  onMouseLeave={() => setHover(null)}
-                />
-              );
-            })}
-            <text x={s.xCenter} y={PT + cH + 14} textAnchor="middle" fontSize="9.5" fontFamily="var(--font-mono)" fill="var(--ink-2)">
-              Set {s.setNum}
-            </text>
-            <text x={s.xCenter} y={PT + cH + 25} textAnchor="middle" fontSize="8.5" fontFamily="var(--font-mono)" fill="var(--ink-3)">
-              {s.weightLabel}
-            </text>
-          </g>
+        {repTicks.map((rn) => (
+          <text key={rn} x={xFor(rn)} y={PT + cH + 16} textAnchor="middle" fontSize="9" fontFamily="var(--font-mono)" fill="var(--ink-3)">
+            {rn}
+          </text>
         ))}
+
+        {setInfos.filter((s) => !hiddenSets.has(s.setNum)).map((s) => {
+          const path = s.reps.map((r, i) => (i ? "L" : "M") + xFor(r.rep) + "," + yFor(r.vel)).join(" ");
+          return (
+            <g key={s.setNum}>
+              <path d={path} stroke={s.color} strokeWidth="2" fill="none" strokeLinejoin="round" strokeLinecap="round" />
+              {s.reps.map((r) => {
+                const isHover = hover?.set === s.setNum && hover.rep === r.rep;
+                const outOfRange = tgt != null && (r.vel < tgt.min || r.vel > tgt.max);
+                // Line color = which set. Dot style is a SECOND, independent
+                // encoding of target status on top of that: filled = in zone,
+                // hollow with a warn-colored ring = outside zone. No target at
+                // all → every dot is just a plain filled marker in the set's
+                // own color, no status implied.
+                const outlined = tgt != null && outOfRange;
+                return (
+                  <circle
+                    key={r.rep}
+                    cx={xFor(r.rep)}
+                    cy={yFor(r.vel)}
+                    r={isHover ? 6 : outlined ? 5 : 4}
+                    fill={outlined ? "var(--surface-0)" : s.color}
+                    stroke={outlined ? "var(--warn)" : isHover ? s.color : "var(--surface-0)"}
+                    strokeWidth={outlined ? 2 : 1.5}
+                    style={{ cursor: "pointer" }}
+                    onMouseEnter={() => setHover({ set: s.setNum, rep: r.rep })}
+                    onMouseLeave={() => setHover(null)}
+                    onClick={() => setHover({ set: s.setNum, rep: r.rep })}
+                  />
+                );
+              })}
+            </g>
+          );
+        })}
       </svg>
 
-      {hoveredRep && (
+      {hoveredRep && hoveredSet && (
         <div
           style={{
             position: "absolute",
-            left: Math.min(Math.max(hoveredX, 70), w - 70),
-            top: Math.max(yFor(hoveredRep.vel) - 60, 4),
+            left: Math.min(Math.max(xFor(hoveredRep.rep), 70), w - 70),
+            top: Math.max(yFor(hoveredRep.vel) - 66, 4),
             transform: "translate(-50%, 0)",
             background: "var(--ink-0)", color: "white",
             padding: "6px 9px", borderRadius: 7, fontSize: 11, fontFamily: "var(--font-mono)",
@@ -436,7 +477,8 @@ export function RepTraceChart({ reps, target, weightUnit, accent = "var(--brand)
             pointerEvents: "none", whiteSpace: "nowrap", zIndex: 1,
           }}
         >
-          <div style={{ fontWeight: 600 }}>Rep {hoveredRep.rep} · {hoveredRep.vel.toFixed(2)} m/s</div>
+          <div style={{ fontWeight: 600 }}>Set {hoveredSet.setNum} · Rep {hoveredRep.rep} · {hoveredRep.vel.toFixed(2)} m/s</div>
+          <div style={{ color: "rgba(255,255,255,0.65)", fontSize: 10 }}>{hoveredSet.weightLabel}</div>
           {tgt != null && (
             <div style={{ color: "rgba(255,255,255,0.65)", fontSize: 10 }}>
               {hoveredRep.vel < tgt.min ? "below target" : hoveredRep.vel > tgt.max ? "above target" : "in target"}
