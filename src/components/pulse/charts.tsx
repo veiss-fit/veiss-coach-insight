@@ -151,7 +151,7 @@ export function ForceVelocityChart({ data, unitLabel = "load", accent = "var(--b
   const { ref, width: w } = useMeasuredWidth<HTMLDivElement>(600);
   const [hover, setHover] = useState<number | null>(null);
 
-  const PL = 40, PR = 16, PT = 16, PB = 32;
+  const PL = 60, PR = 16, PT = 16, PB = 36;
   const h = height;
   const cW = Math.max(50, w - PL - PR);
   const cH = h - PT - PB;
@@ -198,13 +198,13 @@ export function ForceVelocityChart({ data, unitLabel = "load", accent = "var(--b
         {yTicks.map((y) => (
           <g key={y}>
             <line x1={PL} x2={PL + cW} y1={toY(y)} y2={toY(y)} stroke="var(--line-0)" />
-            <text x={PL - 8} y={toY(y) + 3} textAnchor="end" fontSize="10" fontFamily="var(--font-mono)" fill="var(--ink-3)">{y.toFixed(2)}</text>
+            <text x={PL - 10} y={toY(y) + 3} textAnchor="end" fontSize="10" fontFamily="var(--font-mono)" fill="var(--ink-3)">{y.toFixed(2)}</text>
           </g>
         ))}
         {xTicks.map((x) => (
-          <text key={x} x={toX(x)} y={h - 14} textAnchor="middle" fontSize="10" fontFamily="var(--font-mono)" fill="var(--ink-3)">{x}</text>
+          <text key={x} x={toX(x)} y={h - 16} textAnchor="middle" fontSize="10" fontFamily="var(--font-mono)" fill="var(--ink-3)">{x}</text>
         ))}
-        <text x={PL - 28} y={PT + cH / 2} textAnchor="middle" fontSize="10" fontFamily="var(--font-mono)" fill="var(--ink-3)" transform={`rotate(-90, ${PL - 28}, ${PT + cH / 2})`}>velocity m/s</text>
+        <text x={14} y={PT + cH / 2} textAnchor="middle" fontSize="10" fontFamily="var(--font-mono)" fill="var(--ink-3)" transform={`rotate(-90, 14, ${PT + cH / 2})`}>velocity m/s</text>
         <text x={PL + cW / 2} y={h - 2} textAnchor="middle" fontSize="10" fontFamily="var(--font-mono)" fill="var(--ink-3)">{unitLabel}</text>
 
         {lvPath && <path d={lvPath} stroke={accent} strokeWidth="1.4" strokeDasharray="3 3" fill="none" opacity="0.5" />}

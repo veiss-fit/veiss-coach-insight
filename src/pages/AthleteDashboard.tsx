@@ -24,8 +24,9 @@ import {
   computeAnomalyIndicators, computeSparkline, DeviationIndicator, RAGStatus,
   sessionAvgVelocity, sessionVelocityDropoff, sessionRomConsistency,
   sessionEccentricConcentricRatio, sessionTUT, sessionVolumeGated, periodVolume,
+  velocityIndicatorSource, findPrimaryExercise, compositeRagStatus,
 } from "@/lib/athleteSummaryUtils";
-import { flagsFor, lastDaysFor } from "@/lib/rosterFlags";
+import { lastDaysFor } from "@/lib/rosterFlags";
 import { SESSIONS_TARGET } from "@/lib/vbtZones";
 
 // ─── Derivation helpers ───────────────────────────────────────────────────────
@@ -33,11 +34,6 @@ import { SESSIONS_TARGET } from "@/lib/vbtZones";
 const sessionTime = (s: SessionData) => new Date(s.startedAt ?? s.createdAt).getTime();
 
 const mean = (xs: number[]): number | null => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
-
-function sessionAvgROM(s: SessionData): number | null {
-  const roms = s.exercises.map((e) => e.avgROM).filter((v) => v > 0);
-  return mean(roms);
-}
 
 interface PlanRow {
   id: string;
@@ -59,6 +55,13 @@ const RAG_COLOR: Record<RAGStatus, string> = {
   amber: "var(--warn)",
   red: "var(--bad)",
   insufficient: "var(--ink-3)",
+};
+
+const READINESS_LABEL: Record<RAGStatus, string> = {
+  green: "On track",
+  amber: "Monitor",
+  red: "Fatigue risk",
+  insufficient: "Not enough data",
 };
 
 const METRIC_FN: Record<string, (s: SessionData) => number | null> = {
@@ -121,7 +124,6 @@ function SessionsTab({ sessions }: { sessions: SessionData[] }) {
       <div className="v-card flush">
         {sorted.map((s, i) => {
           const isOpen = openId === s.id;
-          const avgVel = sessionAvgVelocity(s);
           const drop = sessionVelocityDropoff(s);
           const volume = sessionVolumeGated(s);
           const totalReps = s.exercises.reduce((n, e) => n + e.repData.length, 0);
@@ -133,7 +135,7 @@ function SessionsTab({ sessions }: { sessions: SessionData[] }) {
                 onClick={() => { setOpenId(isOpen ? null : s.id); setExerciseIdx(0); }}
                 style={{
                   width: "100%", display: "grid", alignItems: "center", gap: 12,
-                  gridTemplateColumns: "90px 1fr 110px 100px 110px 28px",
+                  gridTemplateColumns: "90px 1fr 100px 110px 28px",
                   border: "none", background: isOpen ? "var(--surface-2)" : "transparent",
                   padding: "14px 18px", textAlign: "left", cursor: "pointer", font: "inherit",
                 }}
@@ -145,10 +147,6 @@ function SessionsTab({ sessions }: { sessions: SessionData[] }) {
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 500, color: "var(--ink-0)" }}>{s.notes || "Training session"}</div>
                   <div className="v-meta mono" style={{ fontSize: 11 }}>{s.exercises.length} exercise{s.exercises.length !== 1 ? "s" : ""} · {totalReps} reps</div>
-                </div>
-                <div>
-                  <div className="v-label" style={{ fontSize: 9.5 }}>Avg velocity</div>
-                  <div className="mono" style={{ fontSize: 13, color: "var(--ink-0)" }}>{avgVel != null ? `${avgVel.toFixed(2)} m/s` : "—"}</div>
                 </div>
                 <div>
                   <div className="v-label" style={{ fontSize: 9.5 }}>Drop-off</div>
@@ -273,7 +271,13 @@ function ReadinessTab({ athlete, sessions, indicators }: { athlete: PlayerWithSt
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 14 }}>
             {indicators.map((ind) => {
-              const spark = computeSparkline(sessions, METRIC_FN[ind.metric] ?? sessionAvgVelocity);
+              // "velocity" is scoped to whichever lift the indicator itself was
+              // built from (see velocityIndicatorSource) — resolving it fresh
+              // here instead of a static lookup keeps the sparkline reading the
+              // exact same per-session values the indicator's z-score used.
+              const spark = ind.metric === "velocity"
+                ? computeSparkline(sessions, velocityIndicatorSource(sessions).extractFn)
+                : computeSparkline(sessions, METRIC_FN[ind.metric] ?? sessionAvgVelocity);
               return (
                 <div key={ind.metric} style={{ border: "1px solid var(--line-0)", borderRadius: 8, padding: "10px 12px" }}>
                   <div className="row" style={{ justifyContent: "space-between" }}>
@@ -549,6 +553,7 @@ export default function AthleteDashboard() {
   const now = useMemo(() => new Date(), []);
 
   const indicators = useMemo(() => computeAnomalyIndicators(sessions), [sessions]);
+  const readinessStatus = useMemo(() => compositeRagStatus(indicators), [indicators]);
 
   const dropSeries = useMemo(
     () => sorted.map((s) => sessionVelocityDropoff(s)).filter((v): v is number => v != null),
@@ -556,29 +561,33 @@ export default function AthleteDashboard() {
   );
   const latestDrop = dropSeries.length ? Math.round(dropSeries[dropSeries.length - 1]) : null;
 
-  const romSeries = useMemo(
-    () => sorted.map((s) => sessionAvgROM(s)).filter((v): v is number => v != null),
-    [sorted]
-  );
-
   const weekIdx = useCallback(
     (d: Date, weeks: number) => weeks - 1 - differenceInCalendarWeeks(now, d, { weekStartsOn: 1 }),
     [now]
   );
 
-  const sessionVels = useMemo(
-    () => sorted.map((s) => sessionAvgVelocity(s)).filter((v): v is number => v != null),
-    [sorted]
-  );
-  const recentVel = useMemo(() => {
-    const m = mean(sessionVels.slice(-3));
+  // Primary Lift Trend KPI — same selection rule the (now-fixed) Avg Velocity
+  // anomaly indicator uses, so both surfaces name the same lift: most reps
+  // logged in the last 30 days, ties broken by most recently trained.
+  const primaryExercise = useMemo(() => findPrimaryExercise(sorted), [sorted]);
+  const primaryLiftVels = useMemo(() => {
+    if (!primaryExercise) return [];
+    const vals: number[] = [];
+    for (const s of sorted) {
+      const ex = s.exercises.find((e) => e.name === primaryExercise.name && e.avgVelocity > 0);
+      if (ex) vals.push(ex.avgVelocity);
+    }
+    return vals;
+  }, [sorted, primaryExercise]);
+  const primaryLiftRecentVel = useMemo(() => {
+    const m = mean(primaryLiftVels.slice(-3));
     return m != null ? +m.toFixed(2) : null;
-  }, [sessionVels]);
-  const velDelta = useMemo(() => {
-    if (sessionVels.length < 5) return null;
-    const prior = mean(sessionVels.slice(0, -3));
-    return recentVel != null && prior != null ? +(recentVel - prior).toFixed(2) : null;
-  }, [sessionVels, recentVel]);
+  }, [primaryLiftVels]);
+  const primaryLiftVelDelta = useMemo(() => {
+    if (primaryLiftVels.length < 5) return null;
+    const prior = mean(primaryLiftVels.slice(0, -3));
+    return primaryLiftRecentVel != null && prior != null ? +(primaryLiftRecentVel - prior).toFixed(2) : null;
+  }, [primaryLiftVels, primaryLiftRecentVel]);
 
   const velTrend12 = useMemo<VelTrendPoint[]>(() => {
     const WEEKS = 12;
@@ -714,8 +723,6 @@ export default function AthleteDashboard() {
     );
   }
 
-  const flags = athlete ? flagsFor(athlete, athleteMetrics?.perPlayer.get(athlete.id)) : [];
-  const extraFlags = flags.filter((f) => f.kind !== "inactive" && f.tone !== "neutral").slice(0, 2);
   const lastDays = athlete ? lastDaysFor(athlete, athleteMetrics?.perPlayer.get(athlete.id)) : Infinity;
 
   return (
@@ -742,9 +749,6 @@ export default function AthleteDashboard() {
                     <span className="dot" />
                     {lastDays <= 3 ? "Active" : !Number.isFinite(lastDays) ? "No sessions" : lastDays >= 7 ? `Inactive ${lastDays}d` : `Quiet ${lastDays}d`}
                   </span>
-                  {extraFlags.map((f, i) => (
-                    <span key={i} className="v-chip" data-tone={f.tone}>{f.label}</span>
-                  ))}
                 </div>
               </div>
             </div>
@@ -755,22 +759,17 @@ export default function AthleteDashboard() {
           </div>
 
           {/* KPI strip */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, padding: "20px 0" }}>
-            <KpiTile
-              label="Avg velocity"
-              value={recentVel != null ? recentVel.toFixed(2) : athlete.avgVelocity > 0 ? athlete.avgVelocity.toFixed(2) : "—"}
-              unit="m/s"
-              delta={velDelta}
-              footnote="last 3 sessions vs prior"
-              sparkData={sessionVels.length > 1 ? sessionVels.slice(-8) : undefined}
-              sparkTarget={0.75}
-              accent="var(--brand)"
-            />
-            <KpiTile
-              label="Attendance"
-              value={`${athlete.attendance}%`}
-              footnote={Number.isFinite(lastDays) ? `last session ${lastDays}d ago` : "no sessions yet"}
-            />
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, padding: "20px 0" }}>
+            <div className="v-card padded" style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
+              <div className="v-label">Readiness</div>
+              <div className="row" style={{ gap: 8, alignItems: "center" }}>
+                <span style={{ width: 10, height: 10, borderRadius: 999, background: RAG_COLOR[readinessStatus], flexShrink: 0 }} />
+                <span className="num" style={{ fontSize: 20, fontWeight: 600, color: "var(--ink-0)" }}>{READINESS_LABEL[readinessStatus]}</span>
+              </div>
+              <div className="v-meta" style={{ fontSize: 11.5, color: "var(--ink-3)" }}>
+                {readinessStatus === "insufficient" ? `needs ≥7 sessions of primary-lift data` : "vs. this athlete's own baseline"}
+              </div>
+            </div>
             <KpiTile
               label="Velocity drop-off"
               value={latestDrop != null ? `${latestDrop}%` : "—"}
@@ -781,21 +780,29 @@ export default function AthleteDashboard() {
               accent="var(--brand)"
             />
             <KpiTile
-              label="Sessions this week"
+              label="Sessions vs. Plan"
               value={sessionsThisWeek}
               unit={`/ ${SESSIONS_TARGET}`}
               footnote={`target ${SESSIONS_TARGET}/wk`}
               sparkData={weekly8.map((wp) => wp.v)}
               accent="var(--brand)"
             />
-            <KpiTile
-              label="Avg ROM"
-              value={athlete.avgROM > 0 ? athlete.avgROM : "—"}
-              unit="mm"
-              footnote={athlete.avgTempo > 0 ? `${athlete.avgTempo.toFixed(2)}s avg tempo` : undefined}
-              sparkData={romSeries.length > 1 ? romSeries.slice(-8).map((v) => Math.round(v)) : undefined}
-              accent="var(--brand)"
-            />
+            {primaryExercise ? (
+              <KpiTile
+                label={primaryExercise.name}
+                value={primaryLiftRecentVel != null ? primaryLiftRecentVel.toFixed(2) : "—"}
+                unit="m/s"
+                delta={primaryLiftVelDelta}
+                footnote="primary lift · last 3 sessions vs prior"
+                sparkData={primaryLiftVels.length > 1 ? primaryLiftVels.slice(-8) : undefined}
+                accent="var(--brand)"
+              />
+            ) : (
+              <div className="v-card padded" style={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", gap: 4, minWidth: 0, textAlign: "center" }}>
+                <div className="v-label">Primary Lift Trend</div>
+                <div className="v-mute2" style={{ fontSize: 12 }}>No sessions logged this period</div>
+              </div>
+            )}
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 24 }}>
@@ -805,7 +812,7 @@ export default function AthleteDashboard() {
                   { id: "readiness", label: "Readiness" },
                   { id: "performance", label: "Performance" },
                   { id: "sessions", label: "Sessions", count: sessions.length },
-                  { id: "programming", label: "Programming", count: plans.length },
+                  { id: "programming", label: "Programming" },
                 ]}
                 active={tab}
                 onChange={setTab}

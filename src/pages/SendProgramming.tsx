@@ -712,58 +712,54 @@ function TemplatesTab({ onUse }: TemplatesTabProps) {
         <div className="v-scroll" style={{ maxHeight: 720, overflow: 'auto', paddingRight: 4 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 16, alignItems: 'start' }}>
           {templates.map(t => (
-            <div key={t.id} className="v-card padded" style={{ display: 'flex', flexDirection: 'column', gap: 12, height: 280 }}>
-              <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start', flexShrink: 0 }}>
-                <div style={{ minWidth: 0 }}>
-                  <div className="v-h3">{t.name}</div>
-                  <span className="v-chip" data-tone="neutral" style={{ marginTop: 6 }}>
-                    <span className="dot" style={{ background: 'var(--brand)' }} />
-                    {t.exercises.length} exercise{t.exercises.length !== 1 ? 's' : ''}
-                  </span>
+            <div key={t.id} className="v-card padded" style={{ display: 'flex', flexDirection: 'column', gap: 6, height: 280 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 1, flexShrink: 0 }}>
+                <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div className="v-h3">{t.name}</div>
+                  </div>
+                  <div className="row" style={{ gap: 4 }}>
+                    <button className="v-btn ghost" style={{ width: 28, padding: 0, justifyContent: 'center' }} title="Edit" onClick={() => openEdit(t)}>
+                      <Pencil size={12} strokeWidth={1.5} />
+                    </button>
+                    <button
+                      className="v-btn ghost"
+                      style={{ width: 28, padding: 0, justifyContent: 'center' }}
+                      title="Duplicate"
+                      onClick={async () => {
+                        const ok = await duplicateTemplate(t)
+                        if (ok) toast.success('Template duplicated')
+                        else toast.error("Couldn't duplicate that template. Please try again.")
+                      }}
+                    >
+                      <Copy size={12} strokeWidth={1.5} />
+                    </button>
+                    <button
+                      className="v-btn ghost"
+                      style={{ width: 28, padding: 0, justifyContent: 'center', color: 'var(--bad)' }}
+                      title="Delete"
+                      onClick={async () => {
+                        const ok = await deleteTemplate(t.id)
+                        if (ok) toast.success('Template deleted')
+                        else toast.error("Couldn't delete that template. Please try again.")
+                      }}
+                    >
+                      <Trash2 size={12} strokeWidth={1.5} />
+                    </button>
+                  </div>
                 </div>
-                <div className="row" style={{ gap: 4 }}>
-                  <button className="v-btn ghost" style={{ width: 28, padding: 0, justifyContent: 'center' }} title="Edit" onClick={() => openEdit(t)}>
-                    <Pencil size={12} strokeWidth={1.5} />
-                  </button>
-                  <button
-                    className="v-btn ghost"
-                    style={{ width: 28, padding: 0, justifyContent: 'center' }}
-                    title="Duplicate"
-                    onClick={async () => {
-                      const ok = await duplicateTemplate(t)
-                      if (ok) toast.success('Template duplicated')
-                      else toast.error("Couldn't duplicate that template. Please try again.")
-                    }}
-                  >
-                    <Copy size={12} strokeWidth={1.5} />
-                  </button>
-                  <button
-                    className="v-btn ghost"
-                    style={{ width: 28, padding: 0, justifyContent: 'center', color: 'var(--bad)' }}
-                    title="Delete"
-                    onClick={async () => {
-                      const ok = await deleteTemplate(t.id)
-                      if (ok) toast.success('Template deleted')
-                      else toast.error("Couldn't delete that template. Please try again.")
-                    }}
-                  >
-                    <Trash2 size={12} strokeWidth={1.5} />
-                  </button>
-                </div>
-              </div>
 
-              {t.description && (
                 <div
                   className="v-meta ellipsis"
-                  style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--ink-2)', flexShrink: 0 }}
+                  style={{ fontSize: 12, lineHeight: 1.3, height: 13, color: 'var(--ink-2)' }}
                 >
                   {t.description}
                 </div>
-              )}
+              </div>
 
               <div
                 className="v-scroll"
-                style={{ display: 'flex', flexDirection: 'column', gap: 6, borderTop: '1px solid var(--line-0)', paddingTop: 10, flex: 1, minHeight: 0, overflowY: 'auto' }}
+                style={{ display: 'flex', flexDirection: 'column', gap: 6, borderTop: '1px solid var(--line-0)', paddingTop: 8, flex: 1, minHeight: 0, overflowY: 'auto' }}
               >
                 {t.exercises.map((e, i) => {
                   const varies = !!e.perSet && e.perSet.length > 1 &&
@@ -1219,6 +1215,10 @@ const SendProgramming = () => {
           )}
         </div>
       </main>
+
+      <footer style={{ padding: '16px 28px', textAlign: 'center' }} className="v-meta">
+        © {new Date().getFullYear()} Veiss. All rights reserved.
+      </footer>
     </div>
   )
 }

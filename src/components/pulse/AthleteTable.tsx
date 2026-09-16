@@ -24,7 +24,7 @@ export function PulseAthleteTable({ athletes, metricsByPlayer, showAdvanced, onS
           <th>Group</th>
           <th>Attendance</th>
           <th>Velocity</th>
-          {showAdvanced && <th>ROM</th>}
+          {showAdvanced && <th>Vertical Displacement</th>}
           {showAdvanced && <th>Tempo</th>}
           <th>Last session</th>
           <th></th>

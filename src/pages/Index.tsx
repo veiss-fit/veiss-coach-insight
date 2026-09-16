@@ -382,7 +382,7 @@ const Index = () => {
                 </PopoverTrigger>
                 <PopoverContent align="end" className="v-pop" style={{ width: 216, padding: 5 }}>
                   <div className="v-label" style={{ padding: "4px 8px 6px" }}>Toggle columns</div>
-                  <CheckRow label="Advanced (ROM · Tempo)" on={showAdvanced} onClick={() => setShowAdvanced((v) => !v)} />
+                  <CheckRow label="Advanced (Vertical Displacement · Tempo)" on={showAdvanced} onClick={() => setShowAdvanced((v) => !v)} />
                 </PopoverContent>
               </Popover>
             </div>

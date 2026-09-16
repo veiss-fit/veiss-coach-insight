@@ -248,19 +248,20 @@ chart (defaults to whichever exercise has the most data points in the window).
   AthleteDashboard Performance tab) — already correctly split by exercise
   name, min/max/avg per exercise over the last 4 weeks (falls back to
   all-time). Still the right place to look at raw velocity trends per lift.
-- **Deviation-from-baseline / z-score anomaly panel**
-  (`athleteSummaryUtils.ts` → `computeAnomalyIndicators`, Readiness tab) —
-  confirmed correct formulas (baseline mean/SD over historical sessions vs.
-  last-4-session mean, z-score RAG thresholds); tooltips in the UI already
-  match the code exactly. Not modified.
+- **Deviation-from-baseline / z-score anomaly panel** (`athleteSummaryUtils.ts`
+  → `computeAnomalyIndicators`, Readiness tab) — the baseline mean/SD/z-score
+  math itself (§14) and the 3 non-velocity indicators (Vertical Displacement
+  Consistency, E:C Ratio, Time Under Tension) are unchanged, confirmed
+  correct. The "Avg Velocity" indicator specifically WAS changed — see §14.
 - **Readiness score** (Readiness tab ring) — documented as a heuristic in its
   own UI copy, formula unchanged: `100 − drop×1.4 − min(daysSinceLast,30)×2`,
-  clamped [20,100].
-- **Roster "Velocity" column / focus-card "Velocity" tile / athlete
-  "Avg velocity" KPI** — a raw cross-exercise flat average
-  (`RosterAthleteMetrics.recentVel`, `PlayerWithStats.avgVelocity`), same as
-  before any target-based system existed. No per-exercise split; see the
-  limitation note in §1.
+  clamped [20,100]. Distinct from the newer athlete-page "Readiness" KPI tile
+  (§14), which is a different signal (z-score composite, not this heuristic).
+- **Roster "Velocity" column / focus-card "Velocity" tile** — a raw
+  cross-exercise flat average (`RosterAthleteMetrics.recentVel`,
+  `PlayerWithStats.avgVelocity`), same as before any target-based system
+  existed. No per-exercise split; see the limitation note in §1. (The athlete
+  detail page's own KPI strip no longer shows this number — see §14.)
 - **Sort-by-velocity** — `Index.tsx`'s roster sort dropdown ("Sort: Velocity")
   sorts by `recentVel`/`avgVelocity`, same field the roster table and focus
   cards display.
@@ -421,3 +422,93 @@ teammates" concern to apply to in the first place (coach-only dashboard).
   is too sparse to show a number — never silently omitted.
 - Underlying query/data logic untouched — this was a presentation-layer
   rewrite of one chart component.
+
+---
+
+## 14. Deviation panel "Avg Velocity" fix + athlete KPI strip redesign
+
+### The bug that was fixed
+`computeAnomalyIndicators`'s "Avg Velocity" indicator (`athleteSummaryUtils.ts`)
+used to source its per-session values from `sessionAvgVelocity` — a flat mean
+across every exercise in the session, the same cross-exercise blend already
+flagged as unreliable elsewhere in this app. The indicator's own code even
+carried a `warning` string admitting this. Worse than just being a blended
+*number*: because `buildIndicator` computes the historical baseline and the
+"recent" comparison from the **same** per-session sequence, both sides of the
+z-score used the identical blend — so a stretch of recent sessions with a
+different exercise mix than the athlete's historical norm (a squat-heavy
+block after a bench-heavy one, say) could shift the blended mean and trigger
+a "red" fatigue flag for reasons that were really just a different workout,
+not physiology.
+
+### The fix
+`src/lib/athleteSummaryUtils.ts`:
+- **`findPrimaryExercise(sessions, windowDays = 30)`** — the exercise with the
+  most logged reps (valid velocity > 0) in the last 30 days; ties broken by
+  whichever was trained most recently. Returns `null` if nothing qualifies
+  (no exercise trained in the window).
+- **`velocityIndicatorSource(sessions)`** — resolves the per-session
+  extraction function `computeAnomalyIndicators` now uses for "Avg Velocity":
+  that one primary exercise's `avgVelocity` for each session, `null` for
+  sessions that didn't include it. Both the baseline and the "recent" window
+  now read the same single lift throughout — no more cross-exercise blend on
+  either side. Exported (not inlined) so the Readiness tab's own sparkline for
+  this indicator resolves the identical extractor rather than a second,
+  separately-maintained one that could drift.
+- The indicator's `label` becomes the exercise name (e.g. `"Back Squat
+  Velocity"`) instead of the generic `"Avg Velocity"`, so the UI never implies
+  a blend that no longer exists. If no exercise qualifies (nothing trained in
+  the last 30 days), the indicator reports `ragStatus: "insufficient"`
+  directly — it does **not** fall back to the old blended metric.
+- **`compositeRagStatus(indicators)`** — worst-flag-wins across a set of
+  `DeviationIndicator`s (the one existing severity ordering in this module —
+  `insufficient < green < amber < red` — generalized, not reinvented).
+  `"insufficient"` only wins when every indicator is insufficient; a mix of
+  green + insufficient reads as green, not "not enough data."
+
+### Athlete detail page — KPI strip replaced (4 tiles, was 5)
+`AthleteDashboard.tsx`, top of page. The old 5 tiles (Avg velocity,
+Attendance, Velocity drop-off, Sessions this week, Avg Vertical Displacement)
+are gone entirely — none of the three removed ones (Avg velocity, Attendance,
+Avg Vertical Displacement) remain accessible anywhere else on this page as a
+fallback. Replaced with:
+
+1. **Readiness** — `compositeRagStatus(indicators)` where `indicators =
+   computeAnomalyIndicators(sessions)` (all 4 metrics: the now-fixed
+   per-exercise Avg Velocity, Vertical Displacement Consistency, E:C Ratio,
+   Time Under Tension). Displayed as a colored dot + status word (`"On
+   track"`/`"Monitor"`/`"Fatigue risk"`/`"Not enough data"`) rather than a
+   `KpiTile`, since a categorical RAG state doesn't fit that component's
+   numeric-value mold — styled to match its siblings' card sizing.
+   **A separate, unrelated tile-1 candidate ("Targets Reached") was
+   explicitly scoped out** — see §8: the target-velocity-range system it
+   would have reused was removed in an earlier pass and was not rebuilt. The
+   strip is 4 tiles, not 5, by explicit instruction.
+2. **Velocity drop-off** — unchanged. Confirmed still sourced from
+   `sessionVelocityDropoff` (`athleteSummaryUtils.ts`, correctly
+   per-exercise-partitioned — see §3), not the older cross-exercise-pooled
+   version that only exists in `rosterMetricsService.ts` for the roster-wide
+   path.
+3. **Sessions vs. Plan** — same underlying data/window as the old "Sessions
+   this week" tile (`sessionsThisWeek`/`SESSIONS_TARGET`, `weekly8` sparkline)
+   — label renamed only. No "Attendance" framing existed near this specific
+   tile's copy to begin with (the separate `label="Attendance"` tile was one
+   of the three removed), so this was a pure rename, no formula change.
+4. **Primary Lift Trend** — new. Exercise selection via
+   `findPrimaryExercise(sorted)` (same rule as the Avg Velocity indicator
+   fix above, so both surfaces on this page name the same lift for the same
+   athlete). Tile label is the exercise name itself (e.g. `"Back Squat"`);
+   value/delta/sparkline are that one exercise's `avgVelocity` per session,
+   last 3 sessions vs. prior — the same delta/sparkline pattern the old Avg
+   Velocity tile used, just scoped to one lift instead of blended. Empty
+   state ("No sessions logged this period") when `findPrimaryExercise`
+   returns `null`, rather than showing a stale trend from an exercise the
+   athlete hasn't touched in 30+ days.
+
+### Also removed this pass (unrelated to the above, requested alongside it)
+- The per-session **"Avg velocity"** column in the Sessions tab row list
+  (`SessionsTab`) — removed; that blended per-session number wasn't a useful
+  signal either, for the same reason as the indicator fix above. Drop-off and
+  Volume columns unchanged.
+- The rep/plan **count badge next to the "Programming" tab** label — removed;
+  the "Sessions" tab keeps its count badge, only "Programming" changed.

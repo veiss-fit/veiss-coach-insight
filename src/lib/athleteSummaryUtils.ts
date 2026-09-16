@@ -1,4 +1,4 @@
-import { format, parseISO } from "date-fns";
+import { format, parseISO, subDays } from "date-fns";
 import { SessionData, RepData } from "@/services/sessionsService";
 
 // ─── Public types ───────────────────────────────────────────────────────────
@@ -105,6 +105,46 @@ function groupRepsBySet(reps: RepData[]): Map<number, RepData[]> {
   return bySet;
 }
 
+// ─── Primary lift selection ─────────────────────────────────────────────────
+
+export interface PrimaryExercise {
+  name: string;
+  repCount: number;
+  lastSessionAt: number; // epoch ms, for the tie-break
+}
+
+/**
+ * The exercise this athlete trained the most (by rep count) in the last N
+ * days; ties broken by whichever was trained most recently. Shared by the
+ * "Avg Velocity" anomaly indicator below (scopes its z-score to one real
+ * lift instead of a cross-exercise blend — see CALCULATIONS.md) and the
+ * athlete page's Primary Lift Trend KPI tile, so both name the same lift.
+ */
+export function findPrimaryExercise(sessions: SessionData[], windowDays = 30): PrimaryExercise | null {
+  const cutoff = subDays(new Date(), windowDays);
+  const byName = new Map<string, PrimaryExercise>();
+  for (const s of sessions) {
+    const t = new Date(s.startedAt ?? s.createdAt);
+    if (t < cutoff) continue;
+    for (const ex of s.exercises) {
+      if (!isValidExerciseName(ex.name)) continue;
+      const reps = ex.repData.filter((r) => r.velocity > 0).length;
+      if (reps === 0) continue;
+      const existing = byName.get(ex.name);
+      if (existing) {
+        existing.repCount += reps;
+        if (t.getTime() > existing.lastSessionAt) existing.lastSessionAt = t.getTime();
+      } else {
+        byName.set(ex.name, { name: ex.name, repCount: reps, lastSessionAt: t.getTime() });
+      }
+    }
+  }
+  const candidates = [...byName.values()];
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => b.repCount - a.repCount || b.lastSessionAt - a.lastSessionAt);
+  return candidates[0];
+}
+
 // ─── Per-session metric extractors ──────────────────────────────────────────
 
 export function sessionAvgVelocity(s: SessionData): number | null {
@@ -113,6 +153,34 @@ export function sessionAvgVelocity(s: SessionData): number | null {
     .map((e) => e.avgVelocity)
     .filter((v) => v > 0);
   return vals.length > 0 ? arrayMean(vals) : null;
+}
+
+/**
+ * Resolves the per-session extraction function the "Avg Velocity" anomaly
+ * indicator (below) uses — scoped to the athlete's primary lift (see
+ * findPrimaryExercise) instead of sessionAvgVelocity's cross-exercise blend.
+ * A session with a different exercise mix than usual no longer shifts the
+ * z-score for reasons unrelated to fatigue, since both the baseline and the
+ * "recent" comparison now read the same single lift throughout.
+ *
+ * Exported (not inlined into computeAnomalyIndicators) so a caller building
+ * this indicator's own sparkline — which needs the EXACT same per-session
+ * values the indicator itself was built from — doesn't hand-roll a second,
+ * separately-maintained extractor that could drift out of sync.
+ */
+export function velocityIndicatorSource(
+  sessions: SessionData[]
+): { extractFn: (s: SessionData) => number | null; exerciseName: string | null } {
+  const primary = findPrimaryExercise(sessions);
+  if (!primary) return { extractFn: () => null, exerciseName: null };
+  const name = primary.name;
+  return {
+    exerciseName: name,
+    extractFn: (s) => {
+      const ex = s.exercises.find((e) => e.name === name && isValidExerciseName(e.name));
+      return ex && ex.avgVelocity > 0 ? ex.avgVelocity : null;
+    },
+  };
 }
 
 // ── Within-set fatigue ───────────────────────────────────────────────────────
@@ -360,29 +428,48 @@ export function computeAnomalyIndicators(sessions: SessionData[]): DeviationIndi
       new Date(b.startedAt ?? b.createdAt).getTime(),
   );
 
-  return [
-    buildIndicator(
-      "Avg Velocity", "velocity", sessionAvgVelocity, sorted,
-      "m/s", (v) => `${v.toFixed(2)} m/s`,
-      {
-        warning: "Cross-exercise avg — reliable only if exercise selection is consistent across sessions",
-        tooltip: {
-          what: "Average concentric velocity across every valid rep in the session.",
-          how: "Mean of average_rep_speed for all reps with a valid exercise name and velocity > 0.",
-          highlights: "A rising trend at the same prescribed load usually means the athlete is getting stronger/fresher. A falling trend can flag fatigue, poor recovery, or a load that's become too heavy for the velocity target.",
-          minimum: "≥1 rep with recorded velocity.",
+  // Scoped to one real lift (the athlete's primary lift — see
+  // findPrimaryExercise) instead of blending every exercise's velocity
+  // together. A blended baseline meant a session (or a recent run of
+  // sessions) with a different exercise mix than usual could swing the
+  // number and trigger a false fatigue flag that was really just a
+  // different workout — both the baseline and the "recent" comparison now
+  // read the same single lift throughout, so that can't happen. When no
+  // exercise has been trained in the last 30 days, there's no lift to scope
+  // to, so this reports insufficient rather than falling back to a blend.
+  const { extractFn: velocityExtract, exerciseName: primaryLift } = velocityIndicatorSource(sessions);
+  const velocityIndicator: DeviationIndicator = primaryLift
+    ? buildIndicator(
+        `${primaryLift} Velocity`, "velocity", velocityExtract, sorted,
+        "m/s", (v) => `${v.toFixed(2)} m/s`,
+        {
+          tooltip: {
+            what: `Average concentric velocity for ${primaryLift}, this athlete's primary lift (most reps logged in the last 30 days).`,
+            how: `Mean of average_rep_speed for ${primaryLift} reps only, per session.`,
+            highlights: "A rising trend at the same prescribed load usually means the athlete is getting stronger/fresher. A falling trend can flag fatigue, poor recovery, or a load that's become too heavy for the velocity target.",
+            minimum: `≥1 rep of ${primaryLift} with recorded velocity, across ≥${MIN_SESSIONS_FOR_BASELINE} sessions for a real baseline.`,
+          },
         },
-      },
-    ),
+      )
+    : {
+        label: "Avg Velocity", metric: "velocity",
+        value: null, baseline: null, stdDev: null, deltaPercent: null, latestValue: null,
+        ragStatus: "insufficient",
+        unit: "m/s", formatFn: (v: number) => `${v.toFixed(2)} m/s`,
+        warning: "No exercise trained in the last 30 days — nothing to scope a baseline to.",
+      };
+
+  return [
+    velocityIndicator,
     buildIndicator(
-      "ROM Consistency", "romConsistency", sessionRomConsistency, sorted,
+      "Vertical Displacement Consistency", "romConsistency", sessionRomConsistency, sorted,
       "%", (v) => `${v.toFixed(1)}%`,
       {
         tooltip: {
-          what: "Coefficient of variation of range of motion across all reps in the session.",
-          how: "Sample standard deviation divided by mean ROM, expressed as a percentage.",
+          what: "Coefficient of variation of vertical displacement across all reps in the session.",
+          how: "Sample standard deviation divided by mean vertical displacement, expressed as a percentage.",
           highlights: "Low CV means consistent movement depth. A rising trend means technique is breaking down — often before velocity is affected.",
-          minimum: "≥2 reps with ROM data.",
+          minimum: "≥2 reps with vertical displacement data.",
         },
       },
     ),
@@ -522,4 +609,21 @@ export function computeDistinctExercises(sessions: SessionData[]): string[] {
     }),
   );
   return Array.from(seen).sort();
+}
+
+const RAG_SEVERITY: Record<RAGStatus, number> = { insufficient: 0, green: 1, amber: 2, red: 3 };
+
+/**
+ * Worst-flag-wins composite across a set of indicators — the one existing
+ * aggregation pattern in this module, generalized rather than reinvented.
+ * "insufficient" only wins when every indicator is insufficient; otherwise
+ * the most severe REAL signal present wins, even alongside others that are
+ * insufficient (an athlete with 3 green indicators and 1 too-new-to-judge
+ * one should read as green, not "not enough data").
+ */
+export function compositeRagStatus(indicators: DeviationIndicator[]): RAGStatus {
+  return indicators.reduce<RAGStatus>(
+    (worst, ind) => (RAG_SEVERITY[ind.ragStatus] > RAG_SEVERITY[worst] ? ind.ragStatus : worst),
+    "insufficient",
+  );
 }
