@@ -36,6 +36,9 @@ export interface WorkoutPlanData {
   workoutName: string;
   exercises: WorkoutExercise[];
   notes?: string;
+  /** Marks this plan as part of a rehab/return-to-play process (migration
+   *  009). Drives the athlete-detail RTP trend view via same-day matching. */
+  isRehab?: boolean;
 }
 
 /**
@@ -98,6 +101,7 @@ export const sendWorkoutPlan = async (
       notes: planData.notes || null,
       is_completed: false,
       is_template: false,
+      is_rehab: planData.isRehab ?? false,
     }));
 
     console.log('Inserting workout plans:', workoutPlans);
@@ -173,7 +177,7 @@ export const getPlayerWorkoutPlans = async (
   try {
     const { data, error } = await supabase
       .from('workout_plans')
-      .select('id, player_id, coach_id, date, title, description, exercises, notes, is_completed, is_template, completed_at, session_id, created_at, updated_at')
+      .select('id, player_id, coach_id, date, title, description, exercises, notes, is_completed, is_template, is_rehab, completed_at, session_id, created_at, updated_at')
       .eq('player_id', playerId)
       .order('date', { ascending: false });
 

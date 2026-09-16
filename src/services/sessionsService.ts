@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { canonicalizeExerciseName } from '@/lib/targetEvaluation';
 import { Database } from '@/types/database';
 
 type SessionRow = Database['public']['Tables']['sessions']['Row'];
@@ -135,7 +136,7 @@ export const getSessionExercises = async (sessionId: string): Promise<ExerciseDa
         .filter((w) => w.exercise_name && w.exercise_name.trim().length >= 2)
         .map((w) => ({
           id: `${sessionId}-${w.exercise_name}`,
-          name: w.exercise_name,
+          name: canonicalizeExerciseName(w.exercise_name),
           weightUnit: 'lbs' as const,
           avgVelocity: 0,
           avgROM: 0,
@@ -148,12 +149,18 @@ export const getSessionExercises = async (sessionId: string): Promise<ExerciseDa
     const ARTIFACT_EXERCISE_NAMES = new Set([
       "Workout", "Exercise", "Movement", "Training", "Session",
     ]);
+    // Grouped by CANONICAL name (see canonicalizeExerciseName's alias map) so
+    // e.g. "Squat" and "Squats" reps merge into one "Back Squat" exercise
+    // instead of fragmenting into unrelated entries — confirmed live
+    // collision, not a hypothetical one. Artifact-name filtering still
+    // checks the raw logged name first.
     const exerciseMap = new Map<string, Rep[]>();
     reps.forEach((rep) => {
-      const key = rep.exercise_name;
-      if (!key) return;
-      if ((key.match(/[a-zA-Z]/g) ?? []).length < 2) return;
-      if (ARTIFACT_EXERCISE_NAMES.has(key)) return;
+      const raw = rep.exercise_name;
+      if (!raw) return;
+      if ((raw.match(/[a-zA-Z]/g) ?? []).length < 2) return;
+      if (ARTIFACT_EXERCISE_NAMES.has(raw)) return;
+      const key = canonicalizeExerciseName(raw);
       if (!exerciseMap.has(key)) exerciseMap.set(key, []);
       exerciseMap.get(key)!.push(rep);
     });

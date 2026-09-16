@@ -36,12 +36,42 @@ export interface TargetsReached {
 
 export const ZERO_TARGETS: TargetsReached = { inTarget: 0, withTarget: 0 };
 
-/** Case-insensitive, trimmed — matches how reps.exercise_name (hardware/mobile
- *  label) is compared against workout_plans.exercises[].name (coach-typed). If
- *  the two diverge in spelling, the rep is simply untracked (safe failure — see
- *  CALCULATIONS.md "known limitations"), never counted as a miss. */
+/**
+ * Explicit, hardcoded alias map for raw exercise_name variants confirmed
+ * against live data (Sept 2026) to be the SAME lift logged under different
+ * names — not a general fuzzy-matching system, and not extrapolated to any
+ * other pair someone merely suspects is a duplicate. Add an entry here only
+ * after separately confirming a specific collision the same way (inspecting
+ * distinct exercise_name values + rep/session counts), never by guessing.
+ * Keys are lowercased+trimmed; values are the canonical name to use instead.
+ */
+const EXERCISE_NAME_ALIASES: Record<string, string> = {
+  squat: 'Back Squat',
+  squats: 'Back Squat',
+  rdl: 'Romanian Deadlift',
+};
+
+/**
+ * Resolves a raw exercise_name to its canonical form: alias lookup first
+ * (trim+lowercase key match against EXERCISE_NAME_ALIASES), falling back to
+ * the trimmed original when there's no known alias. Applied at read time
+ * only, wherever reps.exercise_name is first grouped/keyed (sessionsService,
+ * rosterMetricsService, playersService) — never rewrites stored data.
+ */
+export function canonicalizeExerciseName(raw: string | null | undefined): string {
+  const trimmed = (raw ?? '').trim();
+  return EXERCISE_NAME_ALIASES[trimmed.toLowerCase()] ?? trimmed;
+}
+
+/** Case-insensitive, trimmed, alias-resolved — matches how reps.exercise_name
+ *  (hardware/mobile label) is compared against workout_plans.exercises[].name
+ *  (coach-typed). Runs canonicalizeExerciseName first so the two confirmed
+ *  aliases above match correctly even if a caller passed a raw, un-canonicalized
+ *  name straight through. Beyond those two, if the two diverge in spelling the
+ *  rep is simply untracked (safe failure — see CALCULATIONS.md "known
+ *  limitations"), never counted as a miss. */
 export const normalizeExerciseName = (name: string | null | undefined): string =>
-  (name ?? '').trim().toLowerCase();
+  canonicalizeExerciseName(name).toLowerCase();
 
 /** Build a name → range lookup from one plan's exercises array. Skips entries
  *  missing either bound, or with an inverted/degenerate range. */

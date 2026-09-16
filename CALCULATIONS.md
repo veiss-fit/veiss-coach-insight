@@ -376,3 +376,216 @@ array column with exactly one reader in the whole app
 data-scoping path (`getCoachTeamIds`, `TeamSportManager.loadTeams`) resolves a
 coach's groups live via `groups.coach_id`, never via the cached array. A null
 or stale `coaches.team_id` has no effect on anything rendered.
+
+---
+
+## 12. Load-velocity profile / e1RM / readiness index — DEFERRED
+
+**Status: not built. Do not build until real weight-logging coverage improves
+— this is a data-capture problem, not a scope item for any redesign pass.**
+
+**The number to track going forward: overall `reps.weight` fill rate, last
+measured at 21.8%** (214 of 981 reps in the last 90 days had a real logged
+weight; velocity was populated on 100%). Re-run the query in
+`supabase/analysis-data-quality.sql` periodically — when that number rises
+meaningfully, re-run the regression-readiness query too and reconsider.
+
+**Why, in detail:** of 11 athlete/exercise combinations with any load data at
+all in the last 90 days, only 4 cleared a minimum regression bar (≥3 distinct
+load points with a real range). Of those 4, 3 belonged to a single
+`player_id`, and that athlete's numbers (round 5-unit load increments, near-
+identical ~100-unit ranges across three unrelated exercises, 47/47/29 rep
+counts) have the shape of seeded/test data rather than confirmed organic
+training — treat this as **zero real athletes are profile-eligible today**,
+not "one athlete is," until/unless that data is confirmed real. The 4th
+combo (a different athlete's Bench Press, 20 reps, 3 distinct loads) is the
+one plausibly-real data point in the whole roster, and one exercise for one
+athlete is not enough to justify a profile-engine feature.
+
+**What would need to change before revisiting**: real athletes logging
+weight on a meaningfully higher fraction of reps, organically, across
+multiple sessions per exercise — not a lowered density bar, not synthetic
+backfill. This is a coaching/logging-workflow problem (get weight entered
+consistently, whether that means a hardware capture step or a manual field
+in whatever app logs the session) outside this repo's control.
+
+**readiness index** (today's velocity-at-load vs. profile prediction) is
+gated entirely behind the profile existing — not evaluated further while
+Part 1 stays deferred.
+
+---
+
+## 13. Mechanical work / volume load — coverage-gated
+
+`src/lib/athleteSummaryUtils.ts` → `sessionVolume()` (unchanged math),
+`sessionWeightCoverage()`, `sessionVolumeGated()`, `periodVolume()` (new).
+
+**The gate**: `VOLUME_COVERAGE_THRESHOLD = 0.8`. A session's weight coverage
+= (reps with a real logged weight) / (total reps in that session, valid
+exercises only). A volume number is only shown when that session individually
+clears 80% coverage; below that, the UI shows **"Not enough load data
+logged"** instead of a number — the same "don't fabricate, show the gap"
+pattern as Targets Reached's "No targets set" empty state. Sessions that
+don't clear the bar are excluded entirely from any period rollup, never
+averaged in to smooth out an undercount.
+
+**Where it's shown**:
+- Per-session, in the Sessions tab row list (`SessionsTab`) — a "Volume"
+  figure per session, or the "not enough data" message.
+- Period rollup: "Load, last 7d" in the Sessions tab header, summing
+  `sessionVolumeGated()` across the last 7 days' sessions via `periodVolume()`
+  — deliberately labeled distinctly from the pre-existing "Weekly volume"
+  card in the Performance tab, which means *session frequency* (a count), not
+  mechanical work — those are two different meanings of "volume" that
+  happened to collide in naming; this fix does not rename or touch that
+  existing card.
+
+**Given current coverage (21.8% overall), expect "Not enough load data
+logged" on most sessions today.** That's the correct, honest output — the
+threshold is not tuned to make more tiles show a number, and should not be
+lowered for that reason.
+
+**Formula** (via `sessionVolume`, unchanged): Σ per-rep load across valid
+exercises, where a rep with a real weight contributes that weight and a
+bodyweight rep (weight = 0) contributes 1 (counts the rep without fabricating
+a load). Same weightUnit caveat as §5 applies — a volume number is only as
+trustworthy as the unit assumption underneath it.
+
+---
+
+## 14. Peer comparison — removed
+
+`AthleteDashboard.tsx`'s "vs group average" panel (`InsightRail`) is removed
+entirely — not replaced with a self-only trend (the simpler of the two
+options this was scoped to allow, since the KPI strip and Performance tab
+already carry this athlete's own trends with nothing left to duplicate).
+`groupPeers`/`groupComparison`/`GroupComparison` are gone; `getRosterMetrics`
+is now called with just `[found]` (this athlete only) instead of their team,
+since the only remaining consumer of that call is this athlete's own
+`dropPct`/`lastSessionDate` (drives the header flags/chips), not a group
+average. Pure logic/UI change — no schema change, consistent with the
+earlier finding that this repo has no athlete-facing view for the "hide from
+teammates" concern to apply to in the first place (coach-only dashboard).
+
+---
+
+## 15. Exercise-name canonicalization
+
+**Investigated, not assumed**: the `" - Medium"`/`" - Fast"`/`" - Slow"`
+suffix pattern on `exercise_name` (present identically across Squat,
+Deadlift, and Bench Press in live data) was suspected as a possible
+auto-tagging artifact of the logging pipeline, based on the pattern repeating
+across unrelated lifts and inconsistent spacing suggestive of templated
+string generation. **Confirmed by the coach: deliberate.** Coaches
+intentionally log tempo-specific variants this way for reference. **These are
+NOT merged** — `"Bench Press - Fast"`, `"Bench Press - Medium"`,
+`"Bench Press - Slow"`, and `"Bench Press"` remain four distinct exercises
+everywhere (Targets Reached matching, drop-off partitioning, RTP trend,
+per-exercise charts). No suffix-stripping code was written.
+
+**Explicit, hardcoded alias map** (`src/lib/targetEvaluation.ts` →
+`EXERCISE_NAME_ALIASES`/`canonicalizeExerciseName`) for the two collisions
+confirmed against live data — and *only* these two, not extrapolated to
+anything else found while investigating:
+- `"Squat"` / `"Squats"` → `"Back Squat"`
+- `"rdl"` → `"Romanian Deadlift"`
+
+Applied at read time, wherever a raw `exercise_name` is first grouped or
+matched — never rewrites `reps.exercise_name` in the database:
+- `sessionsService.ts` — the per-session exercise grouping key (so "Squat"
+  and "Squats" reps merge into one `ExerciseData` entry named "Back Squat").
+  This is the highest-leverage point: every downstream consumer of
+  `SessionData`/`ExerciseData` (avg velocity, drop-off, `ExerciseRangeChart`,
+  the FV chart, the RTP view, Sessions tab) inherits the canonicalized name
+  for free.
+- `rosterMetricsService.ts` — `computeDropPctFromRows`'s raw-row grouping
+  (this one operates on raw DB rows directly, not `SessionData`, so it needs
+  its own canonicalization step).
+- `playersService.ts` — the `(session, exercise)` grouping used for the load
+  recommendation rule.
+- `targetEvaluation.normalizeExerciseName` itself now calls
+  `canonicalizeExerciseName` first, so Targets Reached matching is covered
+  even for a caller that didn't pre-canonicalize.
+
+**Other likely duplicates found while investigating, reported but NOT merged**
+(no confirmation obtained, so no alias added — do not add these without
+separately confirming them the same way the two above were confirmed):
+- `Barbell Row` — single instance, low signal, no obvious duplicate.
+- `Quad extensions` — single instance, lowercase, low signal.
+- `Tnf press` — unidentifiable; doesn't match any name in the coach-side
+  `EXERCISE_LIBRARY`. Meaning unknown.
+- `Belt squat` — plausibly a distinct movement from "Back Squat" (a belt
+  squat is a different exercise, not just a casing variant), left alone
+  deliberately, not merged.
+
+**Extending this list**: only add an entry after separately confirming a
+specific collision via the same method used here (inspect distinct
+`exercise_name` values + rep/session counts, per
+`supabase/analysis-data-quality.sql`'s items 2a/2b) — never by guessing, and
+never as a general fuzzy-matching system.
+
+---
+
+## 16. Rehab / return-to-play tagging + trend view
+
+**Schema**: `workout_plans.is_rehab boolean NOT NULL DEFAULT false`
+(`supabase/migrations/009_add_rehab_flag_to_workout_plans.sql` — **this
+migration has not been applied to the live database; this session has no
+write access to Supabase. Someone with DB access needs to run it** before
+this feature does anything beyond defaulting every plan to `false`).
+Plan-level, not per-exercise or per-session: sessions are written by the
+mobile app/hardware, never by this dashboard, so the flag lives on the one
+table this app can actually write to that also has a coach-facing
+creation/edit UI.
+
+**Coach UI**: a "Rehab / return-to-play plan" checkbox in the Build tab
+(`SendProgramming.tsx`, next to the program name field), sent through
+`sendWorkoutPlan`'s `isRehab` field. Not exposed on templates — rehab status
+describes a specific assignment period for a specific athlete, not a
+reusable template characteristic.
+
+**RTP trend view**: new "RTP" tab on the athlete detail page (`RtpTab` in
+`AthleteDashboard.tsx`). A session counts as rehab-tagged when its date
+matches at least one `is_rehab = true` plan for that athlete — the same
+same-day matching convention already used for attendance and target
+evaluation elsewhere in this app (no new relational link between
+`workout_plans` and `sessions`). Within those sessions, one exercise at a
+time (selector button row, defaults to whichever has the most rehab-tagged
+data points), chronological velocity trend via the existing
+`VelocityTrendChart` component fed per-session points instead of weekly
+buckets. No team/peer comparison anywhere in this view. Exercise names are
+already canonicalized upstream (§15), so a rehab block logged partly as
+"Squat" and partly as "Squats" still trends as one continuous line.
+
+**Empty states**: zero rehab-tagged sessions → explains how to start
+tracking (tag a plan). Exactly one rehab-tagged session for the selected
+exercise → explains a trend needs at least 2 points, rather than drawing a
+misleading single-point line.
+
+---
+
+## 17. Rep-by-rep velocity chart — redesigned
+
+`src/components/pulse/charts.tsx` → `RepTraceChart`. Sequenced after §15
+(canonicalization) since bar coloring by target status depends on correct
+exercise-name matching.
+
+- **One shared y-axis** for the whole exercise, not one repeated per set —
+  previously each set was its own mini-chart with its own axis/gridlines/
+  chrome; now it's one continuous SVG with light dashed dividers between set
+  groups and set-number labels along a shared x-axis.
+- **Clean rounded tick increments** (`niceTicks()` — steps of 0.1/0.2/0.5
+  m/s-scale) instead of ticks derived from the raw min/max of whatever data
+  happened to be in view.
+- **Bars colored by target status** — `var(--good)` in-zone / `var(--warn)`
+  outside-zone — only when a real coach-set target range exists for that
+  exercise instance (same source as §1/§8: `target_velocity_min/max` on the
+  matching plan exercise). With no target, every bar is one neutral color
+  (`var(--ink-3)`); the chart never implies a target exists when it doesn't.
+- **Weight shown per set, every set** — the mean of that set's own logged rep
+  weights, or the literal text **"no load logged"** when that set's coverage
+  is too sparse to show a number — never silently omitted, matching §13's
+  "show the gap" pattern rather than a blank space a coach might misread as
+  "nothing to report."
+- Underlying query/data logic untouched, per instruction — this is a
+  presentation-layer rewrite of one chart component.

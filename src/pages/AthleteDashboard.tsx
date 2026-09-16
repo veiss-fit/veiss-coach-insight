@@ -6,7 +6,6 @@ import { toast } from "sonner";
 import { TopNav } from "@/components/TopNav";
 import { Avatar } from "@/components/pulse/Avatar";
 import { KpiTile } from "@/components/pulse/KpiTile";
-import { Delta } from "@/components/pulse/Delta";
 import { Sparkline } from "@/components/pulse/Sparkline";
 import { UnderlineTabs } from "@/components/pulse/Tabs";
 import {
@@ -24,7 +23,7 @@ import { getPlayerCoachNotes, addCoachNote, CoachNote } from "@/services/coachFe
 import {
   computeAnomalyIndicators, computeSparkline, DeviationIndicator, RAGStatus,
   sessionAvgVelocity, sessionVelocityDropoff, sessionRomConsistency,
-  sessionEccentricConcentricRatio, sessionTUT,
+  sessionEccentricConcentricRatio, sessionTUT, sessionVolumeGated, periodVolume,
 } from "@/lib/athleteSummaryUtils";
 import { flagsFor, lastDaysFor } from "@/lib/rosterFlags";
 import { SESSIONS_TARGET } from "@/lib/vbtZones";
@@ -74,6 +73,7 @@ interface PlanRow {
   title: string | null;
   exercises: unknown;
   is_completed: boolean | null;
+  is_rehab?: boolean | null;
 }
 
 type PlanStatus = "completed" | "missed" | "queued";
@@ -127,6 +127,14 @@ function SessionsTab({ sessions, plans }: { sessions: SessionData[]; plans: Plan
   const [exerciseIdx, setExerciseIdx] = useState(0);
   const sorted = useMemo(() => [...sessions].sort((a, b) => sessionTime(b) - sessionTime(a)), [sessions]);
   const targetsByDate = useMemo(() => buildTargetsByDate(plans), [plans]);
+  // Period rollup — last 7 days, gated the same way as the per-session number
+  // (sessions that don't individually clear the coverage bar are excluded,
+  // not averaged in). Named distinctly from the unrelated "Weekly volume"
+  // chart in the Performance tab, which means session frequency, not load.
+  const weekLoadVolume = useMemo(() => {
+    const cutoff = subDays(new Date(), 7);
+    return periodVolume(sorted.filter((s) => new Date(s.startedAt ?? s.createdAt) >= cutoff));
+  }, [sorted]);
 
   if (sorted.length === 0) {
     return <div className="v-card padded v-meta" style={{ textAlign: "center", padding: "48px 16px" }}>No sessions logged yet.</div>;
@@ -136,12 +144,16 @@ function SessionsTab({ sessions, plans }: { sessions: SessionData[]; plans: Plan
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div className="row" style={{ justifyContent: "space-between" }}>
         <div className="v-label">Recent sessions · {sorted.length}</div>
+        <div className="v-meta mono" style={{ fontSize: 11 }}>
+          Load, last 7d: {weekLoadVolume != null ? Math.round(weekLoadVolume).toLocaleString() : "not enough load data logged"}
+        </div>
       </div>
       <div className="v-card flush">
         {sorted.map((s, i) => {
           const isOpen = openId === s.id;
           const avgVel = sessionAvgVelocity(s);
           const drop = sessionVelocityDropoff(s);
+          const volume = sessionVolumeGated(s);
           const totalReps = s.exercises.reduce((n, e) => n + e.repData.length, 0);
           const date = new Date(s.date + "T12:00:00");
           const exercise = isOpen ? s.exercises[Math.min(exerciseIdx, s.exercises.length - 1)] : null;
@@ -151,7 +163,7 @@ function SessionsTab({ sessions, plans }: { sessions: SessionData[]; plans: Plan
                 onClick={() => { setOpenId(isOpen ? null : s.id); setExerciseIdx(0); }}
                 style={{
                   width: "100%", display: "grid", alignItems: "center", gap: 12,
-                  gridTemplateColumns: "90px 1fr 110px 100px 28px",
+                  gridTemplateColumns: "90px 1fr 110px 100px 110px 28px",
                   border: "none", background: isOpen ? "var(--surface-2)" : "transparent",
                   padding: "14px 18px", textAlign: "left", cursor: "pointer", font: "inherit",
                 }}
@@ -173,6 +185,14 @@ function SessionsTab({ sessions, plans }: { sessions: SessionData[]; plans: Plan
                   <div className="mono" style={{ fontSize: 13, color: drop != null && drop >= 15 ? "var(--warn)" : "var(--ink-0)" }}>
                     {drop != null ? `${Math.round(drop)}%` : "—"}
                   </div>
+                </div>
+                <div>
+                  <div className="v-label" style={{ fontSize: 9.5 }}>Volume</div>
+                  {volume != null ? (
+                    <div className="mono" style={{ fontSize: 13, color: "var(--ink-0)" }}>{Math.round(volume).toLocaleString()}</div>
+                  ) : (
+                    <div className="v-mute2" style={{ fontSize: 10.5, lineHeight: 1.3 }}>Not enough load data logged</div>
+                  )}
                 </div>
                 <div style={{ color: "var(--ink-3)", transform: isOpen ? "rotate(90deg)" : "none", transition: "transform .12s" }}>
                   <ChevronRight size={12} strokeWidth={1.5} />
@@ -425,21 +445,110 @@ function ProgrammingTab({ plans }: { plans: PlanRow[] }) {
   );
 }
 
-// ─── Insight rail ─────────────────────────────────────────────────────────────
+// ─── RTP (return-to-play) tab ────────────────────────────────────────────────
 
-interface GroupComparison {
-  attendance: number | null;
-  avgVelocity: number | null;
-  sessionsPerWeek: number | null;
+/**
+ * Single athlete, single exercise, no team/peer comparison — a chronological
+ * velocity trend restricted to sessions matching a plan the coach explicitly
+ * tagged is_rehab (migration 009). Session ↔ plan matching is the same
+ * same-day convention used everywhere else in this app (attendance, target
+ * matching): a session counts as "rehab" when its date matches at least one
+ * is_rehab plan for this athlete. Exercise names are already canonicalized
+ * upstream (sessionsService.ts groups reps by canonicalizeExerciseName), so
+ * the confirmed Squat/Squats and rdl aliases are already merged here.
+ */
+function RtpTab({ sessions, plans }: { sessions: SessionData[]; plans: PlanRow[] }) {
+  const [exercisePick, setExercisePick] = useState<string | null>(null);
+
+  const rehabDates = useMemo(
+    () => new Set(plans.filter((p) => p.is_rehab).map((p) => p.date)),
+    [plans]
+  );
+  const rehabSessions = useMemo(
+    () => [...sessions].filter((s) => rehabDates.has(s.date)).sort((a, b) => sessionTime(a) - sessionTime(b)),
+    [sessions, rehabDates]
+  );
+
+  const byExercise = useMemo(() => {
+    const map = new Map<string, VelTrendPoint[]>();
+    for (const s of rehabSessions) {
+      for (const ex of s.exercises) {
+        if (!(ex.avgVelocity > 0)) continue;
+        const list = map.get(ex.name) ?? [];
+        list.push({ label: format(new Date(s.date + "T12:00:00"), "MMM d"), v: ex.avgVelocity, n: ex.repData.length });
+        map.set(ex.name, list);
+      }
+    }
+    return map;
+  }, [rehabSessions]);
+
+  const exerciseOptions = useMemo(
+    () => [...byExercise.entries()].sort((a, b) => b[1].length - a[1].length).map(([name]) => name),
+    [byExercise]
+  );
+  const exercise = exercisePick && byExercise.has(exercisePick) ? exercisePick : exerciseOptions[0] ?? null;
+  const points = exercise ? byExercise.get(exercise)! : [];
+
+  if (rehabSessions.length === 0) {
+    return (
+      <div className="v-card padded v-meta" style={{ textAlign: "center", padding: "48px 16px" }}>
+        No rehab-tagged sessions yet. Mark a plan as "Rehab / return-to-play" when assigning it to start tracking this view.
+      </div>
+    );
+  }
+
+  return (
+    <div className="v-card padded">
+      <div className="row" style={{ justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+        <div>
+          <div className="v-h2">Return-to-play trend</div>
+          <div className="v-meta" style={{ marginTop: 2 }}>
+            {rehabSessions.length} rehab-tagged session{rehabSessions.length !== 1 ? "s" : ""} · one exercise at a time, no team comparison.
+          </div>
+        </div>
+        {exerciseOptions.length > 1 && (
+          <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+            {exerciseOptions.map((name) => (
+              <button
+                key={name}
+                className="v-btn"
+                onClick={() => setExercisePick(name)}
+                style={{
+                  height: 24, fontSize: 11,
+                  background: name === exercise ? "var(--ink-0)" : "transparent",
+                  color: name === exercise ? "#fff" : "var(--ink-1)",
+                  borderColor: name === exercise ? "var(--ink-0)" : "transparent",
+                }}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      {points.length >= 2 ? (
+        <VelocityTrendChart data={points} />
+      ) : (
+        <div className="v-meta" style={{ textAlign: "center", padding: "24px 0" }}>
+          Only one rehab-tagged session logged for {exercise} so far — need at least 2 to draw a trend.
+        </div>
+      )}
+    </div>
+  );
 }
 
+// ─── Insight rail ─────────────────────────────────────────────────────────────
+
+/**
+ * Athlete-vs-self only — the previous "vs group average" panel compared this
+ * athlete against their teammates' averages. Removed entirely (not replaced
+ * with a self-only trend, per the simplest of the two options this was
+ * explicitly scoped to allow): the KPI strip and Performance tab already
+ * carry this athlete's own trends, so nothing here duplicated that.
+ */
 function InsightRail({
-  athlete, recentVel, sessionsThisWeek, group, notes, onAddNote,
+  notes, onAddNote,
 }: {
-  athlete: PlayerWithStats;
-  recentVel: number | null;
-  sessionsThisWeek: number;
-  group: GroupComparison;
   notes: CoachNote[];
   onAddNote: (text: string) => Promise<void>;
 }) {
@@ -456,59 +565,8 @@ function InsightRail({
     setAdding(false);
   };
 
-  const compareRows = [
-    { l: "Attendance", a: athlete.attendance, t: group.attendance, unit: "%" },
-    { l: "Avg velocity", a: recentVel ?? athlete.avgVelocity, t: group.avgVelocity, unit: "m/s" },
-    { l: "Sessions / wk", a: sessionsThisWeek, t: group.sessionsPerWeek, unit: "" },
-  ];
-
   return (
     <aside style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      {/* vs group average */}
-      <div className="v-card padded">
-        <div className="v-label">vs group average</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 10 }}>
-          {compareRows.map((row) => {
-            if (row.t == null || row.t === 0) {
-              return (
-                <div key={row.l} className="row" style={{ justifyContent: "space-between", fontSize: 12 }}>
-                  <span style={{ color: "var(--ink-2)" }}>{row.l}</span>
-                  <span className="v-mute2 mono">no group data</span>
-                </div>
-              );
-            }
-            const delta = row.a - row.t;
-            const positive = delta > 0;
-            const fmt = (v: number) => (row.unit === "m/s" ? v.toFixed(2) : Math.round(v * 10) / 10);
-            return (
-              <div key={row.l}>
-                <div className="row" style={{ justifyContent: "space-between", fontSize: 12 }}>
-                  <span style={{ color: "var(--ink-2)" }}>{row.l}</span>
-                  <span className="mono" style={{ color: "var(--ink-0)" }}>{fmt(row.a)}{row.unit}</span>
-                </div>
-                <div style={{ position: "relative", height: 6, background: "var(--surface-sunk)", borderRadius: 999, marginTop: 4 }}>
-                  <div style={{ position: "absolute", left: "50%", top: -2, bottom: -2, width: 1, background: "var(--ink-3)" }} />
-                  <div
-                    style={{
-                      position: "absolute", top: 0, bottom: 0,
-                      left: positive ? "50%" : "auto",
-                      right: positive ? "auto" : "50%",
-                      width: Math.min(50, Math.abs(delta / row.t) * 50) + "%",
-                      background: positive ? "var(--good)" : "var(--warn)",
-                      borderRadius: 999,
-                    }}
-                  />
-                </div>
-                <div className="row" style={{ justifyContent: "space-between", marginTop: 2 }}>
-                  <span className="v-mute2 mono" style={{ fontSize: 10 }}>group {fmt(row.t)}{row.unit}</span>
-                  <Delta value={delta} suffix={row.unit ? " " + row.unit : ""} />
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
       {/* Coach notes */}
       <div className="v-card padded">
         <div className="row" style={{ justifyContent: "space-between" }}>
@@ -563,10 +621,13 @@ export default function AthleteDashboard() {
 
   const [loading, setLoading] = useState(true);
   const [athlete, setAthlete] = useState<PlayerWithStats | null>(null);
-  const [groupPeers, setGroupPeers] = useState<PlayerWithStats[]>([]);
   const [sessions, setSessions] = useState<SessionData[]>([]);
   const [plans, setPlans] = useState<PlanRow[]>([]);
-  const [groupMetrics, setGroupMetrics] = useState<RosterMetricsResult | null>(null);
+  // Still fetched via getRosterMetrics for this athlete's OWN dropPct/
+  // lastSessionDate (drives the header flags/chips) — no longer used for any
+  // peer/group averaging, which was removed (self-vs-teammates comparison is
+  // out of scope for this dashboard's athlete detail page).
+  const [athleteMetrics, setAthleteMetrics] = useState<RosterMetricsResult | null>(null);
   const [notes, setNotes] = useState<CoachNote[]>([]);
   const [coachDbId, setCoachDbId] = useState<string | null>(null);
   const [tab, setTab] = useState("readiness");
@@ -580,12 +641,6 @@ export default function AthleteDashboard() {
       setAthlete(found);
       if (!found) return;
 
-      // Exclude the athlete being viewed from their own "group average" — otherwise
-      // the comparison is partly against themself, understating how different they
-      // really are from peers (worst on small groups).
-      const peers = roster.filter((p) => p.team_id && p.team_id === found.team_id && p.id !== found.id);
-      setGroupPeers(peers);
-
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const coachQuery = (supabase as any)
         .from("coaches").select("id").eq("user_id", user.id).maybeSingle() as Promise<{ data: { id: string } | null }>;
@@ -593,13 +648,13 @@ export default function AthleteDashboard() {
       const [sessionData, planData, metrics, noteData, coachRow] = await Promise.all([
         getPlayerSessions(found.id, found.user_id),
         getPlayerWorkoutPlans(found.id),
-        getRosterMetrics((peers.length ? peers : [found]).map((p) => ({ id: p.id, user_id: p.user_id }))),
+        getRosterMetrics([{ id: found.id, user_id: found.user_id }]),
         getPlayerCoachNotes(found.id),
         coachQuery,
       ]);
       setSessions(sessionData);
       setPlans((planData ?? []) as unknown as PlanRow[]);
-      setGroupMetrics(metrics);
+      setAthleteMetrics(metrics);
       setNotes(noteData);
       setCoachDbId(coachRow?.data?.id ?? null);
     } catch (error) {
@@ -619,18 +674,6 @@ export default function AthleteDashboard() {
   const now = useMemo(() => new Date(), []);
 
   const indicators = useMemo(() => computeAnomalyIndicators(sessions), [sessions]);
-
-  const sessionVels = useMemo(
-    () => sorted.map((s) => sessionAvgVelocity(s)).filter((v): v is number => v != null),
-    [sorted]
-  );
-  // Still used by InsightRail's "vs group average" comparison — the KPI-strip
-  // headline was replaced by Targets Reached (see athleteTargets below), but
-  // this raw average remains a legitimate secondary/comparative number.
-  const recentVel = useMemo(() => {
-    const m = mean(sessionVels.slice(-3));
-    return m != null ? +m.toFixed(2) : null;
-  }, [sessionVels]);
 
   const dropSeries = useMemo(
     () => sorted.map((s) => sessionVelocityDropoff(s)).filter((v): v is number => v != null),
@@ -773,16 +816,6 @@ export default function AthleteDashboard() {
       .slice(0, 8);
   }, [sorted, now]);
 
-  const groupComparison = useMemo<GroupComparison>(() => {
-    const peers = groupPeers.length ? groupPeers : [];
-    if (!peers.length) return { attendance: null, avgVelocity: null, sessionsPerWeek: null };
-    const att = mean(peers.map((p) => p.attendance));
-    const vel = mean(peers.map((p) => p.avgVelocity).filter((v) => v > 0));
-    const perPlayer = groupMetrics?.perPlayer;
-    const sess = perPlayer ? mean(peers.map((p) => perPlayer.get(p.id)?.sessionsThisWeek ?? 0)) : null;
-    return { attendance: att, avgVelocity: vel, sessionsPerWeek: sess };
-  }, [groupPeers, groupMetrics]);
-
   const handleAddNote = useCallback(
     async (text: string) => {
       if (!athlete) return;
@@ -812,9 +845,9 @@ export default function AthleteDashboard() {
     );
   }
 
-  const flags = athlete ? flagsFor(athlete, groupMetrics?.perPlayer.get(athlete.id)) : [];
+  const flags = athlete ? flagsFor(athlete, athleteMetrics?.perPlayer.get(athlete.id)) : [];
   const extraFlags = flags.filter((f) => f.kind !== "inactive" && f.tone !== "neutral").slice(0, 2);
-  const lastDays = athlete ? lastDaysFor(athlete, groupMetrics?.perPlayer.get(athlete.id)) : Infinity;
+  const lastDays = athlete ? lastDaysFor(athlete, athleteMetrics?.perPlayer.get(athlete.id)) : Infinity;
 
   return (
     <div className="v-app">
@@ -902,6 +935,7 @@ export default function AthleteDashboard() {
                   { id: "performance", label: "Performance" },
                   { id: "sessions", label: "Sessions", count: sessions.length },
                   { id: "programming", label: "Programming", count: plans.length },
+                  { id: "rtp", label: "RTP" },
                 ]}
                 active={tab}
                 onChange={setTab}
@@ -989,14 +1023,11 @@ export default function AthleteDashboard() {
                 {tab === "sessions" && <SessionsTab sessions={sessions} plans={plans} />}
                 {tab === "readiness" && <ReadinessTab athlete={athlete} sessions={sessions} indicators={indicators} />}
                 {tab === "programming" && <ProgrammingTab plans={plans} />}
+                {tab === "rtp" && <RtpTab sessions={sessions} plans={plans} />}
               </div>
             </div>
 
             <InsightRail
-              athlete={athlete}
-              recentVel={recentVel}
-              sessionsThisWeek={sessionsThisWeek}
-              group={groupComparison}
               notes={notes}
               onAddNote={handleAddNote}
             />

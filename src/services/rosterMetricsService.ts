@@ -4,6 +4,7 @@ import { isValidExerciseName } from '@/lib/athleteSummaryUtils';
 import {
   TargetsReached, ZERO_TARGETS, addTargets, evaluateRepsAgainstTargets,
   buildTargetsForExercises, mergeTargetMaps, PlanExerciseLike, ExerciseTargetRange,
+  canonicalizeExerciseName,
 } from '@/lib/targetEvaluation';
 
 /**
@@ -125,12 +126,15 @@ const mean = (xs: number[]): number | null =>
  * that logic ever changes.
  */
 function computeDropPctFromRows(reps: RepRow[]): number | null {
+  // Grouped by CANONICAL name so confirmed raw-name collisions (Squat/Squats,
+  // rdl) don't fragment one exercise's drop-off into unrelated buckets.
   const byExercise = new Map<string, RepRow[]>();
   for (const r of reps) {
     if (!isValidExerciseName(r.exercise_name)) continue;
     if (r.average_rep_speed == null || r.average_rep_speed <= 0) continue;
-    const list = byExercise.get(r.exercise_name);
-    if (list) list.push(r); else byExercise.set(r.exercise_name, [r]);
+    const key = canonicalizeExerciseName(r.exercise_name);
+    const list = byExercise.get(key);
+    if (list) list.push(r); else byExercise.set(key, [r]);
   }
 
   const perExercise: number[] = [];

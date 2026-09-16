@@ -244,6 +244,58 @@ export function sessionVolume(s: SessionData): number | null {
   return total > 0 ? total : null;
 }
 
+/** Minimum fraction of a session's reps that must carry a real logged weight
+ *  before a volume/work number is trusted enough to show. Live data (Sept
+ *  2026) measured overall weight-logging coverage at 21.8% — well below this
+ *  bar — so expect most sessions to show "not enough data" today. That's the
+ *  correct, honest output; don't lower this to make more tiles show a number.
+ *  See CALCULATIONS.md §12. */
+export const VOLUME_COVERAGE_THRESHOLD = 0.8;
+
+/** Fraction of a session's (valid-exercise) reps that have a real logged
+ *  weight (non-null, non-zero). Bodyweight-only sessions correctly show 0
+ *  coverage here even though sessionVolume() still counts their reps — this
+ *  function is specifically about whether a LOAD number can be trusted, not
+ *  whether the session happened. */
+export function sessionWeightCoverage(s: SessionData): number {
+  let total = 0;
+  let withWeight = 0;
+  for (const exercise of s.exercises) {
+    if (!isValidExerciseName(exercise.name)) continue;
+    for (const rep of exercise.repData) {
+      total++;
+      if (rep.weight > 0) withWeight++;
+    }
+  }
+  return total > 0 ? withWeight / total : 0;
+}
+
+/**
+ * sessionVolume() gated behind VOLUME_COVERAGE_THRESHOLD. A session where
+ * most reps have no weight logged would silently undercount if averaged in —
+ * this returns null instead, so the UI can show "Not enough load data
+ * logged" rather than a misleadingly low number. Reuses sessionVolume() for
+ * the actual math; this only decides whether to trust it.
+ */
+export function sessionVolumeGated(s: SessionData): number | null {
+  if (sessionWeightCoverage(s) < VOLUME_COVERAGE_THRESHOLD) return null;
+  return sessionVolume(s);
+}
+
+/**
+ * Sum of sessionVolumeGated() across whichever sessions are passed in (a
+ * week's worth, a month's worth, etc.) — sessions that don't individually
+ * clear the coverage bar are excluded entirely, never averaged in to "smooth
+ * out" an undercount. Returns null when zero sessions in the period qualify.
+ */
+export function periodVolume(sessions: SessionData[]): number | null {
+  const qualifying = sessions
+    .map((s) => sessionVolumeGated(s))
+    .filter((v): v is number => v != null);
+  if (qualifying.length === 0) return null;
+  return qualifying.reduce((a, b) => a + b, 0);
+}
+
 // ─── Indicator builder ──────────────────────────────────────────────────────
 
 function buildIndicator(

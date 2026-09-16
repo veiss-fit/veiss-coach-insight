@@ -2,7 +2,7 @@ import { supabase } from '@/lib/supabase';
 import { getAttendanceSummary, WorkoutPlanLike, WorkoutSessionLike } from '@/lib/workoutAttendance';
 import {
   buildTargetsForExercises, mergeTargetMaps, computeLoadRecommendation,
-  ExerciseTargetRange, ExerciseSessionMean, PlanExerciseLike,
+  ExerciseTargetRange, ExerciseSessionMean, PlanExerciseLike, canonicalizeExerciseName,
 } from '@/lib/targetEvaluation';
 import { Database } from '@/types/database';
 
@@ -286,12 +286,15 @@ export const getPlayersByTeamId = async (teamId: string): Promise<PlayerWithStat
         avgROM = Math.round(totalR / reps.length);
         avgTempo = parseFloat((totalC / reps.length).toFixed(2));
 
-        // Group by (session, exercise) → mean velocity, for the load-rec rule.
+        // Group by (session, CANONICAL exercise) → mean velocity, for the
+        // load-rec rule. Canonicalizing here (not just at match time) means
+        // e.g. "Squat" and "Squats" reps logged in the same session correctly
+        // merge into one "Back Squat" mean instead of staying fragmented.
         const bySessionExercise = new Map<string, number[]>();
         for (const r of reps) {
           const v = Number(r.average_rep_speed);
           if (!(v > 0) || !r.exercise_name) continue;
-          const key = `${r.session_id}::${r.exercise_name}`;
+          const key = `${r.session_id}::${canonicalizeExerciseName(r.exercise_name)}`;
           const list = bySessionExercise.get(key);
           if (list) list.push(v); else bySessionExercise.set(key, [v]);
         }
@@ -300,7 +303,7 @@ export const getPlayersByTeamId = async (teamId: string): Promise<PlayerWithStat
           // first occurrence safely handles exercise names with punctuation.
           const sep = key.indexOf('::');
           const sessionId = key.slice(0, sep);
-          const exerciseName = key.slice(sep + 2);
+          const exerciseName = key.slice(sep + 2); // already canonicalized above
           const date = sessionDateById.get(sessionId);
           if (!date) continue;
           exerciseSessionMeans.push({

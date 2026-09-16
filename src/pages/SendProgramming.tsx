@@ -918,6 +918,7 @@ const SendProgramming = () => {
   const [exercises, setExercises] = useState<BuilderExercise[]>([])
   const [selectedAthletes, setSelectedAthletes] = useState<string[]>([])
   const [filterGroup, setFilterGroup] = useState('all')
+  const [isRehab, setIsRehab] = useState(false)
   const [sending, setSending] = useState(false)
 
   const [athletes, setAthletes] = useState<PlayerWithStats[]>([])
@@ -999,6 +1000,7 @@ const SendProgramming = () => {
     setSelectedTemplateIds([])
     setExercises([])
     setSelectedAthletes([])
+    setIsRehab(false)
   }
 
   // ── Send ─────────────────────────────────────────────────────────────────
@@ -1038,6 +1040,7 @@ const SendProgramming = () => {
           targetVelocityMax: ex.targetVelocityMax,
         })),
         notes: 'Assigned by Coach',
+        isRehab,
       }
 
       // Each date is a separate insert that commits on its own — there is no
@@ -1162,6 +1165,14 @@ const SendProgramming = () => {
                       style={{ width: '100%', height: 36 }}
                     />
                   </div>
+                  <label
+                    className="row"
+                    style={{ gap: 8, cursor: 'pointer', fontSize: 12.5, color: 'var(--ink-2)' }}
+                    onClick={() => setIsRehab(v => !v)}
+                  >
+                    <MiniCheckbox on={isRehab} />
+                    Rehab / return-to-play plan
+                  </label>
                   <div>
                     <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
                       <div className="v-label" style={{ marginBottom: 2 }}>Schedule dates</div>
