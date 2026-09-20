@@ -37,7 +37,7 @@ export const Default: Story = {
     <DeviationBaselineCard
       indicators={[
         ind('velocity', 'Avg velocity', 0.66, -6.4, 'amber', (v) => `${v.toFixed(2)} m/s`),
-        ind('romConsistency', 'ROM consistency', 5.4, 12.5, 'red', (v) => `±${v.toFixed(1)} mm`),
+        ind('romConsistency', 'Vertical displacement consistency', 5.4, 12.5, 'red', (v) => `±${v.toFixed(1)} mm`),
         ind('eccentricConcentric', 'Ecc:Con ratio', 1.5, -1.2, 'green', (v) => v.toFixed(2)),
         ind('tut', 'Time under tension', 44, 4.8, 'green', (v) => `${v.toFixed(0)} s`),
       ]}
@@ -52,7 +52,7 @@ export const NotEnoughData: Story = {
     <DeviationBaselineCard
       indicators={[
         ind('velocity', 'Avg velocity', 0.66, null, 'insufficient', (v) => `${v.toFixed(2)} m/s`),
-        ind('romConsistency', 'ROM consistency', null, null, 'insufficient', (v) => `±${v.toFixed(1)} mm`),
+        ind('romConsistency', 'Vertical displacement consistency', null, null, 'insufficient', (v) => `±${v.toFixed(1)} mm`),
         ind('eccentricConcentric', 'Ecc:Con ratio', null, null, 'insufficient', (v) => v.toFixed(2)),
         ind('tut', 'Time under tension', null, null, 'insufficient', (v) => `${v.toFixed(0)} s`),
       ]}

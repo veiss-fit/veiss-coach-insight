@@ -192,7 +192,7 @@ function SessionExerciseTrace({ exercise }: { exercise: ExerciseData }) {
 
 /**
  * One graph per exercise done in each session shown, chosen by `view`: velocity is the
- * set-velocity graph (SP-01 to SP-04), distance is range of motion (SP-06), time is rep
+ * set-velocity graph (SP-01 to SP-04), distance is vertical displacement (SP-06), time is rep
  * timing (SP-07). Switching views fades the old graphs out and the new ones in.
  * `history` is every session of the athlete per exercise, for the velocity baseline.
  */

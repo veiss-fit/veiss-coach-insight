@@ -118,7 +118,7 @@ export function StatsDetailMenu({ pills, info, infoLabel, idPrefix }: StatsDetai
             right: 0,
             zIndex: 20,
             width: "max-content",
-            maxWidth: 340,
+            maxWidth: 420,
             display: "flex",
             flexDirection: "column",
             alignItems: "flex-start",

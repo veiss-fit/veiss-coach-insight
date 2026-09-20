@@ -38,7 +38,7 @@ export function sessionSets(s: SessionData): ExerciseSets[] {
   return summarizeSession(repInputs(s));
 }
 
-/** SP-06: range of motion per exercise of the session. */
+/** SP-06: vertical displacement per exercise of the session. */
 export function sessionRom(s: SessionData): ExerciseRom[] {
   return summarizeRomSession(repInputs(s));
 }

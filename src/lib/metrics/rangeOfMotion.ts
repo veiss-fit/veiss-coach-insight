@@ -1,7 +1,7 @@
 import { isValidVelocity, type RepInput } from "./setVelocitySummary";
 
 /**
- * SP-06 Range of motion (temp/METRIC_SPEC.md), per exercise.
+ * SP-06 Vertical displacement (temp/METRIC_SPEC.md), per exercise.
  *
  * A rep counts when its velocity is valid (SP-01 rule) and rom_mm > 0. A null
  * or zero rom_mm is excluded, never counted as zero. Stored in mm, shown in cm.
@@ -18,7 +18,7 @@ export interface SetRom {
   set_number: number;
   /** Counted reps only, ordered by rep_number. */
   points: RomPoint[];
-  /** Mean ROM of the counted reps, mm. null when none. */
+  /** Mean vertical displacement of the counted reps, mm. null when none. */
   meanMm: number | null;
   /** Rep-to-rep coefficient of variation, percent (sample SD / mean). null when fewer than 2 counted reps. */
   cvPct: number | null;
@@ -71,10 +71,10 @@ export type RomChange =
     }
   | { ok: false; reason: string };
 
-/** Change in mean ROM from the first to the last set that has a counted rep. Load is not considered. */
+/** Change in mean vertical displacement from the first to the last set that has a counted rep. Load is not considered. */
 export function romSetToSetChange(sets: SetRom[]): RomChange {
   const usable = sets.filter((s) => s.meanMm != null);
-  if (usable.length < 2) return { ok: false, reason: "fewer than 2 sets with ROM" };
+  if (usable.length < 2) return { ok: false, reason: "fewer than 2 sets with vertical displacement" };
   const first = usable[0];
   const last = usable[usable.length - 1];
   return {

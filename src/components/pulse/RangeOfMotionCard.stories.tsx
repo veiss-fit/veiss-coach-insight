@@ -4,12 +4,12 @@ import { summarizeRomSession } from '@/lib/metrics/rangeOfMotion';
 import type { RepInput } from '@/lib/metrics/setVelocitySummary';
 
 const meta: Meta = {
-  title: 'Metrics/SP-06 Range of motion',
+  title: 'Metrics/SP-06 Vertical displacement',
   parameters: {
     docs: {
       description: {
         component:
-          'One line per set, one point per counted rep: range of motion (cm) by rep number. A rep counts when its velocity is valid and rom_mm > 0. Stats detail shows the ROM change (first to last set, load not considered) and the rep-to-rep consistency (CV, median over sets). No colour judgement. See temp/METRIC_SPEC.md (SP-06).',
+          'One line per set, one point per counted rep: vertical displacement (cm) by rep number. A rep counts when its velocity is valid and rom_mm > 0. Stats detail shows the Vertical displacement change (first to last set, load not considered) and the rep-to-rep consistency (CV, median over sets). No colour judgement. See temp/METRIC_SPEC.md (SP-06).',
       },
     },
   },
@@ -22,7 +22,7 @@ type Story = StoryObj;
 const set = (exercise: string, n: number, data: [number | null, number | null][]): RepInput[] =>
   data.map(([v, rom], i) => ({ exercise_name: exercise, set_number: n, rep_number: i + 1, average_rep_speed: v, rom_mm: rom }));
 
-/** ROM wobbles a little rep to rep and drops over the last few reps as the athlete tires. Open Stats detail. */
+/** Vertical displacement wobbles a little rep to rep and drops over the last few reps as the athlete tires. Open Stats detail. */
 export const RomDropsAcrossSets: Story = {
   render: () => (
     <RangeOfMotionCards
@@ -35,7 +35,7 @@ export const RomDropsAcrossSets: Story = {
   ),
 };
 
-/** Missing or zero ROM and invalid velocity reps are left out; the line breaks at the gap. */
+/** Missing or zero vertical displacement and invalid velocity reps are left out; the line breaks at the gap. */
 export const MissingRom: Story = {
   render: () => (
     <RangeOfMotionCards
@@ -48,14 +48,14 @@ export const MissingRom: Story = {
   ),
 };
 
-/** One set only: no ROM change; consistency still shows. */
+/** One set only: no Vertical displacement change; consistency still shows. */
 export const SingleSet: Story = {
   render: () => (
     <RangeOfMotionCards exercises={summarizeRomSession(set('Power Clean', 1, [[1.5, 611], [1.47, 614], [1.45, 610], [1.42, 612], [1.4, 601]]))} />
   ),
 };
 
-/** No ROM recorded at all. */
+/** No vertical displacement recorded at all. */
 export const NoRom: Story = {
   render: () => (
     <RangeOfMotionCards exercises={summarizeRomSession(set('Back Squat', 1, [[0.7, null], [0.68, null], [0.65, null]]))} />

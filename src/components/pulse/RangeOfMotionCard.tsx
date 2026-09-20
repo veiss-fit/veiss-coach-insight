@@ -27,7 +27,7 @@ const signedPct = (v: number) => {
 
 /**
  * SP-06 chart: one line per set, one point per counted rep (x = rep number,
- * y = ROM in cm). A line breaks where a rep is missing or not counted.
+ * y = vertical displacement in cm). A line breaks where a rep is missing or not counted.
  */
 function RomLines({ sets }: { sets: SetRom[] }) {
   const { ref, width: w } = useMeasuredWidth<HTMLDivElement>(480);
@@ -38,7 +38,7 @@ function RomLines({ sets }: { sets: SetRom[] }) {
   if (all.length === 0) {
     return (
       <div ref={ref} className="v-meta" style={{ padding: "24px 0" }}>
-        No reps with a range of motion recorded.
+        No reps with a vertical displacement recorded.
       </div>
     );
   }
@@ -56,7 +56,7 @@ function RomLines({ sets }: { sets: SetRom[] }) {
 
   return (
     <div ref={ref} style={{ width: "100%", minWidth: 0 }}>
-      <svg width={w} height={HEIGHT} style={{ display: "block" }} role="img" aria-label="Range of motion per rep, one line per set">
+      <svg width={w} height={HEIGHT} style={{ display: "block" }} role="img" aria-label="Vertical displacement per rep, one line per set">
         {ticks.map((t) => (
           <g key={t}>
             <line x1={PL} x2={PL + cW} y1={y(t)} y2={y(t)} stroke="var(--line-0)" strokeWidth="1" />
@@ -72,7 +72,7 @@ function RomLines({ sets }: { sets: SetRom[] }) {
           fontFamily="var(--font-mono)"
           fill="var(--ink-1)"
         >
-          Range of motion (cm)
+          Displacement (cm)
         </text>
         <line x1={PL} x2={PL + cW} y1={PT + cH} y2={PT + cH} stroke="var(--line-2)" strokeWidth="1.2" />
         {Array.from({ length: maxRep }, (_, i) => i + 1).map((rn) => (
@@ -181,13 +181,13 @@ function RomLines({ sets }: { sets: SetRom[] }) {
 const ROM_INFO = (
   <>
     <p style={{ margin: 0 }}>
-      <strong>Range of motion</strong> per rep, one line per set. Reps with no recorded range, or with an invalid velocity, are left out.
+      <strong>Vertical displacement</strong> per rep, one line per set. Reps with no recorded displacement, or with an invalid velocity, are left out.
     </p>
     <p style={{ margin: "6px 0 0" }}>
-      <strong>ROM change</strong> is the change in average range from the first to the last set of the exercise.
+      <strong>Vertical displacement change</strong> is the change in average displacement from the first to the last set of the exercise.
     </p>
     <p style={{ margin: "6px 0 0" }}>
-      <strong>Consistency</strong> is how much the range varies from rep to rep within a set (standard deviation as a % of the mean),
+      <strong>Consistency</strong> is how much the displacement varies from rep to rep within a set (standard deviation as a % of the mean),
       shown as the median across sets with at least 2 counted reps.
     </p>
   </>
@@ -198,12 +198,12 @@ function pillsFor(sets: SetRom[]): string[] {
   const c = romSetToSetChange(sets);
   if (c.ok) {
     const r = Math.round(c.change);
-    out.push(`ROM change ${r === 0 ? "0%" : r > 0 ? `+${r}%` : `−${Math.abs(r)}%`} · set ${c.firstSet} to ${c.lastSet}`);
+    out.push(`Vertical displacement change ${r === 0 ? "0%" : r > 0 ? `+${r}%` : `−${Math.abs(r)}%`} · set ${c.firstSet} to ${c.lastSet}`);
   } else if (c.ok === false && sets.some((s) => s.points.length > 0)) {
-    out.push(`ROM change: ${c.reason}`);
+    out.push(`Vertical displacement change: ${c.reason}`);
   }
   const k = romConsistency(sets);
-  if (k) out.push(`ROM consistency CV ${k.medianCv.toFixed(1)}% · ${k.sets} set${k.sets === 1 ? "" : "s"}`);
+  if (k) out.push(`Vertical displacement consistency CV ${k.medianCv.toFixed(1)}% · ${k.sets} set${k.sets === 1 ? "" : "s"}`);
   return out;
 }
 
@@ -211,7 +211,7 @@ interface RangeOfMotionCardsProps extends GlowProps {
   exercises: ExerciseRom[];
 }
 
-/** SP-06: one "Range of motion" card per exercise. Nothing is blended across exercises. */
+/** SP-06: one "Vertical displacement" card per exercise. Nothing is blended across exercises. */
 export function RangeOfMotionCards({ exercises, glowExercise, onGlowClear }: RangeOfMotionCardsProps) {
   if (exercises.length === 0) return <div className="v-meta">No reps recorded in this session.</div>;
   return (
@@ -228,9 +228,9 @@ export function RangeOfMotionCards({ exercises, glowExercise, onGlowClear }: Ran
               <div className="v-h2" style={{ color: "var(--ink-0)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={e.exercise}>
                 {e.exercise}
               </div>
-              <div className="v-meta" style={{ fontSize: 11 }}>Range of motion</div>
+              <div className="v-meta" style={{ fontSize: 11 }}>Vertical displacement</div>
             </div>
-            <StatsDetailMenu pills={pillsFor(e.sets)} info={ROM_INFO} infoLabel="About range of motion" idPrefix={`rom-${i}`} />
+            <StatsDetailMenu pills={pillsFor(e.sets)} info={ROM_INFO} infoLabel="About vertical displacement" idPrefix={`rom-${i}`} />
           </div>
           <RomLines sets={e.sets} />
         </div>
