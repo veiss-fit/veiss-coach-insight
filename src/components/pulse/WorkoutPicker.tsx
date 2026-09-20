@@ -133,9 +133,14 @@ interface WorkoutPickerProps {
   initialPlanId?: string;
   /** Called with the chosen workout, or null when the date has none. */
   onSelect?: (plan: PickerPlan | null) => void;
+  /**
+   * Gate before the date or workout changes. When given, a change only happens if `proceed`
+   * is called (now or later); until then the picker keeps showing the current choice.
+   */
+  beforeChange?: (proceed: () => void) => void;
 }
 
-export function WorkoutPicker({ plans, today, initialDate, initialPlanId, onSelect }: WorkoutPickerProps) {
+export function WorkoutPicker({ plans, today, initialDate, initialPlanId, onSelect, beforeChange }: WorkoutPickerProps) {
   const todayKey = today ?? KEY(new Date());
   const plansByDate = useMemo(() => {
     const m = new Map<string, PickerPlan[]>();
@@ -155,6 +160,8 @@ export function WorkoutPicker({ plans, today, initialDate, initialPlanId, onSele
 
   const dayPlans = plansByDate.get(date) ?? [];
   const chosen = dayPlans.find((p) => p.id === pickId) ?? firstOf(dayPlans);
+
+  const guarded = (change: () => void) => (beforeChange ? beforeChange(change) : change());
 
   const choose = (id: string | null, d: string) => {
     setPickId(id);
@@ -178,9 +185,12 @@ export function WorkoutPicker({ plans, today, initialDate, initialPlanId, onSele
             todayKey={todayKey}
             selected={date}
             onPick={(k) => {
-              setDate(k);
-              choose(null, k);
               setOpen(false);
+              if (k === date) return;
+              guarded(() => {
+                setDate(k);
+                choose(null, k);
+              });
             }}
           />
           <div className="row" style={{ gap: 12, fontSize: 11, marginTop: 10 }}>
@@ -195,7 +205,7 @@ export function WorkoutPicker({ plans, today, initialDate, initialPlanId, onSele
       </Popover>
 
       {chosen ? (
-        <Select value={chosen.id} onValueChange={(id) => choose(id, date)}>
+        <Select value={chosen.id} onValueChange={(id) => guarded(() => choose(id, date))}>
           <SelectTrigger aria-label="Workout" style={{ height: 30, width: "auto", minWidth: 180, fontSize: 12, gap: 8 }}>
             <SelectValue />
           </SelectTrigger>

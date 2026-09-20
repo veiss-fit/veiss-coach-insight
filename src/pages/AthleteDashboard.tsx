@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useParams, useSearchParams, Link } from "react-router-dom";
 import { format, differenceInCalendarWeeks, isAfter, subDays, startOfDay } from "date-fns";
 import { Bell, Send, ChevronRight, Plus, Paperclip } from "lucide-react";
@@ -49,6 +49,10 @@ import { PowerBetaCard, type PowerSetPoint } from "@/components/pulse/PowerBetaC
 import { RepTimingBetaCard, type RepTimingSetPoint } from "@/components/pulse/RepTimingBetaCard";
 import { SetEffortBetaCard, type SetEffortPoint } from "@/components/pulse/SetEffortBetaCard";
 import { SessionSummaryBetaCard, type SessionSummaryBetaStats } from "@/components/pulse/SessionSummaryBetaCard";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 // ─── Derivation helpers ───────────────────────────────────────────────────────
 
@@ -168,10 +172,16 @@ function sessionForPlan(plan: PlanRow, sessions: SessionData[]): SessionData | n
 const INTERACTIVE_SELECTOR =
   "button, a[href], input, select, textarea, summary, [role='button'], [role='tab'], [role='option'], [role='menuitem'], [role='combobox'], [role='switch'], [role='checkbox']";
 
+/** What the page needs from the note form to guard a switch: is there an unfinished note tied to a workout, and a way to drop it. */
+interface NoteGuard {
+  dirty: () => boolean;
+  discard: () => void;
+}
+
 type CardGlow ={ exercise: string; sessionId: string | null } | null;
 
 /** `glow` is the exercise card highlighted after a roster link. It lives on the page so it stays cleared when the tab is left and re-entered. */
-function SessionsView({ sessions, plans, focus, glow, onGlowClear }: { sessions: SessionData[]; plans: PlanRow[]; focus: { sessionId: string | null; exercise: string | null; view: string | null }; glow: CardGlow; onGlowClear: () => void }) {
+function SessionsView({ sessions, plans, focus, glow, onGlowClear, onPlanChange, guardSwitch }: { sessions: SessionData[]; plans: PlanRow[]; focus: { sessionId: string | null; exercise: string | null; view: string | null }; glow: CardGlow; onGlowClear: () => void; onPlanChange: (planId: string | null) => void; guardSwitch: (proceed: () => void) => void }) {
   const [view, setView] = useState(() => SESSION_VIEWS.find((o) => o.id === focus.view)?.id ?? "velocity");
   // True only right after the blob was clicked; a workout change clears it, and a tab switch remounts this view.
   const [fadeViews, setFadeViews] = useState(false);
@@ -202,6 +212,13 @@ function SessionsView({ sessions, plans, focus, glow, onGlowClear }: { sessions:
   const history = useMemo(() => historyByExercise(sessions), [sessions]);
   const [planId, setPlanId] = useState<string | null>(first?.id ?? null);
   const plan = plans.find((p) => p.id === planId) ?? null;
+  // Tell the page which workout is selected (null when none, and when this view is left) so the note form knows.
+  const activePlanId = plan?.id ?? null;
+  useEffect(() => {
+    onPlanChange(activePlanId);
+    return () => onPlanChange(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePlanId]);
   const matched = plan ? sessionForPlan(plan, sessions) : null;
   const shown = plans.length === 0 ? sessions : matched ? [matched] : [];
   const emptyMessage = plans.length === 0
@@ -211,7 +228,7 @@ function SessionsView({ sessions, plans, focus, glow, onGlowClear }: { sessions:
   return (
     <>
       <div className="row" style={{ justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
-        <WorkoutPicker plans={pickerPlans} initialPlanId={first?.id} onSelect={(p) => { setPlanId(p?.id ?? null); setFadeViews(false); }} />
+        <WorkoutPicker plans={pickerPlans} initialPlanId={first?.id} beforeChange={guardSwitch} onSelect={(p) => { setPlanId(p?.id ?? null); setFadeViews(false); }} />
         <BlobSelector options={SESSION_VIEWS} value={view} onChange={(v) => { setView(v); setFadeViews(true); onGlowClear(); }} />
       </div>
       {view === "beta" ? (
@@ -514,9 +531,12 @@ function ProgrammingTab({ plans }: { plans: PlanRow[] }) {
  * carry this athlete's own trends, so nothing here duplicated that.
  */
 function InsightRail({
-  notes, onAddNote,
+  notes, onAddNote, canAttachToWorkout, guardRef,
 }: {
   notes: CoachNote[];
+  guardRef: React.MutableRefObject<NoteGuard | null>;
+  /** True only on the Sessions tab with a workout selected. Otherwise a note can only be general. */
+  canAttachToWorkout: boolean;
   /** Resolves true when the note was saved. On false the typed text is kept so it is not lost. */
   onAddNote: (text: string) => Promise<boolean>;
 }) {
@@ -524,6 +544,15 @@ function InsightRail({
   const [noteText, setNoteText] = useState("");
   const [saving, setSaving] = useState(false);
   const [attached, setAttached] = useState(false);
+  // An unfinished note attached to a workout is lost when the workout or tab changes, so the page asks first.
+  guardRef.current = {
+    dirty: () => adding && attached && noteText.trim() !== "",
+    discard: () => { setAdding(false); setNoteText(""); setAttached(false); },
+  };
+  // Leaving the Sessions tab or losing the workout drops the choice.
+  useEffect(() => {
+    if (!canAttachToWorkout) setAttached(false);
+  }, [canAttachToWorkout]);
 
   const saveNote = async () => {
     if (!noteText.trim()) return;
@@ -561,6 +590,7 @@ function InsightRail({
             />
             <div className="row" style={{ justifyContent: "space-between", gap: 6 }}>
               {/* TODO(incomplete): toggle only. Later a note attached to a workout shows only while that workout is selected; a general note always shows. Not saved or used yet. */}
+              {canAttachToWorkout && (
               <button
                 type="button"
                 className="v-btn"
@@ -575,7 +605,8 @@ function InsightRail({
               >
                 <Paperclip size={12} strokeWidth={1.5} /> Attach to workout
               </button>
-              <div className="row" style={{ gap: 6 }}>
+              )}
+              <div className="row" style={{ gap: 6, marginLeft: "auto" }}>
               <button className="v-btn ghost" style={{ height: 32, fontSize: 11.5 }} onClick={() => { setAdding(false); setNoteText(""); setAttached(false); }} disabled={saving}>Cancel</button>
               <button className="v-btn primary" style={{ height: 32, fontSize: 11.5 }} onClick={saveNote} disabled={saving || !noteText.trim()}>
                 {saving ? "Saving…" : "Save"}
@@ -627,6 +658,15 @@ export default function AthleteDashboard() {
     () => ({ sessionId: searchParams.get("session"), exercise: searchParams.get("exercise"), view: searchParams.get("view") }),
     [searchParams]
   );
+  // Unfinished-note guard: a switch that would lose a note attached to the workout waits for the coach's answer.
+  const noteGuard = useRef<NoteGuard | null>(null);
+  const [pendingSwitch, setPendingSwitch] = useState<(() => void) | null>(null);
+  const guardSwitch = useCallback((proceed: () => void) => {
+    if (noteGuard.current?.dirty()) setPendingSwitch(() => proceed);
+    else proceed();
+  }, []);
+  // Workout selected on the Sessions tab, null anywhere else. Decides whether a note can be attached to a workout.
+  const [activePlanId, setActivePlanId] = useState<string | null>(null);
   // Exercise card highlighted after a roster link. Cleared by a click on it, a tab change or a blob change.
   const [glow, setGlow] = useState<CardGlow>(() => (sessionFocus.exercise ? { exercise: sessionFocus.exercise, sessionId: sessionFocus.sessionId } : null));
   // Any real interaction (a click on a button, link, field, tab, selector or menu item) also clears it; a click on empty page does not.
@@ -916,7 +956,11 @@ export default function AthleteDashboard() {
                   { id: "programming", label: "Programming" },
                 ]}
                 active={tab}
-                onChange={(t) => { setTab(t); setGlow(null); }}
+                onChange={(t) => {
+                  const go = () => { setTab(t); setGlow(null); };
+                  if (t !== tab && tab === "sessions") guardSwitch(go);
+                  else go();
+                }}
               />
             </div>
 
@@ -975,7 +1019,7 @@ export default function AthleteDashboard() {
 
                 {/* key: the data arrives after the page mounts; restart the picker on its first workout when it does */}
                 {tab === "sessions" && (
-                  <SessionsView key={`${plans.length}-${sessions.length}`} sessions={sessions} plans={plans} focus={sessionFocus} glow={glow} onGlowClear={() => setGlow(null)} />
+                  <SessionsView key={`${plans.length}-${sessions.length}`} sessions={sessions} plans={plans} focus={sessionFocus} glow={glow} onGlowClear={() => setGlow(null)} onPlanChange={setActivePlanId} guardSwitch={guardSwitch} />
                 )}
                 {tab === "programming" && <ProgrammingTab plans={plans} />}
               </div>
@@ -985,7 +1029,32 @@ export default function AthleteDashboard() {
               <InsightRail
                 notes={notes}
                 onAddNote={handleAddNote}
+                canAttachToWorkout={tab === "sessions" && activePlanId != null}
+                guardRef={noteGuard}
               />
+              <AlertDialog open={pendingSwitch != null} onOpenChange={(o) => { if (!o) setPendingSwitch(null); }}>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Unfinished note</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This note is attached to the current workout. Switching away will discard it.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Continue note</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => {
+                        const go = pendingSwitch;
+                        setPendingSwitch(null);
+                        noteGuard.current?.discard();
+                        go?.();
+                      }}
+                    >
+                      Discard note
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
           </div>
         </main>
