@@ -38,32 +38,35 @@ export const getPlayerCoachNotes = async (playerId: string, limit = 10): Promise
   }
 };
 
+/** Supabase's own explanation of a failure (message, code, details, hint), so the cause is visible instead of a generic "failed". */
+const describeError = (error: unknown): string => {
+  const e = error as { message?: string; code?: string; details?: string; hint?: string } | null;
+  if (!e) return 'no data returned';
+  return [e.message, e.code && `code ${e.code}`, e.details, e.hint].filter(Boolean).join(' · ') || 'unknown error';
+};
+
+/** Throws with the database's reason when the note cannot be saved. */
 export const addCoachNote = async (
   playerId: string,
   coachId: string | null,
   message: string
-): Promise<CoachNote | null> => {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any)
-      .from('coach_feedback')
-      .insert({
-        player_id: playerId,
-        coach_id: coachId,
-        feedback_type: NOTE_TYPE,
-        title: NOTE_TITLE,
-        message,
-      })
-      .select('id, message, created_at')
-      .single() as { data: { id: string; message: string; created_at: string } | null; error: unknown };
+): Promise<CoachNote> => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase as any)
+    .from('coach_feedback')
+    .insert({
+      player_id: playerId,
+      coach_id: coachId,
+      feedback_type: NOTE_TYPE,
+      title: NOTE_TITLE,
+      message,
+    })
+    .select('id, message, created_at')
+    .single() as { data: { id: string; message: string; created_at: string } | null; error: unknown };
 
-    if (error || !data) {
-      console.error('Error adding coach note:', error);
-      return null;
-    }
-    return { id: data.id, message: data.message, createdAt: data.created_at };
-  } catch (error) {
-    console.error('Error in addCoachNote:', error);
-    return null;
+  if (error || !data) {
+    console.error('Error adding coach note:', error);
+    throw new Error(describeError(error));
   }
+  return { id: data.id, message: data.message, createdAt: data.created_at };
 };

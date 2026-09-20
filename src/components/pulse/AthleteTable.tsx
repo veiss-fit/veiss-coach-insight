@@ -14,7 +14,11 @@ interface PulseAthleteTableProps {
   onSelect?: (athlete: PlayerWithStats) => void;
 }
 
-/** Roster table in the Pulse design (replaces the legacy components/AthleteTable). */
+/**
+ * Roster table in the Pulse design (replaces the legacy components/AthleteTable).
+ * TODO(cleanup): unused on pages, replaced by RosterSignalsTable. Only the "OriginalTable" story
+ * in AthleteTable.stories.tsx still uses it. Delete both once the new table is final.
+ */
 export function PulseAthleteTable({ athletes, metricsByPlayer, showAdvanced, onSelect }: PulseAthleteTableProps) {
   return (
     <table className="v-table">

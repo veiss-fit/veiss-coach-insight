@@ -1,3 +1,4 @@
+// TODO(cleanup): unused, Index.tsx no longer shows the load recommendation mix. See temp/CLEANUP.md.
 interface DonutSegment {
   value: number;
   color: string;

@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, useSearchParams, Link } from "react-router-dom";
 import { format, differenceInCalendarWeeks, isAfter, subDays, startOfDay } from "date-fns";
-import { Bell, Send, ChevronRight, Plus } from "lucide-react";
+import { Bell, Send, ChevronRight, Plus, Paperclip } from "lucide-react";
 import { toast } from "sonner";
 import { TopNav } from "@/components/TopNav";
 import { Avatar } from "@/components/pulse/Avatar";
+// TODO(cleanup): unused since the athlete-page KPI strip was removed.
 import { KpiTile } from "@/components/pulse/KpiTile";
 import { Sparkline } from "@/components/pulse/Sparkline";
 import { UnderlineTabs } from "@/components/pulse/Tabs";
@@ -27,7 +28,21 @@ import {
   velocityIndicatorSource, findPrimaryExercise, compositeRagStatus,
 } from "@/lib/athleteSummaryUtils";
 import { lastDaysFor } from "@/lib/rosterFlags";
+import { findMatchingSessionForPlan } from "@/lib/workoutAttendance";
 import { SESSIONS_TARGET } from "@/lib/vbtZones";
+import { canonicalizeExerciseName } from "@/lib/targetEvaluation";
+import { historyByExercise, exposureInputs, sessionSets, sessionRom, sessionTiming, sessionMoment } from "@/lib/metrics/sessionAdapters";
+import { RangeOfMotionCards } from "@/components/pulse/RangeOfMotionCard";
+import { RepTimingCards } from "@/components/pulse/RepTimingCard";
+import { FadeSwap } from "@/components/pulse/FadeSwap";
+import { PersonalRecordsCard } from "@/components/pulse/PersonalRecordsCard";
+import { twoColumnGrid } from "@/components/pulse/twoColumnGrid";
+import { SetVelocityBlocks } from "@/components/pulse/SetVelocityBars";
+import type { HistorySession } from "@/lib/metrics/velocityVsBaseline";
+import { LoadVelocityProfileCard } from "@/components/pulse/LoadVelocityProfileCard";
+import { TrainingExposureCard } from "@/components/pulse/TrainingExposureCard";
+import { WorkoutPicker, type PickerPlan } from "@/components/pulse/WorkoutPicker";
+import { BlobSelector, type BlobOption } from "@/components/pulse/BlobSelector";
 
 // ─── Derivation helpers ───────────────────────────────────────────────────────
 
@@ -41,6 +56,7 @@ interface PlanRow {
   title: string | null;
   exercises: unknown;
   is_completed: boolean | null;
+  session_id?: string | null;
 }
 
 type PlanStatus = "completed" | "missed" | "queued";
@@ -57,6 +73,7 @@ const RAG_COLOR: Record<RAGStatus, string> = {
   insufficient: "var(--ink-3)",
 };
 
+// TODO(cleanup): unused since the athlete-page KPI strip was removed.
 const READINESS_LABEL: Record<RAGStatus, string> = {
   green: "On track",
   amber: "Monitor",
@@ -73,6 +90,83 @@ const METRIC_FN: Record<string, (s: SessionData) => number | null> = {
 
 // ─── Sessions tab ─────────────────────────────────────────────────────────────
 
+const SESSION_VIEWS: BlobOption[] = [
+  { id: "velocity", label: "Velocity" },
+  { id: "distance", label: "Distance" },
+  { id: "time", label: "Time" },
+];
+
+/** The session a plan produced: the linked session_id, else the same-day session with the plan's name. */
+function sessionForPlan(plan: PlanRow, sessions: SessionData[]): SessionData | null {
+  const like = sessions.map((s) => ({ id: s.id, date: s.date, name: s.notes, createdAt: s.createdAt, status: s.status }));
+  const linked = plan.session_id ? sessions.find((s) => s.id === plan.session_id) : undefined;
+  if (linked) return linked;
+  const match = findMatchingSessionForPlan({ date: plan.date, title: plan.title }, like);
+  return match ? sessions.find((s) => s.id === match.id) ?? null : null;
+}
+
+/**
+ * Workout picker on top of the session list: only the session that came from the chosen
+ * workout is listed. With no plans at all the picker has nothing to choose, so every
+ * session shows. The view selector switches the graphs: Velocity (SP-01), Distance (SP-06),
+ * Time (SP-07).
+ */
+/** Elements that count as an interaction for clearing the card glow. */
+const INTERACTIVE_SELECTOR =
+  "button, a[href], input, select, textarea, summary, [role='button'], [role='tab'], [role='option'], [role='menuitem'], [role='combobox'], [role='switch'], [role='checkbox']";
+
+type CardGlow ={ exercise: string; sessionId: string | null } | null;
+
+/** `glow` is the exercise card highlighted after a roster link. It lives on the page so it stays cleared when the tab is left and re-entered. */
+function SessionsView({ sessions, plans, focus, glow, onGlowClear }: { sessions: SessionData[]; plans: PlanRow[]; focus: { sessionId: string | null; exercise: string | null; view: string | null }; glow: CardGlow; onGlowClear: () => void }) {
+  const [view, setView] = useState(() => SESSION_VIEWS.find((o) => o.id === focus.view)?.id ?? "velocity");
+  // True only right after the blob was clicked; a workout change clears it, and a tab switch remounts this view.
+  const [fadeViews, setFadeViews] = useState(false);
+  const pickerPlans = useMemo<PickerPlan[]>(
+    () => plans.map((p) => ({
+      id: p.id,
+      date: p.date,
+      title: p.title,
+      exercises: Array.isArray(p.exercises) ? (p.exercises as PickerPlan["exercises"]) : [],
+      is_completed: p.is_completed,
+      hasData: sessionForPlan(p, sessions) != null,
+    })),
+    [plans, sessions]
+  );
+
+  // Open on the workout behind a roster link (?session=), else the latest past workout that has a session.
+  const first = useMemo(() => {
+    const todayKey = format(new Date(), "yyyy-MM-dd");
+    const byDate = [...plans].sort((a, b) => b.date.localeCompare(a.date));
+    if (focus.sessionId) {
+      const hit = byDate.find((p) => sessionForPlan(p, sessions)?.id === focus.sessionId);
+      if (hit) return hit;
+    }
+    return byDate.find((p) => p.date <= todayKey && sessionForPlan(p, sessions)) ?? null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const history = useMemo(() => historyByExercise(sessions), [sessions]);
+  const [planId, setPlanId] = useState<string | null>(first?.id ?? null);
+  const plan = plans.find((p) => p.id === planId) ?? null;
+  const matched = plan ? sessionForPlan(plan, sessions) : null;
+  const shown = plans.length === 0 ? sessions : matched ? [matched] : [];
+  const emptyMessage = plans.length === 0
+    ? "No sessions logged yet."
+    : plan ? "No session logged for this workout." : "No workout on this date.";
+
+  return (
+    <>
+      <div className="row" style={{ justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
+        <WorkoutPicker plans={pickerPlans} initialPlanId={first?.id} onSelect={(p) => { setPlanId(p?.id ?? null); setFadeViews(false); }} />
+        <BlobSelector options={SESSION_VIEWS} value={view} onChange={(v) => { setView(v); setFadeViews(true); onGlowClear(); }} />
+      </div>
+      <SessionsTab key={plan?.id ?? "none"} sessions={shown} history={history} view={view} animate={fadeViews} glow={glow} onGlowClear={onGlowClear} emptyMessage={emptyMessage} />
+    </>
+  );
+}
+
+// TODO(cleanup): unused since the Sessions tab shows the set-velocity graph per exercise.
 function SessionExerciseTrace({ exercise }: { exercise: ExerciseData }) {
   const reps = [...exercise.repData]
     .filter((r) => r.velocity > 0)
@@ -96,112 +190,49 @@ function SessionExerciseTrace({ exercise }: { exercise: ExerciseData }) {
   );
 }
 
-function SessionsTab({ sessions }: { sessions: SessionData[] }) {
-  const [openId, setOpenId] = useState<string | null>(sessions[0]?.id ?? null);
-  const [exerciseIdx, setExerciseIdx] = useState(0);
+/**
+ * One graph per exercise done in each session shown, chosen by `view`: velocity is the
+ * set-velocity graph (SP-01 to SP-04), distance is range of motion (SP-06), time is rep
+ * timing (SP-07). Switching views fades the old graphs out and the new ones in.
+ * `history` is every session of the athlete per exercise, for the velocity baseline.
+ */
+function SessionsTab({ sessions, history, view, animate, glow, onGlowClear, emptyMessage = "No sessions logged yet." }: { sessions: SessionData[]; history: Record<string, HistorySession[]>; view: string; animate: boolean; glow: CardGlow; onGlowClear: () => void; emptyMessage?: string }) {
   const sorted = useMemo(() => [...sessions].sort((a, b) => sessionTime(b) - sessionTime(a)), [sessions]);
-  // Period rollup — last 7 days, gated the same way as the per-session number
-  // (sessions that don't individually clear the coverage bar are excluded,
-  // not averaged in). Named distinctly from the unrelated "Weekly volume"
-  // chart in the Performance tab, which means session frequency, not load.
-  const weekLoadVolume = useMemo(() => {
-    const cutoff = subDays(new Date(), 7);
-    return periodVolume(sorted.filter((s) => new Date(s.startedAt ?? s.createdAt) >= cutoff));
-  }, [sorted]);
 
   if (sorted.length === 0) {
-    return <div className="v-card padded v-meta" style={{ textAlign: "center", padding: "48px 16px" }}>No sessions logged yet.</div>;
+    return <div className="v-card padded v-meta" style={{ textAlign: "center", padding: "48px 16px" }}>{emptyMessage}</div>;
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <div className="row" style={{ justifyContent: "space-between" }}>
-        <div className="v-label">Recent sessions · {sorted.length}</div>
-        <div className="v-meta mono" style={{ fontSize: 11 }}>
-          Load, last 7d: {weekLoadVolume != null ? Math.round(weekLoadVolume).toLocaleString() : "not enough load data logged"}
-        </div>
-      </div>
-      <div className="v-card flush">
-        {sorted.map((s, i) => {
-          const isOpen = openId === s.id;
-          const drop = sessionVelocityDropoff(s);
-          const volume = sessionVolumeGated(s);
-          const totalReps = s.exercises.reduce((n, e) => n + e.repData.length, 0);
-          const date = new Date(s.date + "T12:00:00");
-          const exercise = isOpen ? s.exercises[Math.min(exerciseIdx, s.exercises.length - 1)] : null;
+    <FadeSwap id={view} animate={animate}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
+        {sorted.map((s) => {
+          const glowExercise = glow && (!glow.sessionId || glow.sessionId === s.id) ? glow.exercise : null;
           return (
-            <div key={s.id} style={{ borderBottom: i < sorted.length - 1 ? "1px solid var(--line-0)" : "none" }}>
-              <button
-                onClick={() => { setOpenId(isOpen ? null : s.id); setExerciseIdx(0); }}
-                style={{
-                  width: "100%", display: "grid", alignItems: "center", gap: 12,
-                  gridTemplateColumns: "90px 1fr 100px 110px 28px",
-                  border: "none", background: isOpen ? "var(--surface-2)" : "transparent",
-                  padding: "14px 18px", textAlign: "left", cursor: "pointer", font: "inherit",
-                }}
-              >
-                <div>
-                  <div className="mono" style={{ fontSize: 12, color: "var(--ink-0)" }}>{format(date, "MMM d")}</div>
-                  <div className="mono v-mute2" style={{ fontSize: 10.5 }}>{format(date, "EEE")}</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 500, color: "var(--ink-0)" }}>{s.notes || "Training session"}</div>
-                  <div className="v-meta mono" style={{ fontSize: 11 }}>{s.exercises.length} exercise{s.exercises.length !== 1 ? "s" : ""} · {totalReps} reps</div>
-                </div>
-                <div>
-                  <div className="v-label" style={{ fontSize: 9.5 }}>Drop-off</div>
-                  <div className="mono" style={{ fontSize: 13, color: drop != null && drop >= 15 ? "var(--warn)" : "var(--ink-0)" }}>
-                    {drop != null ? `${Math.round(drop)}%` : "—"}
-                  </div>
-                </div>
-                <div>
-                  <div className="v-label" style={{ fontSize: 9.5 }}>Volume</div>
-                  {volume != null ? (
-                    <div className="mono" style={{ fontSize: 13, color: "var(--ink-0)" }}>{Math.round(volume).toLocaleString()}</div>
-                  ) : (
-                    <div className="v-mute2" style={{ fontSize: 10.5, lineHeight: 1.3 }}>Not enough load data logged</div>
-                  )}
-                </div>
-                <div style={{ color: "var(--ink-3)", transform: isOpen ? "rotate(90deg)" : "none", transition: "transform .12s" }}>
-                  <ChevronRight size={12} strokeWidth={1.5} />
-                </div>
-              </button>
-
-              {isOpen && exercise && (
-                <div style={{ padding: "12px 18px 20px", background: "var(--surface-2)", borderTop: "1px solid var(--line-0)" }}>
-                  <div className="row" style={{ justifyContent: "space-between", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
-                    <div className="v-label">Rep-by-rep velocity · {exercise.name}</div>
-                    <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
-                      {s.exercises.map((e, idx) => (
-                        <button
-                          key={e.id}
-                          className="v-btn"
-                          onClick={() => setExerciseIdx(idx)}
-                          style={{
-                            height: 24, fontSize: 11,
-                            background: idx === exerciseIdx ? "var(--ink-0)" : "transparent",
-                            color: idx === exerciseIdx ? "#fff" : "var(--ink-1)",
-                            borderColor: idx === exerciseIdx ? "var(--ink-0)" : "transparent",
-                          }}
-                        >
-                          {e.name}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <SessionExerciseTrace exercise={exercise} />
-                </div>
-              )}
-            </div>
+          <div key={s.id} id={`session-${s.id}`}>
+            {sorted.length > 1 && (
+              <div className="v-label" style={{ marginBottom: 10 }}>
+                {format(new Date(s.date + "T12:00:00"), "EEE, MMM d")} · {s.notes || "Training session"}
+              </div>
+            )}
+            {view === "distance" ? (
+              <RangeOfMotionCards exercises={sessionRom(s)} glowExercise={glowExercise} onGlowClear={onGlowClear} />
+            ) : view === "time" ? (
+              <RepTimingCards exercises={sessionTiming(s)} glowExercise={glowExercise} onGlowClear={onGlowClear} />
+            ) : (
+              <SetVelocityBlocks exercises={sessionSets(s)} history={history} sessionDate={sessionMoment(s)} glowExercise={glowExercise} onGlowClear={onGlowClear} />
+            )}
+          </div>
           );
         })}
       </div>
-    </div>
+    </FadeSwap>
   );
 }
 
 // ─── Readiness tab ────────────────────────────────────────────────────────────
 
+// TODO(cleanup): tab removed. The baseline card lives on as DeviationBaselineCard (Storybook only).
 function ReadinessTab({ athlete, sessions, indicators }: { athlete: PlayerWithStats; sessions: SessionData[]; indicators: DeviationIndicator[] }) {
   // getPlayerSessions orders newest-first, so picking "the last drop-off value"
   // without re-sorting grabbed the OLDEST session's number, not the most recent
@@ -429,18 +460,22 @@ function InsightRail({
   notes, onAddNote,
 }: {
   notes: CoachNote[];
-  onAddNote: (text: string) => Promise<void>;
+  /** Resolves true when the note was saved. On false the typed text is kept so it is not lost. */
+  onAddNote: (text: string) => Promise<boolean>;
 }) {
   const [adding, setAdding] = useState(false);
   const [noteText, setNoteText] = useState("");
   const [saving, setSaving] = useState(false);
+  const [attached, setAttached] = useState(false);
 
   const saveNote = async () => {
     if (!noteText.trim()) return;
     setSaving(true);
-    await onAddNote(noteText.trim());
+    const saved = await onAddNote(noteText.trim());
     setSaving(false);
+    if (!saved) return;
     setNoteText("");
+    setAttached(false);
     setAdding(false);
   };
 
@@ -467,11 +502,28 @@ function InsightRail({
               autoFocus
               style={{ width: "100%", height: 68, padding: 8, resize: "vertical", lineHeight: 1.5, fontFamily: "var(--font-sans)", fontSize: 12 }}
             />
-            <div className="row" style={{ justifyContent: "flex-end", gap: 6 }}>
-              <button className="v-btn ghost" style={{ height: 26, fontSize: 11.5 }} onClick={() => { setAdding(false); setNoteText(""); }} disabled={saving}>Cancel</button>
-              <button className="v-btn primary" style={{ height: 26, fontSize: 11.5 }} onClick={saveNote} disabled={saving || !noteText.trim()}>
-                {saving ? "Saving…" : "Save note"}
+            <div className="row" style={{ justifyContent: "space-between", gap: 6 }}>
+              {/* TODO(incomplete): toggle only. Later a note attached to a workout shows only while that workout is selected; a general note always shows. Not saved or used yet. */}
+              <button
+                type="button"
+                className="v-btn"
+                aria-pressed={attached}
+                onClick={() => setAttached((v) => !v)}
+                style={{
+                  height: 32, fontSize: 11.5, gap: 5, whiteSpace: "nowrap", flexShrink: 0,
+                  background: attached ? "var(--brand)" : "var(--surface-1)",
+                  color: attached ? "var(--ink-0)" : "var(--ink-1)",
+                  borderColor: attached ? "var(--brand)" : "var(--line-1)",
+                }}
+              >
+                <Paperclip size={12} strokeWidth={1.5} /> Attach to workout
               </button>
+              <div className="row" style={{ gap: 6 }}>
+              <button className="v-btn ghost" style={{ height: 32, fontSize: 11.5 }} onClick={() => { setAdding(false); setNoteText(""); setAttached(false); }} disabled={saving}>Cancel</button>
+              <button className="v-btn primary" style={{ height: 32, fontSize: 11.5 }} onClick={saveNote} disabled={saving || !noteText.trim()}>
+                {saving ? "Saving…" : "Save"}
+              </button>
+              </div>
             </div>
           </div>
         )}
@@ -509,9 +561,29 @@ export default function AthleteDashboard() {
   const [athleteMetrics, setAthleteMetrics] = useState<RosterMetricsResult | null>(null);
   const [notes, setNotes] = useState<CoachNote[]>([]);
   const [coachDbId, setCoachDbId] = useState<string | null>(null);
-  const [tab, setTab] = useState("readiness");
+  const [searchParams] = useSearchParams();
+  const [tab, setTab] = useState(() => {
+    const t = searchParams.get("tab");
+    return t === "sessions" || t === "programming" ? t : "performance";
+  });
+  const sessionFocus = useMemo(
+    () => ({ sessionId: searchParams.get("session"), exercise: searchParams.get("exercise"), view: searchParams.get("view") }),
+    [searchParams]
+  );
+  // Exercise card highlighted after a roster link. Cleared by a click on it, a tab change or a blob change.
+  const [glow, setGlow] = useState<CardGlow>(() => (sessionFocus.exercise ? { exercise: sessionFocus.exercise, sessionId: sessionFocus.sessionId } : null));
+  // Any real interaction (a click on a button, link, field, tab, selector or menu item) also clears it; a click on empty page does not.
+  useEffect(() => {
+    if (!glow) return;
+    const onClick = (ev: MouseEvent) => {
+      const el = ev.target instanceof Element ? ev.target : null;
+      if (el?.closest(INTERACTIVE_SELECTOR)) setGlow(null);
+    };
+    document.addEventListener("click", onClick, true);
+    return () => document.removeEventListener("click", onClick, true);
+  }, [glow]);
 
-  const loadData = useCallback(async () => {
+  const loadData =useCallback(async () => {
     if (!user?.id || !id) return;
     setLoading(true);
     try {
@@ -553,12 +625,14 @@ export default function AthleteDashboard() {
   const now = useMemo(() => new Date(), []);
 
   const indicators = useMemo(() => computeAnomalyIndicators(sessions), [sessions]);
+  // TODO(cleanup): unused since the athlete-page KPI strip was removed.
   const readinessStatus = useMemo(() => compositeRagStatus(indicators), [indicators]);
 
   const dropSeries = useMemo(
     () => sorted.map((s) => sessionVelocityDropoff(s)).filter((v): v is number => v != null),
     [sorted]
   );
+  // TODO(cleanup): unused since the athlete-page KPI strip was removed.
   const latestDrop = dropSeries.length ? Math.round(dropSeries[dropSeries.length - 1]) : null;
 
   const weekIdx = useCallback(
@@ -583,12 +657,14 @@ export default function AthleteDashboard() {
     const m = mean(primaryLiftVels.slice(-3));
     return m != null ? +m.toFixed(2) : null;
   }, [primaryLiftVels]);
+  // TODO(cleanup): unused since the athlete-page KPI strip was removed.
   const primaryLiftVelDelta = useMemo(() => {
     if (primaryLiftVels.length < 5) return null;
     const prior = mean(primaryLiftVels.slice(0, -3));
     return primaryLiftRecentVel != null && prior != null ? +(primaryLiftRecentVel - prior).toFixed(2) : null;
   }, [primaryLiftVels, primaryLiftRecentVel]);
 
+  // TODO(cleanup): unused since the Performance tab got the new cards.
   const velTrend12 = useMemo<VelTrendPoint[]>(() => {
     const WEEKS = 12;
     const buckets: Array<{ vals: number[]; n: number }> = Array.from({ length: WEEKS }, () => ({ vals: [], n: 0 }));
@@ -610,6 +686,7 @@ export default function AthleteDashboard() {
     return points;
   }, [sorted, weekIdx]);
 
+  // TODO(cleanup): unused since the Performance tab got the new cards.
   const weekly8 = useMemo<WeeklyLoadPoint[]>(() => {
     const WEEKS = 8;
     const counts = Array.from({ length: WEEKS }, () => 0);
@@ -620,6 +697,7 @@ export default function AthleteDashboard() {
     return counts.map((v, i) => ({ label: i === WEEKS - 1 ? "now" : `W-${WEEKS - 1 - i}`, v }));
   }, [sorted, weekIdx]);
 
+  // TODO(cleanup): unused since the Performance tab got the new cards.
   const sessionsThisWeek = weekly8.length ? weekly8[weekly8.length - 1].v : 0;
 
   // Load–velocity points, grouped per exercise — a load-velocity relationship
@@ -628,6 +706,7 @@ export default function AthleteDashboard() {
   // exercise is selected below rather than blended across all of them. Weight
   // is the mean of that SET's own logged reps, not one flat exercise-level
   // number, so ramping/pyramid sets each plot at their real load.
+  // TODO(cleanup): unused since the Performance tab got the new cards.
   const fvByExercise = useMemo(() => {
     const map = new Map<string, { points: FVPoint[]; unit: string }>();
     const cutoff = subDays(now, 56);
@@ -694,15 +773,19 @@ export default function AthleteDashboard() {
       .slice(0, 8);
   }, [sorted, now]);
 
+  const allHistory = useMemo(() => historyByExercise(sessions), [sessions]);
+
   const handleAddNote = useCallback(
     async (text: string) => {
-      if (!athlete) return;
-      const note = await addCoachNote(athlete.id, coachDbId, text);
-      if (note) {
+      if (!athlete) return false;
+      try {
+        const note = await addCoachNote(athlete.id, coachDbId, text);
         setNotes((prev) => [note, ...prev]);
         toast.success("Note saved");
-      } else {
-        toast.error("Failed to save note");
+        return true;
+      } catch (error) {
+        toast.error(`Failed to save note: ${error instanceof Error ? error.message : "unknown error"}`);
+        return false;
       }
     },
     [athlete, coachDbId]
@@ -733,7 +816,7 @@ export default function AthleteDashboard() {
       {athlete && (
         <main style={{ maxWidth: 1480, margin: "0 auto", width: "100%", padding: "0 28px 32px" }}>
           {/* Header */}
-          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 18, flexWrap: "wrap", padding: "20px 0", borderBottom: "1px solid var(--line-0)" }}>
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 18, flexWrap: "wrap", padding: "20px 0" }}>
             <div className="row" style={{ gap: 14, minWidth: 0, flex: "1 1 480px" }}>
               <Avatar name={athlete.name} size="xl" />
               <div style={{ minWidth: 0 }}>
@@ -758,155 +841,63 @@ export default function AthleteDashboard() {
             </div>
           </div>
 
-          {/* KPI strip */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, padding: "20px 0" }}>
-            <div className="v-card padded" style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
-              <div className="v-label">Readiness</div>
-              <div className="row" style={{ gap: 8, alignItems: "center" }}>
-                <span style={{ width: 10, height: 10, borderRadius: 999, background: RAG_COLOR[readinessStatus], flexShrink: 0 }} />
-                <span className="num" style={{ fontSize: 20, fontWeight: 600, color: "var(--ink-0)" }}>{READINESS_LABEL[readinessStatus]}</span>
-              </div>
-              <div className="v-meta" style={{ fontSize: 11.5, color: "var(--ink-3)" }}>
-                {readinessStatus === "insufficient" ? `needs ≥7 sessions of primary-lift data` : "vs. this athlete's own baseline"}
-              </div>
-            </div>
-            <KpiTile
-              label="Velocity drop-off"
-              value={latestDrop != null ? `${latestDrop}%` : "—"}
-              delta={dropSeries.length >= 2 ? +(dropSeries[dropSeries.length - 1] - dropSeries[dropSeries.length - 2]).toFixed(1) : null}
-              deltaInvert
-              footnote="within-session, latest"
-              sparkData={dropSeries.length > 1 ? dropSeries.slice(-8) : undefined}
-              accent="var(--brand)"
-            />
-            <KpiTile
-              label="Sessions vs. Plan"
-              value={sessionsThisWeek}
-              unit={`/ ${SESSIONS_TARGET}`}
-              footnote={`target ${SESSIONS_TARGET}/wk`}
-              sparkData={weekly8.map((wp) => wp.v)}
-              accent="var(--brand)"
-            />
-            {primaryExercise ? (
-              <KpiTile
-                label={primaryExercise.name}
-                value={primaryLiftRecentVel != null ? primaryLiftRecentVel.toFixed(2) : "—"}
-                unit="m/s"
-                delta={primaryLiftVelDelta}
-                footnote="primary lift · last 3 sessions vs prior"
-                sparkData={primaryLiftVels.length > 1 ? primaryLiftVels.slice(-8) : undefined}
-                accent="var(--brand)"
-              />
-            ) : (
-              <div className="v-card padded" style={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", gap: 4, minWidth: 0, textAlign: "center" }}>
-                <div className="v-label">Primary Lift Trend</div>
-                <div className="v-mute2" style={{ fontSize: 12 }}>No sessions logged this period</div>
-              </div>
-            )}
-          </div>
+          <div style={{ height: 20 }} />
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 24 }}>
-            <div style={{ minWidth: 0 }}>
+          {/* Two rows: tabs on top of the left column, then content and the notes rail side by side,
+              so the rail's top edge lines up with the first card. */}
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 320px", columnGap: 24 }}>
+            <div style={{ gridColumn: 1, gridRow: 1 }}>
               <UnderlineTabs
                 tabs={[
-                  { id: "readiness", label: "Readiness" },
                   { id: "performance", label: "Performance" },
                   { id: "sessions", label: "Sessions", count: sessions.length },
                   { id: "programming", label: "Programming" },
                 ]}
                 active={tab}
-                onChange={setTab}
+                onChange={(t) => { setTab(t); setGlow(null); }}
               />
+            </div>
 
+            <div style={{ gridColumn: 1, gridRow: 2, minWidth: 0 }}>
               <div style={{ paddingTop: 20 }}>
                 {tab === "performance" && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
-                    <div className="v-card padded" style={{ minWidth: 0 }}>
-                      <div style={{ marginBottom: 12 }}>
-                        <div className="v-h2">12-week velocity trend</div>
-                        <div className="v-meta" style={{ marginTop: 2 }}>
-                          Weekly average across every logged set, all exercises blended — a real per-exercise target
-                          band isn't meaningful here since this line mixes exercises. See "Per-exercise velocity
-                          range" below, or the Targets Reached KPI above, for target-anchored numbers.
-                        </div>
-                      </div>
-                      <VelocityTrendChart data={velTrend12} />
-                    </div>
-
                     <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 16 }}>
-                      <div className="v-card padded" style={{ minWidth: 0 }}>
-                        <div className="row" style={{ justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
-                          <div>
-                            <div className="v-h2">Load–velocity profile</div>
-                            <div className="v-meta" style={{ marginTop: 2 }}>Each dot is one set, last 8 weeks. Recent sets darker. One exercise at a time — load-velocity only means something within a single lift.</div>
-                          </div>
-                          {fvExerciseOptions.length > 1 && (
-                            <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
-                              {fvExerciseOptions.map((name) => (
-                                <button
-                                  key={name}
-                                  className="v-btn"
-                                  onClick={() => setFvExercisePick(name)}
-                                  style={{
-                                    height: 24, fontSize: 11,
-                                    background: name === fvExercise ? "var(--ink-0)" : "transparent",
-                                    color: name === fvExercise ? "#fff" : "var(--ink-1)",
-                                    borderColor: name === fvExercise ? "var(--ink-0)" : "transparent",
-                                  }}
-                                >
-                                  {name}
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                        <ForceVelocityChart data={fvPoints} unitLabel={fvUnit} />
-                      </div>
-                      <div className="v-card padded" style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-                        <div style={{ marginBottom: 10 }}>
-                          <div className="v-h2">Weekly volume</div>
-                          <div className="v-meta" style={{ marginTop: 2 }}>Sessions per week vs {SESSIONS_TARGET}/wk target.</div>
-                        </div>
-                        <WeeklyLoadChart data={weekly8} target={SESSIONS_TARGET} height={172} />
-                        <div className="row" style={{ marginTop: "auto", paddingTop: 12, borderTop: "1px solid var(--line-0)" }}>
-                          {(() => {
-                            const avg = (weekly8.reduce((s, d) => s + d.v, 0) / (weekly8.length || 1)).toFixed(1);
-                            const onTarget = weekly8.filter((d) => d.v >= SESSIONS_TARGET).length;
-                            return [
-                              { v: avg, l: "8-wk avg / wk" },
-                              { v: `${sessionsThisWeek}/${SESSIONS_TARGET}`, l: "this week" },
-                              { v: `${onTarget}/8`, l: "weeks on target" },
-                            ].map((stat, i) => (
-                              <div key={stat.l} style={{ flex: 1, borderLeft: i ? "1px solid var(--line-0)" : "none", paddingLeft: i ? 14 : 0 }}>
-                                <div className="num" style={{ fontSize: 16, fontWeight: 600, letterSpacing: "-0.01em" }}>{stat.v}</div>
-                                <div className="v-meta" style={{ fontSize: 10.5, color: "var(--ink-3)", marginTop: 1 }}>{stat.l}</div>
-                              </div>
-                            ));
-                          })()}
-                        </div>
-                      </div>
+                      <LoadVelocityProfileCard sessions={allHistory} />
+                      <TrainingExposureCard sessions={exposureInputs(sessions)} />
                     </div>
 
-                    <div className="v-card padded" style={{ minWidth: 0 }}>
-                      <div style={{ marginBottom: 14 }}>
-                        <div className="v-h2">Per-exercise velocity range</div>
-                        <div className="v-meta" style={{ marginTop: 2 }}>Min/max range with average · last 4 weeks (falls back to all time).</div>
+                    <div style={twoColumnGrid()}>
+                      <div className="v-card padded" style={{ minWidth: 0 }}>
+                        <div style={{ marginBottom: 14 }}>
+                          <div className="v-h2">Per-exercise velocity range</div>
+                          <div className="v-meta" style={{ marginTop: 2 }}>Min/max range with average · last 4 weeks (falls back to all time).</div>
+                        </div>
+                        <ExerciseRangeChart data={exRange} />
                       </div>
-                      <ExerciseRangeChart data={exRange} />
+                      {/* SP-05: all-time records, so no "latest session": every exercise gets its whole history. */}
+                      <PersonalRecordsCard
+                        exercises={Object.keys(allHistory).map((exercise) => ({ exercise, sets: [] }))}
+                        history={allHistory}
+                      />
                     </div>
                   </div>
                 )}
 
-                {tab === "sessions" && <SessionsTab sessions={sessions} />}
-                {tab === "readiness" && <ReadinessTab athlete={athlete} sessions={sessions} indicators={indicators} />}
+                {/* key: the data arrives after the page mounts; restart the picker on its first workout when it does */}
+                {tab === "sessions" && (
+                  <SessionsView key={`${plans.length}-${sessions.length}`} sessions={sessions} plans={plans} focus={sessionFocus} glow={glow} onGlowClear={() => setGlow(null)} />
+                )}
                 {tab === "programming" && <ProgrammingTab plans={plans} />}
               </div>
             </div>
 
-            <InsightRail
-              notes={notes}
-              onAddNote={handleAddNote}
-            />
+            <div style={{ gridColumn: 2, gridRow: 2, paddingTop: 20 }}>
+              <InsightRail
+                notes={notes}
+                onAddNote={handleAddNote}
+              />
+            </div>
           </div>
         </main>
       )}

@@ -172,6 +172,14 @@
     @apply border-border;
   }
 
+  /* Page scrollbar hidden on every page; scrolling itself still works. Inner scroll areas (.v-scroll, menus) keep theirs. */
+  html {
+    scrollbar-width: none;
+  }
+  html::-webkit-scrollbar {
+    display: none;
+  }
+
   body {
     @apply bg-background text-foreground font-sans antialiased;
     font-size: 13.5px;
@@ -461,4 +469,13 @@
 @keyframes routeFade {
   from { transform: translateY(6px); }
   to   { transform: none; }
+}
+
+/* FadeSwap: the cards (blocks) stay put; what is inside them starts fully transparent and fades in, no movement. */
+@keyframes v-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.v-fade-in .v-card > * {
+  animation: v-fade-in 500ms cubic-bezier(0.4, 0, 0.6, 1) both;
 }

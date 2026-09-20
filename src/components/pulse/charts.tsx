@@ -7,7 +7,7 @@ import { useState, useRef, useEffect } from "react";
 
 const mean = (xs: number[]): number => xs.reduce((a, b) => a + b, 0) / xs.length;
 
-function useMeasuredWidth<T extends HTMLElement>(fallback: number) {
+export function useMeasuredWidth<T extends HTMLElement>(fallback: number) {
   const ref = useRef<T>(null);
   const [width, setWidth] = useState(fallback);
   useEffect(() => {
@@ -279,7 +279,7 @@ function niceStep(rawStep: number): number {
   return mult * mag;
 }
 
-function niceTicks(min: number, max: number, targetCount = 5): number[] {
+export function niceTicks(min: number, max: number, targetCount = 5): number[] {
   const range = max - min || 0.2;
   const step = niceStep(range / targetCount);
   const start = Math.max(0, Math.floor(min / step) * step);
@@ -289,7 +289,7 @@ function niceTicks(min: number, max: number, targetCount = 5): number[] {
 }
 
 /** Distinct line colors, one per set, cycling if there are more sets than colors. */
-const SET_COLORS = [
+export const SET_COLORS = [
   "#2563eb", // blue
   "#d97706", // amber
   "#7c3aed", // violet
@@ -502,19 +502,26 @@ interface WeeklyLoadChartProps {
   target?: number;
   height?: number;
   accent?: string;
+  /** Larger, darker labels (used by the SP-08 prototype). */
+  legible?: boolean;
 }
 
-export function WeeklyLoadChart({ data, target = 4, accent = "var(--brand)", height = 130 }: WeeklyLoadChartProps) {
+/** Right-hand room kept free for the target label, px. */
+const TARGET_GUTTER = 64;
+
+export function WeeklyLoadChart({ data, target = 4, accent = "var(--brand)", height = 130, legible = false }: WeeklyLoadChartProps) {
   const { ref, width: w } = useMeasuredWidth<HTMLDivElement>(400);
 
-  const PL = 28, PR = 12, PT = 14, PB = 24;
+  const PL = 28, PR = 12, PT = legible ? 18 : 14, PB = legible ? 28 : 24;
+  const fs = legible ? "11.5" : undefined;
   const h = height;
   const cW = w - PL - PR;
   const cH = h - PT - PB;
   if (data.length === 0) return <div ref={ref} style={{ height }} />;
   const mx = Math.max(...data.map((d) => d.v), target + 1);
-  const step = cW / data.length;
-  const bw = step * 0.6;
+  // Legible: bars pack to the left and leave a gutter so the "target" label clears the last bar.
+  const step = (legible ? cW - TARGET_GUTTER : cW) / data.length;
+  const bw = step * (legible ? 0.7 : 0.6);
 
   return (
     <div ref={ref} style={{ width: "100%", minWidth: 0, overflow: "hidden" }}>
@@ -525,7 +532,7 @@ export function WeeklyLoadChart({ data, target = 4, accent = "var(--brand)", hei
           y2={PT + cH - (target / mx) * cH}
           stroke={accent} strokeWidth="1" strokeDasharray="3 3" opacity="0.6"
         />
-        <text x={PL + cW - 4} y={PT + cH - (target / mx) * cH - 4} textAnchor="end" fontSize="9.5" fontFamily="var(--font-mono)" fill={accent}>
+        <text x={PL + cW - 4} y={PT + cH - (target / mx) * cH - 4} textAnchor="end" fontSize={fs ?? "9.5"} fontFamily="var(--font-mono)" fill={accent}>
           target {target}
         </text>
         {data.map((d, i) => {
@@ -534,8 +541,8 @@ export function WeeklyLoadChart({ data, target = 4, accent = "var(--brand)", hei
           return (
             <g key={i}>
               <rect x={x} y={yv} width={bw} height={PT + cH - yv} rx="2" fill="var(--ink-0)" opacity={d.v >= target ? 0.85 : 0.55} />
-              <text x={x + bw / 2} y={yv - 4} textAnchor="middle" fontSize="10" fontFamily="var(--font-mono)" fill="var(--ink-2)">{d.v}</text>
-              <text x={x + bw / 2} y={h - 6} textAnchor="middle" fontSize="9.5" fontFamily="var(--font-mono)" fill="var(--ink-3)">{d.label}</text>
+              <text x={x + bw / 2} y={yv - 4} textAnchor="middle" fontSize={fs ?? "10"} fontFamily="var(--font-mono)" fill={legible ? "var(--ink-1)" : "var(--ink-2)"}>{d.v}</text>
+              <text x={x + bw / 2} y={h - 6} textAnchor="middle" fontSize={fs ?? "9.5"} fontFamily="var(--font-mono)" fill={legible ? "var(--ink-1)" : "var(--ink-3)"}>{d.label}</text>
             </g>
           );
         })}

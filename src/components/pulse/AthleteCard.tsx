@@ -21,7 +21,10 @@ interface AthleteCardProps {
   onSelect?: (athlete: PlayerWithStats) => void;
 }
 
-/** Focus card for the "Worth a look" row on the dashboard. */
+/**
+ * Focus card for the "Worth a look" row on the dashboard.
+ * TODO(cleanup): unused, that row was removed from Index.tsx. Delete the file (with NextPlanInfo).
+ */
 export function AthleteCard({ athlete, metrics, nextPlan, onSelect }: AthleteCardProps) {
   const flag = flagsFor(athlete, metrics)[0];
   const lastDays = lastDaysFor(athlete, metrics);

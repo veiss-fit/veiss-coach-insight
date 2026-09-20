@@ -261,6 +261,7 @@ export const deleteWorkoutPlan = async (planId: string): Promise<boolean> => {
 
 /**
  * Get upcoming workout plans for a team
+ * TODO(cleanup): unused since the "Worth a look" cards left Index.tsx.
  */
 export const getUpcomingWorkoutPlans = async (
   playerIds: string[],

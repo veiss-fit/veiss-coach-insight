@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { TemplatesProvider } from "@/contexts/TemplatesContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { MinScreenGate } from "@/components/MinScreenGate";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
@@ -98,9 +99,11 @@ const App = () => (
         <TemplatesProvider>
         <Toaster />
         <Sonner />
-        <BrowserRouter>
-          <AppRoutes />
-        </BrowserRouter>
+        <MinScreenGate>
+          <BrowserRouter>
+            <AppRoutes />
+          </BrowserRouter>
+        </MinScreenGate>
         </TemplatesProvider>
       </AuthProvider>
     </TooltipProvider>

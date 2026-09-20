@@ -2,6 +2,9 @@ import { supabase } from '@/lib/supabase';
 import { differenceInCalendarWeeks, startOfWeek, subWeeks } from 'date-fns';
 import { isValidExerciseName } from '@/lib/athleteSummaryUtils';
 import { canonicalizeExerciseName } from '@/lib/targetEvaluation';
+import { summarizeSession, type RepInput } from '@/lib/metrics/setVelocitySummary';
+import { summarizeTimingSession } from '@/lib/metrics/repTiming';
+import { rosterSignals, type ExerciseSignalInput, type RosterSignals } from '@/lib/metrics/rosterSignals';
 
 /**
  * Roster-wide 8-week metric series, fetched with a fixed number of batched
@@ -51,6 +54,8 @@ export interface RosterTeamMetrics {
 
 export interface RosterMetricsResult {
   perPlayer: Map<string, RosterAthleteMetrics>;
+  /** SP-12 row signals per player id. A player with no usable data has no entry. */
+  signalsByPlayer: Map<string, RosterSignals>;
   team: RosterTeamMetrics;
 }
 
@@ -74,6 +79,10 @@ interface RepRow {
   exercise_name: string | null;
   average_rep_speed: number | null;
   set_number: number | null;
+  rep_number: number | null;
+  weight: number | null;
+  concentric_duration_s: number | null;
+  eccentric_duration_s: number | null;
 }
 
 interface PlanRow {
@@ -132,12 +141,59 @@ function computeDropPctFromRows(reps: RepRow[]): number | null {
   return Math.round(Math.min(100, Math.max(-100, result)));
 }
 
+/**
+ * SP-12 signals for one athlete from their sessions (oldest first). Per exercise
+ * (canonical name), the latest session that contains it is compared with the
+ * earlier ones; rosterSignals applies the baseline window itself.
+ */
+function computeSignals(sessions: { id: string; date: string; reps: RepRow[] }[]): RosterSignals | null {
+  const byExercise = new Map<string, { id: string; date: string; reps: RepInput[] }[]>();
+  for (const s of sessions) {
+    const perExercise = new Map<string, RepInput[]>();
+    for (const r of s.reps) {
+      if (!isValidExerciseName(r.exercise_name) || r.set_number == null || r.rep_number == null) continue;
+      const name = canonicalizeExerciseName(r.exercise_name);
+      const list = perExercise.get(name) ?? [];
+      list.push({
+        exercise_name: name,
+        set_number: r.set_number,
+        rep_number: r.rep_number,
+        average_rep_speed: r.average_rep_speed,
+        weight: r.weight,
+        concentric_duration_s: r.concentric_duration_s,
+        eccentric_duration_s: r.eccentric_duration_s,
+      });
+      perExercise.set(name, list);
+    }
+    for (const [name, reps] of perExercise) {
+      const list = byExercise.get(name) ?? [];
+      list.push({ id: s.id, date: s.date, reps });
+      byExercise.set(name, list);
+    }
+  }
+
+  const inputs: ExerciseSignalInput[] = [];
+  for (const [exercise, list] of byExercise) {
+    const summaries = list.map((x) => ({
+      sessionId: x.id,
+      date: x.date,
+      sets: summarizeSession(x.reps)[0].sets,
+      timing: summarizeTimingSession(x.reps)[0].sets,
+    }));
+    const latest = summaries[summaries.length - 1];
+    inputs.push({ exercise, latest, history: summaries.slice(0, -1).map(({ date, sets }) => ({ date, sets })) });
+  }
+  const result = rosterSignals(inputs);
+  return result.biggestDrop || result.slowestTempo ? result : null;
+}
+
 export async function getRosterMetrics(
   players: Array<{ id: string; user_id: string | null }>
 ): Promise<RosterMetricsResult> {
   const perPlayer = new Map<string, RosterAthleteMetrics>();
+  const signalsByPlayer = new Map<string, RosterSignals>();
   const withUser = players.filter((p) => p.user_id);
-  if (withUser.length === 0) return { perPlayer, team: EMPTY_TEAM };
+  if (withUser.length === 0) return { perPlayer, signalsByPlayer, team: EMPTY_TEAM };
 
   const userIds = withUser.map((p) => p.user_id as string);
   const playerByUser = new Map(withUser.map((p) => [p.user_id as string, p.id]));
@@ -155,7 +211,7 @@ export async function getRosterMetrics(
 
   if (sessionsError) {
     console.error('rosterMetrics: sessions query failed', sessionsError);
-    return { perPlayer, team: EMPTY_TEAM };
+    return { perPlayer, signalsByPlayer, team: EMPTY_TEAM };
   }
 
   const sessionRows = (sessions ?? []) as SessionRow[];
@@ -167,7 +223,7 @@ export async function getRosterMetrics(
     for (let page = 0; page < MAX_PAGES; page++) {
       const { data: reps, error: repsError } = await supabase
         .from('reps')
-        .select('session_id, exercise_name, average_rep_speed, set_number')
+        .select('session_id, exercise_name, average_rep_speed, set_number, rep_number, weight, concentric_duration_s, eccentric_duration_s')
         .in('session_id', sessionIds)
         .order('id', { ascending: true })
         .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
@@ -239,6 +295,13 @@ export async function getRosterMetrics(
     const velDelta =
       recentVel != null && priorVel != null ? +(recentVel - priorVel).toFixed(2) : null;
 
+    const signals = computeSignals(
+      sessionRows
+        .filter((s) => s.user_id === p.user_id)
+        .map((s) => ({ id: s.id, date: s.created_at, reps: repsBySession.get(s.id) ?? [] })),
+    );
+    if (signals) signalsByPlayer.set(p.id, signals);
+
     const lastWithDrop = [...own].reverse().find((a) => a.dropPct != null);
 
     perPlayer.set(p.id, {
@@ -285,6 +348,7 @@ export async function getRosterMetrics(
 
   return {
     perPlayer,
+    signalsByPlayer,
     team: {
       velSeries: fillSeries(teamWeeklyVels).map((v) => +v.toFixed(2)),
       attSeries: fillSeries(attWeekly),
