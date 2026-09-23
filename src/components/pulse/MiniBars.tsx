@@ -3,14 +3,19 @@ interface MiniBarsProps {
   labels?: string[];
   height?: number;
   accent?: string;
+  /** Show each bar's value above it. */
+  showValues?: boolean;
 }
 
-export function MiniBars({ data, labels, height = 36, accent = "var(--ink-0)" }: MiniBarsProps) {
+export function MiniBars({ data, labels, height = 36, accent = "var(--ink-0)", showValues = false }: MiniBarsProps) {
   const max = Math.max(...data, 1);
   return (
-    <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height, marginTop: 2 }}>
+    <div style={{ display: "flex", alignItems: "flex-end", gap: 4, marginTop: 2 }}>
       {data.map((v, i) => (
-        <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+        <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+          {showValues && (
+            <span className="mono" style={{ fontSize: 9, color: "var(--ink-2)", lineHeight: 1 }}>{v > 0 ? v : " "}</span>
+          )}
           <div
             style={{
               width: "100%",

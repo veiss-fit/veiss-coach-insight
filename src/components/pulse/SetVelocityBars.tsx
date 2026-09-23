@@ -131,7 +131,7 @@ export function SetVelocityBars({ sets, scaleSets = sets, baseline = null }: Set
               className="mono"
               style={{ position: "absolute", left: 0, bottom: px(baseline) - 13, fontSize: 11.5, lineHeight: "13px", color: "var(--ink-1)", whiteSpace: "nowrap" }}
             >
-              baseline<br />
+              target<br />
               <strong style={{ fontWeight: 600, color: "var(--ink-0)" }}>{baseline.toFixed(2)}</strong>
             </div>
           </div>
@@ -142,7 +142,7 @@ export function SetVelocityBars({ sets, scaleSets = sets, baseline = null }: Set
         <span className="row" style={{ gap: 5 }}><Swatch color="var(--ink-0)" opacity={0.3} /> mean</span>
         <span className="row" style={{ gap: 5 }}><Swatch color={LAST_COLOR} /> last rep</span>
         <span className="mono" style={{ color: "var(--ink-1)" }}>m/s</span>
-        {baseline == null && <span className="mono" style={{ color: "var(--ink-2)" }}>No baseline specified</span>}
+        {baseline == null && <span className="mono" style={{ color: "var(--ink-2)" }}>No target specified</span>}
       </div>
     </div>
   );
@@ -184,7 +184,7 @@ function Bar({ value, height, color, opacity = 1, dashed = false, annotation, in
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", flex: `1 1 0`, minWidth: 0, maxWidth: BAR_W }}>
       {annotation}
       {vsBaseline && (
-        <span className="mono" title="Change vs baseline" style={{ fontSize: 10.5, color: "var(--ink-1)", whiteSpace: "nowrap", lineHeight: "12px" }}>
+        <span className="mono" title="Change vs target" style={{ fontSize: 10.5, color: "var(--ink-1)", whiteSpace: "nowrap", lineHeight: "12px" }}>
           {vsBaseline}
         </span>
       )}
@@ -225,13 +225,13 @@ const LOSS_INFO = (
     It is only calculated when both sets used the same known load.
   </p>
   <p style={{ margin: "6px 0 0" }}>
-    <strong>Vs baseline</strong> compares this session's average fastest rep with an exponentially weighted average of
+    <strong>Vs target</strong> compares this session's average fastest rep with an exponentially weighted average of
     earlier sessions of this exercise in the last 42 days (recent sessions count more). It is matched on load when the
     load is known; otherwise all sets are pooled and it is marked not load-matched.
   </p>
   <p style={{ margin: "6px 0 0" }}>
-    The <strong>% above each bar</strong> is that bar's velocity against the same baseline: the fastest rep and the last
-    valid rep of the set. It is not shown without a baseline.
+    The <strong>% above each bar</strong> is that bar's velocity against the same target: the fastest rep and the last
+    valid rep of the set. It is not shown without a target.
   </p>
   </>
 );
@@ -252,11 +252,11 @@ function setToSetText(sets: SetVelocitySummary[]): string | null {
 }
 
 function baselineTexts(c: BaselineComparison) {
-  if (c.ok === false) return { main: `vs baseline: ${c.reason}`, badge: null as string | null };
+  if (c.ok === false) return { main: `vs target: ${c.reason}`, badge: null as string | null };
   const r = Math.round(c.change);
   const dir = r === 0 ? "" : r > 0 ? "faster" : "slower";
   return {
-    main: `vs baseline ${signedInt(r)}${dir ? ` (${dir})` : ""} · ${c.nBaseline} session${c.nBaseline === 1 ? "" : "s"}`,
+    main: `vs target ${signedInt(r)}${dir ? ` (${dir})` : ""} · ${c.nBaseline} session${c.nBaseline === 1 ? "" : "s"}`,
     badge: c.tier === "B" ? "not load-matched" : null,
   };
 }

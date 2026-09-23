@@ -1,10 +1,11 @@
 import { supabase } from '@/lib/supabase';
-import { differenceInCalendarWeeks, startOfWeek, subWeeks } from 'date-fns';
+import { addDays, differenceInCalendarWeeks, format, startOfWeek, subWeeks } from 'date-fns';
 import { isValidExerciseName } from '@/lib/athleteSummaryUtils';
 import { canonicalizeExerciseName } from '@/lib/targetEvaluation';
 import { summarizeSession, type RepInput } from '@/lib/metrics/setVelocitySummary';
 import { summarizeTimingSession } from '@/lib/metrics/repTiming';
 import { rosterSignals, type ExerciseSignalInput, type RosterSignals } from '@/lib/metrics/rosterSignals';
+import { velocityVsBaseline } from '@/lib/metrics/velocityVsBaseline';
 
 /**
  * Roster-wide 8-week metric series, fetched with a fixed number of batched
@@ -50,6 +51,39 @@ export interface RosterTeamMetrics {
   sessionsLastWeek: number;
   /** Sessions logged Mon..Sun of the current week. */
   sessionsByDay: number[];
+  /** Plans assigned/completed this week, same plan rows as attSeries's last bucket. */
+  assignedThisWeek: number;
+  completedThisWeek: number;
+  /** Completion pt change vs last week (attSeries last two buckets), null when either is missing. */
+  planCompletionDeltaPct: number | null;
+  /** SP-08: team total lbs lifted (load x reps) per week, oldest first. */
+  volumeSeries: { label: string; totalLbs: number }[];
+  /** Share of this window's reps that carry a recorded weight and so count toward volumeSeries. */
+  volumeCoveragePct: number;
+}
+
+export interface ExerciseBaselineChange {
+  playerId: string;
+  /** Percent vs the athlete's own 6-week baseline (SP-04 Tier B, pooled/not load-matched), signed. */
+  change: number;
+  /** The latest session compared against the baseline, for opening/highlighting it elsewhere. */
+  sessionId: string | null;
+}
+
+export interface LeaderboardValueRow {
+  playerId: string;
+  value: number;
+}
+
+export interface TeamPrEntry {
+  playerId: string;
+  exercise: string;
+  /** Heaviest verified set load for this athlete + exercise in the window, unit not verified (assumed lbs). */
+  load: number;
+  /** Fastest valid rep at that load, m/s. */
+  best: number;
+  /** ISO date of the session that holds the record. */
+  date: string;
 }
 
 export interface RosterMetricsResult {
@@ -57,6 +91,33 @@ export interface RosterMetricsResult {
   /** SP-12 row signals per player id. A player with no usable data has no entry. */
   signalsByPlayer: Map<string, RosterSignals>;
   team: RosterTeamMetrics;
+  /** SP-04 Tier B, team-wide: every exercise trained in the 6-week window, and each athlete's
+   *  change vs their own baseline on it. Unsorted; the caller orders worst-first. */
+  exerciseBaseline: {
+    exercises: string[];
+    /** The exercise with the most athletes with a valid comparison, or "" when none. */
+    defaultExercise: string;
+    byExercise: Map<string, ExerciseBaselineChange[]>;
+  };
+  /** Data for RosterViewSwitcher's Leaderboard tab. Unsorted; the caller orders best-first. */
+  leaderboard: {
+    /** Best single-rep velocity per athlete, per exercise, in the 8-week window. */
+    velocityByExercise: Map<string, LeaderboardValueRow[]>;
+    /** Total sessions logged per athlete in the 8-week window. */
+    sessionsByPlayer: Map<string, number>;
+    /** Plan completion % per athlete over the 8-week window (players with 0 assigned plans have no entry). */
+    completionByPlayer: Map<string, number>;
+    /** Exercises an athlete ranks #1 in by best velocity, per player id. */
+    firstPlaceCounts: Map<string, number>;
+  };
+  /** Data for RosterViewSwitcher's Training grid tab: sessions per athlete, per day of the current week. */
+  trainingGrid: {
+    /** Short labels, Mon..Sun of the current week, e.g. "Mon 15". */
+    dayLabels: string[];
+    countsByDayByPlayer: Map<string, number[]>;
+  };
+  /** Data for RosterViewSwitcher's Team PRs tab: one entry per athlete + exercise PR in the 8-week window. Unsorted. */
+  teamPrs: TeamPrEntry[];
 }
 
 const EMPTY_TEAM: RosterTeamMetrics = {
@@ -66,6 +127,29 @@ const EMPTY_TEAM: RosterTeamMetrics = {
   sessionsThisWeek: 0,
   sessionsLastWeek: 0,
   sessionsByDay: [0, 0, 0, 0, 0, 0, 0],
+  assignedThisWeek: 0,
+  completedThisWeek: 0,
+  planCompletionDeltaPct: null,
+  volumeSeries: [],
+  volumeCoveragePct: 0,
+};
+
+const EMPTY_EXERCISE_BASELINE: RosterMetricsResult['exerciseBaseline'] = {
+  exercises: [],
+  defaultExercise: '',
+  byExercise: new Map(),
+};
+
+const EMPTY_LEADERBOARD: RosterMetricsResult['leaderboard'] = {
+  velocityByExercise: new Map(),
+  sessionsByPlayer: new Map(),
+  completionByPlayer: new Map(),
+  firstPlaceCounts: new Map(),
+};
+
+const EMPTY_TRAINING_GRID: RosterMetricsResult['trainingGrid'] = {
+  dayLabels: [],
+  countsByDayByPlayer: new Map(),
 };
 
 interface SessionRow {
@@ -88,6 +172,7 @@ interface RepRow {
 interface PlanRow {
   date: string;
   is_completed: boolean | null;
+  player_id: string;
 }
 
 /** Carry-forward fill so sparklines have a continuous line; leading gaps take the first real value. */
@@ -144,9 +229,13 @@ function computeDropPctFromRows(reps: RepRow[]): number | null {
 /**
  * SP-12 signals for one athlete from their sessions (oldest first). Per exercise
  * (canonical name), the latest session that contains it is compared with the
- * earlier ones; rosterSignals applies the baseline window itself.
+ * earlier ones; rosterSignals applies the baseline window itself. Also returns
+ * the raw SP-04 Tier B change per exercise (pooled, not load-matched) so the
+ * caller can aggregate it team-wide, independent of the biggestDrop reduction.
  */
-function computeSignals(sessions: { id: string; date: string; reps: RepRow[] }[]): RosterSignals | null {
+function computeSignals(
+  sessions: { id: string; date: string; reps: RepRow[] }[]
+): { signals: RosterSignals | null; perExercise: { exercise: string; change: number; sessionId: string | null }[] } {
   const byExercise = new Map<string, { id: string; date: string; reps: RepInput[] }[]>();
   for (const s of sessions) {
     const perExercise = new Map<string, RepInput[]>();
@@ -173,6 +262,7 @@ function computeSignals(sessions: { id: string; date: string; reps: RepRow[] }[]
   }
 
   const inputs: ExerciseSignalInput[] = [];
+  const perExercise: { exercise: string; change: number; sessionId: string | null }[] = [];
   for (const [exercise, list] of byExercise) {
     const summaries = list.map((x) => ({
       sessionId: x.id,
@@ -181,10 +271,49 @@ function computeSignals(sessions: { id: string; date: string; reps: RepRow[] }[]
       timing: summarizeTimingSession(x.reps)[0].sets,
     }));
     const latest = summaries[summaries.length - 1];
-    inputs.push({ exercise, latest, history: summaries.slice(0, -1).map(({ date, sets }) => ({ date, sets })) });
+    const history = summaries.slice(0, -1).map(({ date, sets }) => ({ date, sets }));
+    inputs.push({ exercise, latest, history });
+
+    // SP-04 Tier B (pooled): same call rosterSignals makes internally, kept
+    // here too since it only surfaces the single worst exercise, not every one.
+    const baseline = velocityVsBaseline(latest.sets, latest.date, history, { pooled: true });
+    if (baseline.ok) perExercise.push({ exercise, change: baseline.change, sessionId: latest.sessionId });
   }
   const result = rosterSignals(inputs);
-  return result.biggestDrop || result.slowestTempo ? result : null;
+  return { signals: result.biggestDrop || result.slowestTempo ? result : null, perExercise };
+}
+
+/**
+ * Best single-rep velocity per exercise (any weight) and the heaviest-load PR per exercise
+ * (max weight, fastest valid rep at that weight), from one athlete's sessions. Reuses the same
+ * reps already fetched for computeSignals — no extra query.
+ */
+function computeVelocityAndPRs(
+  sessions: { id: string; date: string; reps: RepRow[] }[]
+): {
+  bestVelByExercise: Map<string, number>;
+  prByExercise: Map<string, { load: number; best: number; date: string }>;
+} {
+  const bestVelByExercise = new Map<string, number>();
+  const prByExercise = new Map<string, { load: number; best: number; date: string }>();
+  for (const s of sessions) {
+    for (const r of s.reps) {
+      if (!isValidExerciseName(r.exercise_name)) continue;
+      if (r.average_rep_speed == null || r.average_rep_speed <= 0) continue;
+      const name = canonicalizeExerciseName(r.exercise_name);
+
+      const curBest = bestVelByExercise.get(name);
+      if (curBest == null || r.average_rep_speed > curBest) bestVelByExercise.set(name, r.average_rep_speed);
+
+      if (r.weight != null && r.weight > 0) {
+        const pr = prByExercise.get(name);
+        if (!pr || r.weight > pr.load || (r.weight === pr.load && r.average_rep_speed > pr.best)) {
+          prByExercise.set(name, { load: r.weight, best: r.average_rep_speed, date: s.date });
+        }
+      }
+    }
+  }
+  return { bestVelByExercise, prByExercise };
 }
 
 export async function getRosterMetrics(
@@ -193,7 +322,12 @@ export async function getRosterMetrics(
   const perPlayer = new Map<string, RosterAthleteMetrics>();
   const signalsByPlayer = new Map<string, RosterSignals>();
   const withUser = players.filter((p) => p.user_id);
-  if (withUser.length === 0) return { perPlayer, signalsByPlayer, team: EMPTY_TEAM };
+  if (withUser.length === 0) {
+    return {
+      perPlayer, signalsByPlayer, team: EMPTY_TEAM, exerciseBaseline: EMPTY_EXERCISE_BASELINE,
+      leaderboard: EMPTY_LEADERBOARD, trainingGrid: EMPTY_TRAINING_GRID, teamPrs: [],
+    };
+  }
 
   const userIds = withUser.map((p) => p.user_id as string);
   const playerByUser = new Map(withUser.map((p) => [p.user_id as string, p.id]));
@@ -211,7 +345,10 @@ export async function getRosterMetrics(
 
   if (sessionsError) {
     console.error('rosterMetrics: sessions query failed', sessionsError);
-    return { perPlayer, signalsByPlayer, team: EMPTY_TEAM };
+    return {
+      perPlayer, signalsByPlayer, team: EMPTY_TEAM, exerciseBaseline: EMPTY_EXERCISE_BASELINE,
+      leaderboard: EMPTY_LEADERBOARD, trainingGrid: EMPTY_TRAINING_GRID, teamPrs: [],
+    };
   }
 
   const sessionRows = (sessions ?? []) as SessionRow[];
@@ -245,7 +382,7 @@ export async function getRosterMetrics(
   const playerIds = withUser.map((p) => p.id);
   const { data: plans } = await supabase
     .from('workout_plans')
-    .select('date, is_completed')
+    .select('date, is_completed, player_id')
     .in('player_id', playerIds)
     .eq('is_template', false)
     .gte('date', windowStart.toISOString().slice(0, 10))
@@ -276,6 +413,12 @@ export async function getRosterMetrics(
   });
 
   // ── Per-player series ─────────────────────────────────────────────────────
+  const exerciseBaselineByExercise = new Map<string, ExerciseBaselineChange[]>();
+  const velocityByExercise = new Map<string, LeaderboardValueRow[]>();
+  const teamPrs: TeamPrEntry[] = [];
+  const sessionsByPlayer = new Map<string, number>();
+  const completionByPlayer = new Map<string, number>();
+  const countsByDayByPlayer = new Map<string, number[]>();
   for (const p of withUser) {
     const own = sessionAggs
       .filter((a) => a.userId === p.user_id)
@@ -295,12 +438,39 @@ export async function getRosterMetrics(
     const velDelta =
       recentVel != null && priorVel != null ? +(recentVel - priorVel).toFixed(2) : null;
 
-    const signals = computeSignals(
-      sessionRows
-        .filter((s) => s.user_id === p.user_id)
-        .map((s) => ({ id: s.id, date: s.created_at, reps: repsBySession.get(s.id) ?? [] })),
-    );
+    const ownSessionsWithReps = sessionRows
+      .filter((s) => s.user_id === p.user_id)
+      .map((s) => ({ id: s.id, date: s.created_at, reps: repsBySession.get(s.id) ?? [] }));
+
+    const { signals, perExercise } = computeSignals(ownSessionsWithReps);
     if (signals) signalsByPlayer.set(p.id, signals);
+    for (const { exercise, change, sessionId } of perExercise) {
+      const list = exerciseBaselineByExercise.get(exercise) ?? [];
+      list.push({ playerId: p.id, change, sessionId });
+      exerciseBaselineByExercise.set(exercise, list);
+    }
+
+    const { bestVelByExercise, prByExercise } = computeVelocityAndPRs(ownSessionsWithReps);
+    for (const [exercise, value] of bestVelByExercise) {
+      const list = velocityByExercise.get(exercise) ?? [];
+      list.push({ playerId: p.id, value });
+      velocityByExercise.set(exercise, list);
+    }
+    for (const [exercise, pr] of prByExercise) {
+      teamPrs.push({ playerId: p.id, exercise, load: pr.load, best: pr.best, date: pr.date });
+    }
+
+    if (own.length > 0) sessionsByPlayer.set(p.id, own.length);
+    const ownPlans = planRows.filter((pl) => pl.player_id === p.id);
+    if (ownPlans.length > 0) {
+      completionByPlayer.set(p.id, Math.round((ownPlans.filter((pl) => pl.is_completed).length / ownPlans.length) * 100));
+    }
+
+    const countsByDay = [0, 0, 0, 0, 0, 0, 0];
+    for (const a of own) {
+      if (a.weekIdx === WEEKS - 1) countsByDay[(a.createdAt.getDay() + 6) % 7]++;
+    }
+    countsByDayByPlayer.set(p.id, countsByDay);
 
     const lastWithDrop = [...own].reverse().find((a) => a.dropPct != null);
 
@@ -346,16 +516,75 @@ export async function getRosterMetrics(
     }
   }
 
+  // Plan completion this week, same rows attWeekly buckets into week WEEKS-1.
+  const plansThisWeek = planRows.filter((pl) => weekIdxOf(new Date(pl.date + 'T12:00:00')) === WEEKS - 1);
+  const assignedThisWeek = plansThisWeek.length;
+  const completedThisWeek = plansThisWeek.filter((pl) => pl.is_completed).length;
+  const filledAtt = fillSeries(attWeekly);
+  const planCompletionDeltaPct =
+    filledAtt.length >= 2 ? filledAtt[filledAtt.length - 1] - filledAtt[filledAtt.length - 2] : null;
+
+  // Weekly team volume (SP-08): sum of weight across all reps in each week's
+  // sessions. sessionAggs and sessionRows share index order (aggs is a
+  // straight .map over rows), so this reuses each session's weekIdx without
+  // a second pass over the date math.
+  const weekIdxBySession = new Map(sessionRows.map((s, i) => [s.id, sessionAggs[i].weekIdx]));
+  const volumeByWeek = Array.from({ length: WEEKS }, () => 0);
+  let repsInWindow = 0;
+  let repsWithWeight = 0;
+  for (const [sessionId, reps] of repsBySession) {
+    const weekIdx = weekIdxBySession.get(sessionId);
+    for (const r of reps) {
+      repsInWindow++;
+      if (r.weight != null && r.weight > 0) {
+        repsWithWeight++;
+        if (weekIdx != null) volumeByWeek[weekIdx] += r.weight;
+      }
+    }
+  }
+  const volumeSeries = volumeByWeek.map((totalLbs, w) => ({
+    label: format(startOfWeek(subWeeks(now, WEEKS - 1 - w), { weekStartsOn: 1 }), 'MMM d'),
+    totalLbs,
+  }));
+  const volumeCoveragePct = repsInWindow > 0 ? Math.round((repsWithWeight / repsInWindow) * 100) : 0;
+
+  const exercisesByCount = [...exerciseBaselineByExercise.entries()].sort((a, b) => b[1].length - a[1].length);
+  const exerciseBaseline = {
+    exercises: exercisesByCount.map(([exercise]) => exercise).sort((a, b) => a.localeCompare(b)),
+    defaultExercise: exercisesByCount[0]?.[0] ?? '',
+    byExercise: exerciseBaselineByExercise,
+  };
+
+  const firstPlaceCounts = new Map<string, number>();
+  for (const rows of velocityByExercise.values()) {
+    const max = Math.max(...rows.map((r) => r.value));
+    for (const r of rows) {
+      if (r.value === max) firstPlaceCounts.set(r.playerId, (firstPlaceCounts.get(r.playerId) ?? 0) + 1);
+    }
+  }
+
+  const weekStart = startOfWeek(now, { weekStartsOn: 1 });
+  const dayLabels = Array.from({ length: 7 }, (_, i) => format(addDays(weekStart, i), 'EEE d'));
+
   return {
     perPlayer,
     signalsByPlayer,
+    exerciseBaseline,
+    leaderboard: { velocityByExercise, sessionsByPlayer, completionByPlayer, firstPlaceCounts },
+    trainingGrid: { dayLabels, countsByDayByPlayer },
+    teamPrs,
     team: {
       velSeries: fillSeries(teamWeeklyVels).map((v) => +v.toFixed(2)),
-      attSeries: fillSeries(attWeekly),
+      attSeries: filledAtt,
       avgAttendance,
       sessionsThisWeek: sessionAggs.filter((a) => a.weekIdx === WEEKS - 1).length,
       sessionsLastWeek: sessionAggs.filter((a) => a.weekIdx === WEEKS - 2).length,
       sessionsByDay,
+      assignedThisWeek,
+      completedThisWeek,
+      planCompletionDeltaPct,
+      volumeSeries,
+      volumeCoveragePct,
     },
   };
 }

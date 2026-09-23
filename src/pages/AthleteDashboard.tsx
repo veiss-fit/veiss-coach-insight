@@ -10,8 +10,8 @@ import { KpiTile } from "@/components/pulse/KpiTile";
 import { Sparkline } from "@/components/pulse/Sparkline";
 import { UnderlineTabs } from "@/components/pulse/Tabs";
 import {
-  VelocityTrendChart, ForceVelocityChart, RepTraceChart, WeeklyLoadChart, ExerciseRangeChart,
-  VelTrendPoint, FVPoint, WeeklyLoadPoint, ExerciseRangeRow,
+  VelocityTrendChart, ForceVelocityChart, RepTraceChart, WeeklyLoadChart,
+  VelTrendPoint, FVPoint, WeeklyLoadPoint,
 } from "@/components/pulse/charts";
 import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { useAuth } from "@/contexts/AuthContext";
@@ -31,7 +31,7 @@ import { lastDaysFor } from "@/lib/rosterFlags";
 import { findMatchingSessionForPlan } from "@/lib/workoutAttendance";
 import { SESSIONS_TARGET } from "@/lib/vbtZones";
 import { canonicalizeExerciseName } from "@/lib/targetEvaluation";
-import { historyByExercise, exposureInputs, sessionSets, sessionRom, sessionTiming, sessionMoment } from "@/lib/metrics/sessionAdapters";
+import { historyByExercise, sessionSets, sessionRom, sessionTiming, sessionMoment } from "@/lib/metrics/sessionAdapters";
 import { RangeOfMotionCards } from "@/components/pulse/RangeOfMotionCard";
 import { RepTimingCards } from "@/components/pulse/RepTimingCard";
 import { FadeSwap } from "@/components/pulse/FadeSwap";
@@ -40,9 +40,15 @@ import { twoColumnGrid } from "@/components/pulse/twoColumnGrid";
 import { SetVelocityBlocks } from "@/components/pulse/SetVelocityBars";
 import type { HistorySession } from "@/lib/metrics/velocityVsBaseline";
 import { LoadVelocityProfileCard } from "@/components/pulse/LoadVelocityProfileCard";
-import { TrainingExposureCard } from "@/components/pulse/TrainingExposureCard";
 import { WorkoutPicker, type PickerPlan } from "@/components/pulse/WorkoutPicker";
 import { BlobSelector, type BlobOption } from "@/components/pulse/BlobSelector";
+import { WeeklyLoadVolumeBetaCard, type WeeklyLoadVolumePoint } from "@/components/pulse/WeeklyLoadVolumeBetaCard";
+import { CompositeScoreBetaCard, type CompositeScoreWeekPoint } from "@/components/pulse/CompositeScoreBetaCard";
+import { VelocityBetaCard, type VelocitySetPoint } from "@/components/pulse/VelocityBetaCard";
+import { PowerBetaCard, type PowerSetPoint } from "@/components/pulse/PowerBetaCard";
+import { RepTimingBetaCard, type RepTimingSetPoint } from "@/components/pulse/RepTimingBetaCard";
+import { SetEffortBetaCard, type SetEffortPoint } from "@/components/pulse/SetEffortBetaCard";
+import { SessionSummaryBetaCard, type SessionSummaryBetaStats } from "@/components/pulse/SessionSummaryBetaCard";
 
 // ─── Derivation helpers ───────────────────────────────────────────────────────
 
@@ -94,7 +100,54 @@ const SESSION_VIEWS: BlobOption[] = [
   { id: "velocity", label: "Velocity" },
   { id: "distance", label: "Distance" },
   { id: "time", label: "Time" },
+  { id: "beta", label: "Beta" },
 ];
+
+/** Fixed stale mock data — never derived from the athlete's real sessions, on purpose (see BetaBadge on each card). */
+const BETA_EXERCISE = "Back Squat";
+const BETA_SESSION_DATE = "2026-01-12T10:00:00Z";
+const BETA_VELOCITY_SETS: VelocitySetPoint[] = Array.from({ length: 4 }, (_, i) => {
+  const f = i * 0.05;
+  return {
+    set: i + 1,
+    values: {
+      mean: +(0.85 - f).toFixed(2),
+      peak: +(1.08 - f * 1.1).toFixed(2),
+      eccMean: +(0.52 - f * 0.5).toFixed(2),
+      propulsive: +(0.9 - f * 0.9).toFixed(2),
+      at100ms: +(0.38 - f * 0.3).toFixed(2),
+    },
+  };
+});
+const BETA_POWER_SETS: PowerSetPoint[] = Array.from({ length: 4 }, (_, i) => ({
+  set: i + 1,
+  meanW: 620 - i * 18,
+  peakW: 940 - i * 24,
+}));
+const BETA_REP_TIMING_SETS: RepTimingSetPoint[] = Array.from({ length: 4 }, (_, i) => ({
+  set: i + 1,
+  toPeakVelocityS: +(0.22 + i * 0.015).toFixed(2),
+  toPeakPowerS: +(0.31 + i * 0.02).toFixed(2),
+}));
+const BETA_SET_EFFORT_SETS: SetEffortPoint[] = [
+  { set: 1, rir: 4, rpe: 6 },
+  { set: 2, rir: 3, rpe: 7 },
+  { set: 3, rir: 2, rpe: 8 },
+  { set: 4, rir: 1, rpe: 9 },
+];
+const BETA_SESSION_SUMMARY_STATS: SessionSummaryBetaStats = { avgHeartRateBpm: 142, caloriesKcal: 310 };
+
+function BetaSessionCards() {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(380px, 1fr))", gap: 16 }}>
+      <VelocityBetaCard exercise={BETA_EXERCISE} sessionDate={BETA_SESSION_DATE} sets={BETA_VELOCITY_SETS} />
+      <PowerBetaCard exercise={BETA_EXERCISE} sessionDate={BETA_SESSION_DATE} sets={BETA_POWER_SETS} />
+      <RepTimingBetaCard exercise={BETA_EXERCISE} sessionDate={BETA_SESSION_DATE} sets={BETA_REP_TIMING_SETS} />
+      <SetEffortBetaCard exercise={BETA_EXERCISE} sessionDate={BETA_SESSION_DATE} sets={BETA_SET_EFFORT_SETS} />
+      <SessionSummaryBetaCard sessionName="Training session" sessionDate={BETA_SESSION_DATE} stats={BETA_SESSION_SUMMARY_STATS} />
+    </div>
+  );
+}
 
 /** The session a plan produced: the linked session_id, else the same-day session with the plan's name. */
 function sessionForPlan(plan: PlanRow, sessions: SessionData[]): SessionData | null {
@@ -161,7 +214,11 @@ function SessionsView({ sessions, plans, focus, glow, onGlowClear }: { sessions:
         <WorkoutPicker plans={pickerPlans} initialPlanId={first?.id} onSelect={(p) => { setPlanId(p?.id ?? null); setFadeViews(false); }} />
         <BlobSelector options={SESSION_VIEWS} value={view} onChange={(v) => { setView(v); setFadeViews(true); onGlowClear(); }} />
       </div>
-      <SessionsTab key={plan?.id ?? "none"} sessions={shown} history={history} view={view} animate={fadeViews} glow={glow} onGlowClear={onGlowClear} emptyMessage={emptyMessage} />
+      {view === "beta" ? (
+        <BetaSessionCards />
+      ) : (
+        <SessionsTab key={plan?.id ?? "none"} sessions={shown} history={history} view={view} animate={fadeViews} glow={glow} onGlowClear={onGlowClear} emptyMessage={emptyMessage} />
+      )}
     </>
   );
 }
@@ -686,7 +743,6 @@ export default function AthleteDashboard() {
     return points;
   }, [sorted, weekIdx]);
 
-  // TODO(cleanup): unused since the Performance tab got the new cards.
   const weekly8 = useMemo<WeeklyLoadPoint[]>(() => {
     const WEEKS = 8;
     const counts = Array.from({ length: WEEKS }, () => 0);
@@ -697,7 +753,6 @@ export default function AthleteDashboard() {
     return counts.map((v, i) => ({ label: i === WEEKS - 1 ? "now" : `W-${WEEKS - 1 - i}`, v }));
   }, [sorted, weekIdx]);
 
-  // TODO(cleanup): unused since the Performance tab got the new cards.
   const sessionsThisWeek = weekly8.length ? weekly8[weekly8.length - 1].v : 0;
 
   // Load–velocity points, grouped per exercise — a load-velocity relationship
@@ -748,32 +803,39 @@ export default function AthleteDashboard() {
   const fvPoints = fvExercise ? fvByExercise.get(fvExercise)!.points : [];
   const fvUnit = fvExercise ? fvByExercise.get(fvExercise)!.unit : "lbs";
 
-  const exRange = useMemo<ExerciseRangeRow[]>(() => {
-    const cutoff = subDays(now, 28);
-    const windowed = sorted.filter((s) => new Date(s.startedAt ?? s.createdAt) >= cutoff);
-    const source = windowed.length ? windowed : sorted;
-    const byName = new Map<string, number[]>();
-    for (const s of source) {
-      for (const ex of s.exercises) {
-        if (!(ex.avgVelocity > 0)) continue;
-        const list = byName.get(ex.name);
-        if (list) list.push(ex.avgVelocity);
-        else byName.set(ex.name, [ex.avgVelocity]);
-      }
-    }
-    return [...byName.entries()]
-      .map(([name, vals]) => ({
-        name,
-        min: Math.min(...vals),
-        max: Math.max(...vals),
-        avg: +(vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2),
-        sessions: vals.length,
-      }))
-      .sort((a, b) => b.sessions - a.sessions)
-      .slice(0, 8);
-  }, [sorted, now]);
+// All-mock, matching WeeklyLoadVolumeBetaCard's own stories — see BetaBadge.
+  const loadVolumeWeeks = useMemo<WeeklyLoadVolumePoint[]>(() => {
+    return Array.from({ length: 8 }, (_, i) => {
+      const label = format(subDays(now, (7 - i) * 7), "MMM d");
+      return {
+        label,
+        tonnageLbs: 3200 + i * 220,
+        totalWorkKj: 4.2 + i * 0.3,
+        distanceMi: +(0.18 + i * 0.02).toFixed(2),
+      };
+    });
+  }, [now]);
+
+  // All-mock, matching CompositeScoreBetaCard's own stories — see BetaBadge.
+  const compositeScoreWeeks = useMemo<CompositeScoreWeekPoint[]>(() => {
+    return Array.from({ length: 6 }, (_, i) => ({
+      label: `Wk ${i + 1}`,
+      strength: 62 + i * 3,
+      speed: 70 - i * 1.5,
+      total: 66 + i * 1,
+    }));
+  }, []);
 
   const allHistory = useMemo(() => historyByExercise(sessions), [sessions]);
+
+  const compositeExerciseOptions = useMemo(() => Object.keys(allHistory).sort(), [allHistory]);
+  const [compositeExercisePick, setCompositeExercisePick] = useState<string | null>(null);
+  const compositeExercise =
+    compositeExercisePick && compositeExerciseOptions.includes(compositeExercisePick)
+      ? compositeExercisePick
+      : primaryExercise?.name && compositeExerciseOptions.includes(primaryExercise.name)
+        ? primaryExercise.name
+        : compositeExerciseOptions[0] ?? "—";
 
   const handleAddNote = useCallback(
     async (text: string) => {
@@ -862,19 +924,46 @@ export default function AthleteDashboard() {
               <div style={{ paddingTop: 20 }}>
                 {tab === "performance" && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
-                    <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 16 }}>
+                    <div style={twoColumnGrid()}>
+                      <CompositeScoreBetaCard
+                        exercise={compositeExercise}
+                        exercises={compositeExerciseOptions}
+                        onExerciseChange={setCompositeExercisePick}
+                        weeks={compositeScoreWeeks}
+                      />
+                      <WeeklyLoadVolumeBetaCard athleteName={athlete?.name ?? "Athlete"} weeks={loadVolumeWeeks} coveragePct={22} />
+                    </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
                       <LoadVelocityProfileCard sessions={allHistory} />
-                      <TrainingExposureCard sessions={exposureInputs(sessions)} />
+                      <div className="v-card padded" style={{ display: "flex", flexDirection: "column", minWidth: 0, height: "100%", boxSizing: "border-box" }}>
+                        <div style={{ marginBottom: 10 }}>
+                          <div className="v-h2">Weekly sessions</div>
+                          <div className="v-meta" style={{ marginTop: 2 }}>Sessions per week vs {SESSIONS_TARGET}/wk target.</div>
+                        </div>
+                        <div style={{ flex: 1, minHeight: 0 }}>
+                          <WeeklyLoadChart data={weekly8} target={SESSIONS_TARGET} fill />
+                        </div>
+                        <div className="row" style={{ marginTop: "auto", paddingTop: 12, borderTop: "1px solid var(--line-0)" }}>
+                          {(() => {
+                            const avg = (weekly8.reduce((s, d) => s + d.v, 0) / (weekly8.length || 1)).toFixed(1);
+                            const onTarget = weekly8.filter((d) => d.v >= SESSIONS_TARGET).length;
+                            return [
+                              { v: avg, l: "8-wk avg / wk" },
+                              { v: `${sessionsThisWeek}/${SESSIONS_TARGET}`, l: "this week" },
+                              { v: `${onTarget}/8`, l: "weeks on target" },
+                            ].map((stat, i) => (
+                              <div key={stat.l} style={{ flex: 1, borderLeft: i ? "1px solid var(--line-0)" : "none", paddingLeft: i ? 14 : 0 }}>
+                                <div className="num" style={{ fontSize: 16, fontWeight: 600, letterSpacing: "-0.01em" }}>{stat.v}</div>
+                                <div className="v-meta" style={{ fontSize: 10.5, color: "var(--ink-3)", marginTop: 1 }}>{stat.l}</div>
+                              </div>
+                            ));
+                          })()}
+                        </div>
+                      </div>
                     </div>
 
                     <div style={twoColumnGrid()}>
-                      <div className="v-card padded" style={{ minWidth: 0 }}>
-                        <div style={{ marginBottom: 14 }}>
-                          <div className="v-h2">Per-exercise velocity range</div>
-                          <div className="v-meta" style={{ marginTop: 2 }}>Min/max range with average · last 4 weeks (falls back to all time).</div>
-                        </div>
-                        <ExerciseRangeChart data={exRange} />
-                      </div>
                       {/* SP-05: all-time records, so no "latest session": every exercise gets its whole history. */}
                       <PersonalRecordsCard
                         exercises={Object.keys(allHistory).map((exercise) => ({ exercise, sets: [] }))}

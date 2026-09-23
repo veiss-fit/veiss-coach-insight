@@ -19,6 +19,22 @@ export function useMeasuredWidth<T extends HTMLElement>(fallback: number) {
   return { ref, width };
 }
 
+/** Measures both dimensions, so a chart can stretch to fill whatever height the grid gives its card. */
+function useMeasuredSize<T extends HTMLElement>(fallback: { width: number; height: number }) {
+  const ref = useRef<T>(null);
+  const [size, setSize] = useState(fallback);
+  useEffect(() => {
+    if (!ref.current) return;
+    const ro = new ResizeObserver(([e]) =>
+      setSize({ width: e.contentRect.width || fallback.width, height: e.contentRect.height || fallback.height })
+    );
+    ro.observe(ref.current);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return { ref, ...size };
+}
+
 // ─── 12-week velocity trend ──────────────────────────────────────────────────
 
 export interface VelTrendPoint {
@@ -504,28 +520,36 @@ interface WeeklyLoadChartProps {
   accent?: string;
   /** Larger, darker labels (used by the SP-08 prototype). */
   legible?: boolean;
+  /** Stretch to fill whatever height the parent gives it (measured), instead of the fixed `height` prop. Parent must give the chart's wrapper a real height (e.g. flex: 1 in a flex column). */
+  fill?: boolean;
 }
 
 /** Right-hand room kept free for the target label, px. */
 const TARGET_GUTTER = 64;
 
-export function WeeklyLoadChart({ data, target = 4, accent = "var(--brand)", height = 130, legible = false }: WeeklyLoadChartProps) {
-  const { ref, width: w } = useMeasuredWidth<HTMLDivElement>(400);
+export function WeeklyLoadChart({ data, target = 4, accent = "var(--brand)", height = 130, legible = false, fill = false }: WeeklyLoadChartProps) {
+  const { ref, width: w, height: measuredHeight } = useMeasuredSize<HTMLDivElement>({ width: 400, height });
+  const h = fill ? measuredHeight : height;
 
   const PL = 28, PR = 12, PT = legible ? 18 : 14, PB = legible ? 28 : 24;
   const fs = legible ? "11.5" : undefined;
-  const h = height;
   const cW = w - PL - PR;
-  const cH = h - PT - PB;
-  if (data.length === 0) return <div ref={ref} style={{ height }} />;
+  const cH = Math.max(20, h - PT - PB);
+  if (data.length === 0) return <div ref={ref} style={{ height: fill ? "100%" : height }} />;
   const mx = Math.max(...data.map((d) => d.v), target + 1);
   // Legible: bars pack to the left and leave a gutter so the "target" label clears the last bar.
   const step = (legible ? cW - TARGET_GUTTER : cW) / data.length;
   const bw = step * (legible ? 0.7 : 0.6);
 
   return (
-    <div ref={ref} style={{ width: "100%", minWidth: 0, overflow: "hidden" }}>
-      <svg width={w} height={h} style={{ display: "block" }}>
+    <div ref={ref} style={{ width: "100%", minWidth: 0, height: fill ? "100%" : undefined, overflow: "hidden" }}>
+      <svg
+        width={fill ? "100%" : w}
+        height={fill ? "100%" : h}
+        viewBox={fill ? `0 0 ${w} ${h}` : undefined}
+        preserveAspectRatio={fill ? "none" : undefined}
+        style={{ display: "block" }}
+      >
         <line
           x1={PL} x2={PL + cW}
           y1={PT + cH - (target / mx) * cH}

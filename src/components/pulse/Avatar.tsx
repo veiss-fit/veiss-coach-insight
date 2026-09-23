@@ -12,6 +12,7 @@ export function Avatar({ name, size = "sm", color }: AvatarProps) {
     .join("")
     .toUpperCase();
   const cls = "v-avatar" + (size === "lg" ? " lg" : size === "xl" ? " xl" : "");
+
   return (
     <span className={cls} style={color ? { background: color + "22", color } : undefined}>
       {initials}

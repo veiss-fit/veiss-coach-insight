@@ -82,9 +82,12 @@ const METRICS = new Map<string, RosterAthleteMetrics>(
   ]),
 );
 
+/** Same max width and side padding as the real page's <main> (Index.tsx), so the story is a close stand-in for the truth. */
 const wrap = (children: React.ReactNode) => (
-  <div className="v-card flush v-scroll" style={{ overflow: 'auto', maxWidth: 1180 }}>
-    {children}
+  <div style={{ maxWidth: 1480, margin: '0 auto', padding: '0 28px', width: '100%' }}>
+    <div className="v-card flush v-scroll" style={{ overflow: 'auto' }}>
+      {children}
+    </div>
   </div>
 );
 

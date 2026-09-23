@@ -157,24 +157,21 @@ function ProfileChart({ profile, est }: { profile: LoadVelocityProfile; est: One
 const PROFILE_INFO = (
   <>
     <p style={{ margin: 0 }}>
-      <strong>Load-velocity profile</strong>: one dot per load lifted in the last {PROFILE_WINDOW_DAYS / 7} weeks. Each dot is the
-      fastest valid rep across all sets at that load. The dashed line is a straight line fitted through the dots.
+      <strong>Load-velocity profile</strong>: one dot per load lifted in the last {PROFILE_WINDOW_DAYS / 7} weeks, each the
+      fastest valid rep at that load, with a fitted line through them.
     </p>
     <p style={{ margin: "6px 0 0" }}>
-      <strong>R²</strong> is how closely the dots follow that line (1 is a perfect fit). With only 2 loads it is always 1, so it is
-      not shown. <strong>Velocity span</strong> is the speed difference between the lightest and the heaviest load.
+      <strong>R²</strong> is how closely the dots follow that line. <strong>Velocity span</strong> is the speed difference
+      between the lightest and heaviest load.
     </p>
     <p style={{ margin: "6px 0 0" }}>
-      <strong>Estimated 1RM</strong> (upper-body lifts only): the load where the dashed line reaches the minimum velocity you set,
-      shown as a ring. It is an extension of the line past the loads actually lifted, so treat it as a rough guide. Squat and
-      deadlift are not estimated.
+      <strong>Estimated 1RM</strong> (upper-body lifts only): the load where the fitted line reaches your set minimum
+      velocity — an extrapolation past the loads actually lifted, so treat it as rough.
     </p>
     <p style={{ margin: "6px 0 0" }}>
-      <strong>Min velocity</strong> is the slowest bar speed at which a lifter can still complete a true 1-rep max. Published
-      values for bench are about 0.16 to 0.23 m/s. A higher value gives a lower 1RM estimate, a lower value gives a higher one.
-      It differs between lifters and exercises, so the default (0.16 m/s) is not calibrated. Change it to suit.
+      <strong>Min velocity</strong> is the slowest bar speed still counted as a true 1-rep max; it is not calibrated per
+      lifter or exercise, so adjust it to suit.
     </p>
-    <p style={{ margin: "6px 0 0" }}>Needs at least {MIN_LOADS} different loads. Sets without a verified load are left out.</p>
   </>
 );
 

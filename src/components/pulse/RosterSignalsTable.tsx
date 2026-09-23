@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
-import { Check, ChevronDown, ChevronRight, Info, Pencil, Plus, SlidersHorizontal } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, FlaskConical, Info, Pencil, Plus, Search, SlidersHorizontal, X } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { format } from "date-fns";
 import type { PlayerWithStats } from "@/services/playersService";
 import type { RosterSignals } from "@/lib/metrics/rosterSignals";
@@ -18,6 +19,8 @@ import { athleteFacts } from "@/lib/metrics/athleteFacts";
 import { Avatar } from "./Avatar";
 import { AttBar } from "./AttBar";
 import { GroupChip } from "./chips";
+import { ComingSoonMetricsCard, DEFAULT_COMING_SOON_METRICS } from "./ComingSoonMetricsCard";
+import type { FilterGroup } from "./FilterBar";
 
 interface RosterSignalsTableProps {
   athletes: PlayerWithStats[];
@@ -35,6 +38,13 @@ interface RosterSignalsTableProps {
   /** Flag cut-offs. Pass both to share them with other components (the followed-athlete cards); otherwise the table keeps its own. */
   draft?: ThresholdDraft;
   onDraftChange?: (d: ThresholdDraft) => void;
+  /** Team filter dropdown, next to Sort by. Omit to hide it. */
+  groups?: FilterGroup[];
+  groupFilter?: string;
+  onGroupFilterChange?: (id: string) => void;
+  /** Name search, tucked behind the search icon in the Athlete column header. Omit to hide it. */
+  search?: string;
+  onSearchChange?: (q: string) => void;
 }
 
 const dash = (
@@ -157,31 +167,80 @@ function ColumnHeader({
   );
 }
 
+/** Athlete column header: a search icon that opens into an inline name search box. Stays open while there's a query. */
+function AthleteHeaderCell({ search, onSearchChange }: { search?: string; onSearchChange?: (q: string) => void }) {
+  const [active, setActive] = useState(false);
+  if (!onSearchChange) return <th>Athlete</th>;
+  const open = active || !!search;
+
+  if (!open) {
+    return (
+      <th>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+          Athlete
+          <button
+            type="button"
+            aria-label="Search athletes"
+            onClick={(e) => {
+              e.stopPropagation();
+              setActive(true);
+            }}
+            style={{ display: "inline-flex", border: 0, background: "transparent", padding: 2, cursor: "pointer", color: "var(--ink-3)" }}
+          >
+            <Search size={12} strokeWidth={1.5} />
+          </button>
+        </span>
+      </th>
+    );
+  }
+
+  return (
+    <th onClick={(e) => e.stopPropagation()}>
+      <span className="row" style={{ gap: 4 }}>
+        <Search size={12} strokeWidth={1.5} style={{ color: "var(--ink-3)", flexShrink: 0 }} />
+        <input
+          autoFocus
+          value={search ?? ""}
+          onChange={(e) => onSearchChange(e.target.value)}
+          onBlur={() => {
+            if (!search) setActive(false);
+          }}
+          placeholder="Search athletes…"
+          aria-label="Search athletes"
+          style={{
+            border: 0, background: "transparent", outline: "none", font: "inherit",
+            fontSize: 12, textTransform: "none", letterSpacing: "normal", fontWeight: 400,
+            color: "var(--ink-0)", width: 120,
+          }}
+        />
+        <button
+          type="button"
+          aria-label="Clear search"
+          onClick={() => {
+            onSearchChange("");
+            setActive(false);
+          }}
+          style={{ display: "inline-flex", border: 0, background: "transparent", padding: 0, cursor: "pointer", color: "var(--ink-3)" }}
+        >
+          <X size={12} strokeWidth={1.5} />
+        </button>
+      </span>
+    </th>
+  );
+}
+
 const TEMPO_INFO = (
-  <>
-    <p style={{ margin: 0 }}>
-      <strong>Slowest tempo shift</strong>: how much longer the lifting (concentric) part of a rep takes in the last set than in the
-      first set of the latest session. Example: 1.0 s to 1.4 s is +40%.
-    </p>
-    <p style={{ margin: "6px 0 0" }}>
-      Each athlete shows the exercise with the biggest slowdown. Reps getting slower through a session is a sign of tiring. It ignores
-      load, so a heavier later set slows reps too. Needs at least 2 sets with rep timing; shows a dash when nothing got slower.
-    </p>
-  </>
+  <p style={{ margin: 0 }}>
+    <strong>Slowest tempo shift</strong>: how much longer the lifting part of a rep took in the last set vs. the first, on the
+    athlete's most-affected exercise. Ignores load, so a heavier later set can also explain a slowdown.
+  </p>
 );
 
 const DROP_INFO = (
-  <>
-    <p style={{ margin: 0 }}>
-      <strong>Biggest drop vs baseline</strong>: how far the athlete latest session is below their own recent baseline, on the
-      exercise where that gap is largest. The baseline is a weighted average of their earlier sessions on that exercise in the last 6
-      weeks, with newer sessions counting more. Example: baseline 0.80 m/s, latest 0.72 m/s is -10%.
-    </p>
-    <p style={{ margin: "6px 0 0" }}>
-      Sessions are pooled across loads, so a heavier load can explain a drop. The line below shows the load in the previous session and
-      in the latest. Shows a dash with no earlier sessions or no drop.
-    </p>
-  </>
+  <p style={{ margin: 0 }}>
+    <strong>Biggest drop vs baseline</strong>: how far the athlete's latest session sits below their own recent baseline, on the
+    exercise with the largest gap. Pooled across loads, so a heavier load can explain part of the drop.
+  </p>
 );
 
 const DAYS_INFO = (
@@ -270,11 +329,12 @@ const SIGNAL_LABELS: { key: AttentionSignal; label: string; unit: string; hint: 
 ];
 
 /** "name" is applied here before orderByAttention, which keeps that order inside each group. */
-type TableSort = SortKey | "name";
+type TableSort = SortKey | "name" | "flagged";
 
 const SORT_OPTIONS: { key: TableSort; label: string }[] = [
   { key: "name", label: "Name (A-Z)" },
   { key: "default", label: "Roster order" },
+  { key: "flagged", label: "Flagged first" },
   { key: "days", label: "Days since last session" },
   { key: "drop", label: "Drop vs baseline" },
   { key: "tempo", label: "Slowest tempo shift" },
@@ -291,26 +351,29 @@ const controlStyle: React.CSSProperties = {
   color: "var(--ink-1)",
 };
 
-/** Cut-offs, sort and pin controls. Empty cut-off = signal off. */
+/** Cut-offs, sort and column-edit controls. An unchecked signal is off. */
 function AttentionControls({
   draft,
   setDraft,
   sort,
   setSort,
-  pin,
-  setPin,
   editing,
   setEditing,
+  groups,
+  groupFilter,
+  onGroupFilterChange,
 }: {
   draft: Record<AttentionSignal, string>;
   setDraft: (d: Record<AttentionSignal, string>) => void;
   sort: TableSort;
   setSort: (s: TableSort) => void;
-  pin: boolean;
-  setPin: (p: boolean) => void;
   editing: boolean;
   setEditing: (e: boolean) => void;
+  groups?: FilterGroup[];
+  groupFilter?: string;
+  onGroupFilterChange?: (id: string) => void;
 }) {
+  const [comingSoonOpen, setComingSoonOpen] = useState(false);
   return (
     <div className="row" style={{ justifyContent: "flex-end", gap: 10, padding: "10px 14px", borderBottom: "1px solid var(--line-0)", flexWrap: "wrap" }}>
       <button
@@ -333,6 +396,47 @@ function AttentionControls({
         {editing ? <Check size={13} strokeWidth={1.75} /> : <Pencil size={13} strokeWidth={1.5} />}
         {editing ? "Done" : "Edit columns"}
       </button>
+      <button
+        type="button"
+        className="v-chip"
+        data-tone="info"
+        title="What's coming next"
+        onClick={() => setComingSoonOpen(true)}
+        style={{ cursor: "pointer", border: 0 }}
+      >
+        <FlaskConical size={11} strokeWidth={1.75} />
+        Beta
+      </button>
+      <Dialog open={comingSoonOpen} onOpenChange={setComingSoonOpen}>
+        <DialogContent
+          style={{
+            maxWidth: 420, maxHeight: "85vh", padding: 0, background: "transparent", border: 0, boxShadow: "none",
+            display: "flex", flexDirection: "column", overflow: "hidden",
+          }}
+        >
+          <DialogTitle className="sr-only">Coming soon metrics</DialogTitle>
+          <ComingSoonMetricsCard metrics={DEFAULT_COMING_SOON_METRICS} />
+        </DialogContent>
+      </Dialog>
+      {groups && (
+        <label className="v-meta" style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--ink-1)" }}>
+          Team
+          <select
+            value={groupFilter ?? "all"}
+            onChange={(e) => onGroupFilterChange?.(e.target.value)}
+            style={controlStyle}
+            aria-label="Filter roster by team"
+          >
+            <option value="all">All groups</option>
+            {groups.map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.name}
+                {g.size != null ? ` (${g.size})` : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <label className="v-meta" style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--ink-1)" }}>
         Sort by
         <select value={sort} onChange={(e) => setSort(e.target.value as TableSort)} style={controlStyle} aria-label="Sort roster by">
@@ -342,10 +446,6 @@ function AttentionControls({
             </option>
           ))}
         </select>
-      </label>
-      <label className="v-meta" style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--ink-1)", cursor: "pointer" }}>
-        <input type="checkbox" checked={pin} onChange={(e) => setPin(e.target.checked)} />
-        Flagged first
       </label>
       <Popover>
         <PopoverTrigger asChild>
@@ -357,30 +457,40 @@ function AttentionControls({
         <PopoverContent align="end" style={{ width: 320, fontSize: 12 }}>
           <div style={{ fontWeight: 600, marginBottom: 4 }}>Flag an athlete when</div>
           <div className="v-meta" style={{ marginBottom: 10 }}>
-            Any one of these is crossed. Leave a box empty to turn that signal off. The starting numbers are uncalibrated.
+            Any one of these is crossed. Uncheck a signal to turn it off. The starting numbers are uncalibrated.
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "8px 10px", alignItems: "center" }}>
-            {SIGNAL_LABELS.map((s) => (
-              <label key={s.key} style={{ display: "contents" }}>
-                <span>
-                  {s.label} <span className="v-meta">{s.hint}</span>
-                </span>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: "8px 10px", alignItems: "center" }}>
+            {SIGNAL_LABELS.map((s) => {
+              const enabled = draft[s.key] !== "";
+              return (
+                <label key={s.key} style={{ display: "contents" }}>
                   <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={draft[s.key]}
-                    onChange={(e) => setDraft({ ...draft, [s.key]: e.target.value })}
-                    aria-label={`${s.label} cut-off`}
-                    style={{ ...controlStyle, width: 64, fontFamily: "var(--font-mono)" }}
+                    type="checkbox"
+                    checked={enabled}
+                    onChange={(e) => setDraft({ ...draft, [s.key]: e.target.checked ? String(DEFAULT_THRESHOLDS[s.key]) : "" })}
+                    aria-label={`Enable ${s.label}`}
                   />
-                  <span className="v-meta" style={{ width: 28 }}>
-                    {s.unit}
+                  <span style={{ color: enabled ? "var(--ink-0)" : "var(--ink-3)" }}>
+                    {s.label} <span className="v-meta">{s.hint}</span>
                   </span>
-                </span>
-              </label>
-            ))}
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={enabled ? draft[s.key] : ""}
+                      disabled={!enabled}
+                      onChange={(e) => setDraft({ ...draft, [s.key]: e.target.value })}
+                      aria-label={`${s.label} cut-off`}
+                      style={{ ...controlStyle, width: 64, fontFamily: "var(--font-mono)", opacity: enabled ? 1 : 0.4 }}
+                    />
+                    <span className="v-meta" style={{ width: 28 }}>
+                      {s.unit}
+                    </span>
+                  </span>
+                </label>
+              );
+            })}
           </div>
         </PopoverContent>
       </Popover>
@@ -414,12 +524,24 @@ export const thresholdsFromDraft = (draft: ThresholdDraft) =>
  * TODO(page integration): the chosen slots and the cut-offs live in component
  * state here. Persist them per coach (e.g. profile settings) when placed.
  */
-export function RosterSignalsTable({ athletes, signalsByPlayer, onSelect, onOpenExercise, today, draft: draftProp, onDraftChange }: RosterSignalsTableProps) {
+export function RosterSignalsTable({
+  athletes,
+  signalsByPlayer,
+  onSelect,
+  onOpenExercise,
+  today,
+  draft: draftProp,
+  onDraftChange,
+  groups,
+  groupFilter,
+  onGroupFilterChange,
+  search,
+  onSearchChange,
+}: RosterSignalsTableProps) {
   const [ownDraft, setOwnDraft] = useState<ThresholdDraft>(INITIAL_DRAFT);
   const draft = draftProp ?? ownDraft;
   const setDraft = onDraftChange ?? setOwnDraft;
-  const [sort, setSort] = useState<TableSort>("name");
-  const [pin, setPin] = useState(true);
+  const [sort, setSort] = useState<TableSort>("flagged");
   const [editing, setEditing] = useState(false);
   const [slots, setSlots] = useState<(ColumnKey | null)[]>([...ALL_COLUMNS]);
 
@@ -440,9 +562,10 @@ export function RosterSignalsTable({ athletes, signalsByPlayer, onSelect, onOpen
       const facts = athleteFacts(a, signalsByPlayer.get(a.id), now);
       return { a, facts, flags: attentionFlags(facts, thresholds) };
     });
-    return orderByAttention(withFlags, (r) => r.facts, (r) => r.flags.flagged, sort === "name" ? "default" : sort, pin);
+    const metricSort = sort === "name" || sort === "flagged" ? "default" : sort;
+    return orderByAttention(withFlags, (r) => r.facts, (r) => r.flags.flagged, metricSort, sort === "flagged");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [athletes, signalsByPlayer, draft, sort, pin, now]);
+  }, [athletes, signalsByPlayer, draft, sort, now]);
 
   /** Slots to draw: all of them while editing (empty ones as "Add column"), otherwise only filled ones. */
   const drawn = slots.map((column, slot) => ({ column, slot })).filter((s) => editing || s.column);
@@ -455,15 +578,16 @@ export function RosterSignalsTable({ athletes, signalsByPlayer, onSelect, onOpen
         setDraft={setDraft}
         sort={sort}
         setSort={setSort}
-        pin={pin}
-        setPin={setPin}
         editing={editing}
         setEditing={setEditing}
+        groups={groups}
+        groupFilter={groupFilter}
+        onGroupFilterChange={onGroupFilterChange}
       />
       <table className="v-table">
         <thead>
           <tr>
-            <th>Athlete</th>
+            <AthleteHeaderCell search={search} onSearchChange={onSearchChange} />
             <th>Group</th>
             {drawn.map(({ column, slot }) => (
               <ColumnHeader
