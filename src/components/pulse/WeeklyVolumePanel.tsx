@@ -12,7 +12,7 @@ import {
 export type WeeklyVolumePoint = WeeklyLoadVolumePoint;
 
 export interface WeeklyVolumePanelProps {
-  /** 8 weeks, oldest first. Only tonnageLbs is real (SP-08); totalWorkKj/distanceMi are mock — see BetaBadge. */
+  /** 8 weeks, oldest first. Only tonnageLbs is real (SP-08); totalWorkKj/distanceM are mock — see BetaBadge. */
   data: WeeklyVolumePoint[];
   /** Share of reps in this window that carry a recorded weight and so count toward the totals (0-100). */
   coveragePct: number;

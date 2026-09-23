@@ -22,7 +22,7 @@ const rowsOf = (totals: number[]): WeeklyVolumePoint[] =>
     label,
     tonnageLbs: totals[i],
     totalWorkKj: +(totals[i] * 0.013).toFixed(1),
-    distanceMi: +(totals[i] * 0.00006).toFixed(2),
+    distanceM: Math.round(totals[i] * 0.0966),
   }));
 
 export const Interactive: Story = {

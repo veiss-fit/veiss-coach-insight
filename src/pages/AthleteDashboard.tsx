@@ -139,7 +139,7 @@ const BETA_SET_EFFORT_SETS: SetEffortPoint[] = [
   { set: 3, rir: 2, rpe: 8 },
   { set: 4, rir: 1, rpe: 9 },
 ];
-const BETA_SESSION_SUMMARY_STATS: SessionSummaryBetaStats = { avgHeartRateBpm: 142, caloriesKcal: 310 };
+const BETA_SESSION_SUMMARY_STATS: SessionSummaryBetaStats = { caloriesKcal: 310 };
 
 function BetaSessionCards() {
   return (
@@ -851,7 +851,7 @@ export default function AthleteDashboard() {
         label,
         tonnageLbs: 3200 + i * 220,
         totalWorkKj: 4.2 + i * 0.3,
-        distanceMi: +(0.18 + i * 0.02).toFixed(2),
+        distanceM: Math.round((0.18 + i * 0.02) * 1609.34),
       };
     });
   }, [now]);

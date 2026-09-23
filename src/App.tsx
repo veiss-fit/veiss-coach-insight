@@ -5,8 +5,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { TemplatesProvider } from "@/contexts/TemplatesContext";
+import { FollowedAthletesProvider } from "@/contexts/FollowedAthletesContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { MinScreenGate } from "@/components/MinScreenGate";
+import { FollowedAthletesPanel } from "@/components/pulse/FollowedAthletesPanel";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
@@ -101,7 +103,10 @@ const App = () => (
         <Sonner />
         <MinScreenGate>
           <BrowserRouter>
-            <AppRoutes />
+            <FollowedAthletesProvider>
+              <FollowedAthletesPanel />
+              <AppRoutes />
+            </FollowedAthletesProvider>
           </BrowserRouter>
         </MinScreenGate>
         </TemplatesProvider>

@@ -21,7 +21,7 @@ const WEEKS: WeeklyLoadVolumePoint[] = WEEK_LABELS.map((label, i) => ({
   label,
   tonnageLbs: 3200 + i * 220,
   totalWorkKj: 4.2 + i * 0.3,
-  distanceMi: +(0.18 + i * 0.02).toFixed(2),
+  distanceM: Math.round((0.18 + i * 0.02) * 1609.34),
 }));
 
 export const Interactive: Story = {

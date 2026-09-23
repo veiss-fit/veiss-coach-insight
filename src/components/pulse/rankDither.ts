@@ -12,4 +12,15 @@ export interface DitherSettings {
   maxConcurrent: number;
 }
 
-export const DEFAULT_DITHER: DitherSettings = { stepMs: 30, spawnMs: 50, setGapMs: 600, randomness: 1, maxConcurrent: 3 };
+export const DEFAULT_DITHER: DitherSettings = { stepMs: 30, spawnMs: 50, setGapMs: 150, randomness: 1, maxConcurrent: 3 };
+
+/** Multiplies 1st place's setGapMs for 2nd and 3rd, so the top row reads busiest and each rank below is visibly quieter. */
+const RANK_GAP_MULTIPLIER: Record<number, number> = { 1: 0.3, 2: 1.8, 3: 3.5 };
+
+export const ditherForRank = (rank: number, base: DitherSettings = DEFAULT_DITHER): DitherSettings => ({
+  ...base,
+  setGapMs: Math.round(base.setGapMs * (RANK_GAP_MULTIPLIER[rank] ?? 1)),
+});
+
+/** How far left each rank's bar reaches, as % of row width — 1st goes furthest, each rank below feathers out sooner. */
+export const RANK_DITHER_WIDTH_PCT: Record<number, number> = { 1: 50, 2: 38, 3: 28 };

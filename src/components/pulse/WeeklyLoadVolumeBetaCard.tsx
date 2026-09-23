@@ -19,19 +19,19 @@ export interface WeeklyLoadVolumePoint {
   label: string;
   tonnageLbs: number;
   totalWorkKj: number;
-  distanceMi: number;
+  distanceM: number;
 }
 
-export type LoadVolumeMetric = "tonnageLbs" | "totalWorkKj" | "distanceMi";
+export type LoadVolumeMetric = "tonnageLbs" | "totalWorkKj" | "distanceM";
 
 export const METRIC_LABEL: Record<LoadVolumeMetric, string> = {
   tonnageLbs: "Tonnage",
   totalWorkKj: "Total work",
-  distanceMi: "Bar distance",
+  distanceM: "Bar distance",
 };
-export const METRIC_UNIT: Record<LoadVolumeMetric, string> = { tonnageLbs: "lbs", totalWorkKj: "kJ", distanceMi: "mi" };
+export const METRIC_UNIT: Record<LoadVolumeMetric, string> = { tonnageLbs: "lbs", totalWorkKj: "kJ", distanceM: "m" };
 export const fmtLoadVolumeVal = (metric: LoadVolumeMetric, v: number) =>
-  metric === "tonnageLbs" ? (v >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${Math.round(v)}`) : v.toFixed(metric === "distanceMi" ? 2 : 1);
+  metric === "tonnageLbs" ? (v >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${Math.round(v)}`) : metric === "distanceM" ? `${Math.round(v)}` : v.toFixed(1);
 
 export interface WeeklyLoadVolumeBetaCardProps {
   athleteName: string;

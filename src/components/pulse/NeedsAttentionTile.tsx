@@ -21,7 +21,7 @@ export function NeedsAttentionTile({ flaggedCount, totalCount, reasonCounts, onR
   return (
     <div className="v-card padded" style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0, height: "100%", boxSizing: "border-box", overflow: "hidden" }}>
       <div className="row" style={{ justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
-        <div className="v-label">Needs attention</div>
+        <div className="v-label">Flagged athletes</div>
         <span className="mono" style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-0)" }}>
           {flaggedCount} <span className="v-mute2" style={{ fontWeight: 400 }}>of {totalCount}</span>
         </span>

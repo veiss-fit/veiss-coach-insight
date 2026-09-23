@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Star } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Avatar } from "./Avatar";
-import { DEFAULT_DITHER, type DitherSettings } from "./rankDither";
+import { DEFAULT_DITHER, ditherForRank, RANK_DITHER_WIDTH_PCT, type DitherSettings } from "./rankDither";
 
 /** Rank badge colors for the top 3; everyone else gets the neutral default. */
 const RANK_COLOR: Record<number, string> = { 1: "#D4AF37", 2: "#9CA3AF", 3: "#B08D57" };
@@ -25,6 +25,8 @@ interface DitherHead {
 
 interface RankRowDitherProps extends Partial<DitherSettings> {
   color: string;
+  /** How far left the bar reaches, as % of row width (default 50, matching .v-rank-dither). Lower = feathers out sooner. */
+  widthPct?: number;
 }
 
 function useDevicePixelRatio() {
@@ -44,6 +46,7 @@ function useDevicePixelRatio() {
  */
 function RankRowDither({
   color,
+  widthPct = 50,
   stepMs = DEFAULT_DITHER.stepMs,
   spawnMs = DEFAULT_DITHER.spawnMs,
   setGapMs = DEFAULT_DITHER.setGapMs,
@@ -131,7 +134,7 @@ function RankRowDither({
       ref={ref}
       aria-hidden
       className="v-rank-dither"
-      style={{ color, gridTemplateColumns: `repeat(${cols}, ${cell}px)`, gridAutoRows: cell, gap }}
+      style={{ color, width: `${widthPct}%`, gridTemplateColumns: `repeat(${cols}, ${cell}px)`, gridAutoRows: cell, gap }}
     >
       {Array.from({ length: rows * cols }, (_, i) => {
         const row = Math.floor(i / cols);
@@ -261,7 +264,13 @@ export function LeaderboardPanel({
                   textAlign: "left", borderTop: i === 0 ? undefined : "1px solid var(--line-1)", overflow: "hidden",
                 }}
               >
-                {rankColor && <RankRowDither color={rankColor} {...dither} />}
+                {rankColor && (
+                  <RankRowDither
+                    color={rankColor}
+                    widthPct={RANK_DITHER_WIDTH_PCT[i + 1]}
+                    {...ditherForRank(i + 1, { ...DEFAULT_DITHER, ...dither })}
+                  />
+                )}
                 <div className="row" style={{ gap: 8, minWidth: 0, position: "relative" }}>
                   <span
                     className="mono"

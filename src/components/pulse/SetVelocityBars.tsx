@@ -117,10 +117,10 @@ export function SetVelocityBars({ sets, scaleSets = sets, baseline = null }: Set
                   </div>
                 )}
               </div>
-              <div className="row mono" style={{ fontSize: 11.5, color: "var(--ink-1)", gap: 6, flexWrap: "wrap", justifyContent: "center" }}>
+              <div className="row mono" style={{ fontSize: 11.5, color: "var(--ink-1)", gap: 6, flexWrap: "nowrap", whiteSpace: "nowrap", justifyContent: "center" }}>
                 Set {s.set_number}
                 <span
-                  style={{ fontWeight: 600, color: "var(--ink-0)", background: "var(--brand)", padding: "1px 6px", borderRadius: 4 }}
+                  style={{ fontWeight: 600, color: "var(--ink-0)", background: "var(--brand)", padding: "1px 6px", borderRadius: 4, whiteSpace: "nowrap" }}
                   title={s.load == null ? "No load recorded" : "Set load"}
                 >
                   {s.load == null ? "NA" : `${s.load} lbs`}
@@ -339,7 +339,9 @@ export function SetVelocityBlocks({ exercises, history = {}, sessionDate, glowEx
   }
   const date = sessionDate ?? new Date().toISOString();
   return (
-    <div style={twoColumnGrid()}>
+    // Wider minCard than the page default: at 420px the "Set N · load" row under each bar
+    // wraps to two lines before the grid would drop to one column. 480px keeps it on one line.
+    <div style={twoColumnGrid(480)}>
       {exercises.map((e, i) => (
         <ExerciseBlock key={e.exercise} exercise={e} history={history[e.exercise] ?? []} sessionDate={date} idPrefix={`sv-${i}`} glow={glowExercise === e.exercise} onGlowClear={onGlowClear} />
       ))}

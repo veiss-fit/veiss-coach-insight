@@ -11,7 +11,6 @@ import { SlowerThanBaselineTile, type SlowerAthlete } from "@/components/pulse/S
 import { SessionsTile } from "@/components/pulse/SessionsTile";
 import { NeedsAttentionTile } from "@/components/pulse/NeedsAttentionTile";
 import { WeeklyVolumePanel } from "@/components/pulse/WeeklyVolumePanel";
-import { FollowedAthleteCard, AddFollowCard } from "@/components/pulse/FollowedAthleteCard";
 import { FilterGroup } from "@/components/pulse/FilterBar";
 import { RosterViewSwitcher, VIEW_OPTIONS, type RosterView } from "@/components/pulse/RosterViewSwitcher";
 import { BlobSelector } from "@/components/pulse/BlobSelector";
@@ -26,19 +25,6 @@ import { getRosterMetrics, RosterMetricsResult } from "@/services/rosterMetricsS
 import { deliverScheduledMessages } from "@/services/messagesService";
 import { athleteFacts } from "@/lib/metrics/athleteFacts";
 import { attentionFlags, DEFAULT_THRESHOLDS, type AttentionSignal } from "@/lib/metrics/attentionFlags";
-
-/** Strip slots: Avg attendance takes one, followed athletes (plus the add card) fill the rest. */
-const MAX_FOLLOWED = 4;
-const FOLLOWED_KEY = "veiss.followedAthletes";
-
-const readFollowed = (): string[] | null => {
-  try {
-    const raw = localStorage.getItem(FOLLOWED_KEY);
-    return raw ? (JSON.parse(raw) as string[]) : null;
-  } catch {
-    return null;
-  }
-};
 
 const Index = () => {
   const { profile, user, loading: authLoading } = useAuth();
@@ -56,14 +42,11 @@ const Index = () => {
   const [groupFilter, setGroupFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [groupManagerOpen, setGroupManagerOpen] = useState(false);
-  const [followedPanelOpen, setFollowedPanelOpen] = useState(false);
   const [selectedExercise, setSelectedExercise] = useState("");
   const [rosterView, setRosterView] = useState<RosterView>("roster");
   const [leaderboardMetric, setLeaderboardMetric] = useState<LeaderboardMetric>("velocity");
   const [leaderboardExercise, setLeaderboardExercise] = useState("");
   const [draft, setDraft] = useState<ThresholdDraft>(INITIAL_DRAFT);
-  // TODO(page integration): stored in this browser only. Persist per coach (profile settings) later.
-  const [storedFollowed, setStoredFollowed] = useState<string[] | null>(readFollowed);
 
   const loadData = useCallback(async () => {
     if (!profile) {
@@ -138,24 +121,6 @@ const Index = () => {
   );
 
   const thresholds = useMemo(() => thresholdsFromDraft(draft), [draft]);
-
-  // Nothing stored yet: start by following the first athlete so the strip shows a card.
-  const followedIds = useMemo(() => {
-    const ids = storedFollowed ?? athletes.slice(0, 1).map((a) => a.id);
-    return ids.filter((id) => athletes.some((a) => a.id === id)).slice(0, MAX_FOLLOWED);
-  }, [storedFollowed, athletes]);
-  const followedAthletes = useMemo(
-    () => followedIds.map((id) => athletes.find((a) => a.id === id)).filter((a): a is PlayerWithStats => !!a),
-    [followedIds, athletes]
-  );
-  const setFollowedIds = (ids: string[]) => {
-    setStoredFollowed(ids);
-    try {
-      localStorage.setItem(FOLLOWED_KEY, JSON.stringify(ids));
-    } catch {
-      /* storage unavailable: follows last for this visit only */
-    }
-  };
 
   const signalsByPlayer = useMemo(() => roster?.signalsByPlayer ?? new Map(), [roster]);
   const team = roster?.team ?? null;
@@ -253,7 +218,7 @@ const Index = () => {
   const attNow = team && team.attSeries.length ? team.attSeries[team.attSeries.length - 1] : null;
   const attPrev = team && team.attSeries.length > 1 ? team.attSeries[team.attSeries.length - 2] : null;
 
-  // Weekly volume: tonnageLbs is real (team.volumeSeries, SP-08). totalWorkKj/distanceMi aren't
+  // Weekly volume: tonnageLbs is real (team.volumeSeries, SP-08). totalWorkKj/distanceM aren't
   // computed yet (see WeeklyLoadVolumeBetaCard's doc comment), so they're mock, scaled off the
   // real tonnage only to keep the bars roughly proportionate — never treat these two as real.
   const volumeData = useMemo(
@@ -262,7 +227,7 @@ const Index = () => {
         label: d.label,
         tonnageLbs: d.totalLbs,
         totalWorkKj: +(d.totalLbs * 0.013).toFixed(1),
-        distanceMi: +(d.totalLbs * 0.00006).toFixed(2),
+        distanceM: Math.round(d.totalLbs * 0.0966),
       })),
     [team]
   );
@@ -284,120 +249,12 @@ const Index = () => {
     return { flaggedCount, totalCount: athletes.length, reasonCounts };
   }, [athletes, signalsByPlayer]);
 
-  // Per-slot flagged state for the followed-athletes status disks, same thresholds the cards use.
-  const followedFlagged = useMemo(() => {
-    const now = Date.now();
-    return followedAthletes.map((a) => attentionFlags(athleteFacts(a, signalsByPlayer.get(a.id), now), thresholds).flagged);
-  }, [followedAthletes, signalsByPlayer, thresholds]);
-
   // ───────────────────────────────────────────────────────────────────────────
 
   return (
     <div className="v-app">
       <TopNav />
       <LoadingOverlay isLoading={loading} fullScreen message="Loading dashboard..." />
-
-      <div
-        style={{
-          position: "fixed",
-          top: "50%",
-          left: followedPanelOpen ? 280 : 0,
-          transform: "translateY(-50%)",
-          zIndex: 41,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          transition: "left 0.18s ease",
-        }}
-      >
-        <button
-          type="button"
-          onClick={() => setFollowedPanelOpen((v) => !v)}
-          aria-label={followedPanelOpen ? "Close followed athletes" : "Open followed athletes"}
-          aria-expanded={followedPanelOpen}
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: 10,
-            padding: "12px 6px",
-            border: "1px solid var(--line-2)",
-            borderLeft: followedPanelOpen ? "1px solid var(--line-2)" : "none",
-            borderRadius: "0 8px 8px 0",
-            background: "var(--surface-1)",
-            color: "var(--ink-1)",
-            cursor: "pointer",
-          }}
-        >
-          <Users size={14} strokeWidth={1.5} />
-          <span
-            className="v-meta"
-            style={{ writingMode: "vertical-rl", fontSize: 10.5, letterSpacing: 0.3 }}
-          >
-            Followed
-          </span>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            {Array.from({ length: MAX_FOLLOWED }, (_, i) => followedAthletes[i]).map((a, i) => (
-              <span
-                key={a?.id ?? `empty-${i}`}
-                title={a ? `${a.name}${followedFlagged[i] ? " · flagged" : ""}` : "Empty slot"}
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: "50%",
-                  background: !a ? "var(--line-2)" : followedFlagged[i] ? "var(--bad)" : "var(--good)",
-                  flexShrink: 0,
-                }}
-              />
-            ))}
-          </div>
-        </button>
-      </div>
-
-      {followedPanelOpen && (
-        <div
-          onClick={() => setFollowedPanelOpen(false)}
-          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.25)", zIndex: 39 }}
-        />
-      )}
-
-      <div
-        style={{
-          position: "fixed",
-          top: 0,
-          bottom: 0,
-          left: followedPanelOpen ? 0 : -281,
-          width: 280,
-          zIndex: 40,
-          background: "var(--surface-1)",
-          borderRight: "1px solid var(--line-2)",
-          boxShadow: followedPanelOpen ? "2px 0 16px rgba(0,0,0,0.15)" : "none",
-          transition: "left 0.18s ease",
-          display: "flex",
-          flexDirection: "column",
-          gap: 12,
-          padding: 16,
-          overflowY: "auto",
-        }}
-      >
-        <div className="v-label">Followed athletes</div>
-        {followedAthletes.map((a) => (
-          <FollowedAthleteCard
-            key={a.id}
-            athlete={a}
-            signals={signalsByPlayer.get(a.id)}
-            thresholds={thresholds}
-            onOpen={openAthlete}
-            onUnfollow={(x) => setFollowedIds(followedIds.filter((id) => id !== x.id))}
-          />
-        ))}
-        {followedAthletes.length < MAX_FOLLOWED && (
-          <AddFollowCard
-            choices={athletes.filter((a) => !followedIds.includes(a.id))}
-            onAdd={(a) => setFollowedIds([...followedIds, a.id])}
-          />
-        )}
-      </div>
 
       <main style={{ padding: "20px 28px 28px", maxWidth: 1480, margin: "0 auto", width: "100%", flex: 1 }}>
         <PageHeader

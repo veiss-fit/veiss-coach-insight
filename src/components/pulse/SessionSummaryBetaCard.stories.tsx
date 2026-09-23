@@ -18,6 +18,6 @@ type Story = StoryObj;
 
 export const Interactive: Story = {
   render: () => (
-    <SessionSummaryBetaCard sessionName="Tuesday lift" sessionDate="2026-09-22T10:00:00Z" stats={{ avgHeartRateBpm: 148, caloriesKcal: 312 }} />
+    <SessionSummaryBetaCard sessionName="Tuesday lift" sessionDate="2026-09-22T10:00:00Z" stats={{ caloriesKcal: 312 }} />
   ),
 };
