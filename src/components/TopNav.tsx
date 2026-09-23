@@ -1,4 +1,4 @@
-import { NavLink } from "react-router-dom";
+import { Link, NavLink } from "react-router-dom";
 import veissLogo from "@/assets/veiss-logo.png";
 import { ProfileMenu } from "./ProfileMenu";
 
@@ -12,7 +12,9 @@ export const TopNav = () => {
   return (
     <header className="v-topnav">
       <div className="brand">
-        <img src={veissLogo} alt="Veiss" style={{ height: 28 }} />
+        <Link to="/" aria-label="Home" style={{ display: "inline-flex" }}>
+          <img src={veissLogo} alt="Veiss" style={{ height: 28 }} />
+        </Link>
         <div style={{ width: 1, height: 24, background: "var(--line-1)" }} />
       </div>
 
