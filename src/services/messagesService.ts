@@ -5,6 +5,38 @@ type Message = Database['public']['Tables']['messages']['Row'];
 type MessageInsert = Database['public']['Tables']['messages']['Insert'];
 
 /**
+ * Push a title/body to a set of user IDs, tolerating individual failures.
+ * Returns how many actually went out vs. were attempted.
+ */
+const sendPushes = async (
+  userIds: string[],
+  title: string,
+  body: string,
+  data: Record<string, unknown>
+): Promise<{ sent: number; attempted: number }> => {
+  const results = await Promise.allSettled(
+    userIds.map((userId) =>
+      supabase.functions.invoke('send-push-notification', {
+        body: { userId, title, body, data },
+      })
+    )
+  );
+
+  let failures = 0;
+  results.forEach((r, i) => {
+    if (r.status === 'rejected') {
+      failures++;
+      console.error(`Push network error for userId ${userIds[i]}:`, r.reason);
+    } else if (r.value?.error) {
+      failures++;
+      console.error(`Push function error for userId ${userIds[i]}:`, r.value.error);
+    }
+  });
+
+  return { sent: userIds.length - failures, attempted: userIds.length };
+};
+
+/**
  * Send a message/announcement to one or more players
  * @param senderId - Coach's user ID (from profiles table)
  * @param recipientIds - Array of player IDs (will be converted to user IDs)
@@ -75,39 +107,25 @@ export const sendMessage = async (
       return { success: false, count: 0, error: error.message };
     }
 
-    const pushResults = await Promise.allSettled(
-      receiverUserIds.map((userId: string) =>
-        supabase.functions.invoke('send-push-notification', {
-          body: {
-            userId,
-            title: title ?? 'New Announcement',
-            body: message,
-            data: { type: 'announcement', screen: 'Announcements' },
-          },
-        })
-      )
-    );
+    // Scheduled messages get pushed by deliverScheduledMessages once they're actually due.
+    if (isScheduled) {
+      return { success: true, count: data?.length || 0 };
+    }
 
-    // Previously fire-and-forget with the settled results discarded entirely — not
-    // even logged — so every athlete could fail to be notified with no trace (§6.5).
-    let pushFailures = 0;
-    pushResults.forEach((r, i) => {
-      if (r.status === 'rejected') {
-        pushFailures++;
-        console.error(`Push network error for userId ${receiverUserIds[i]}:`, r.reason);
-      } else if (r.value?.error) {
-        pushFailures++;
-        console.error(`Push function error for userId ${receiverUserIds[i]}:`, r.value.error);
-      }
-    });
+    const { sent, attempted } = await sendPushes(
+      receiverUserIds,
+      title ?? 'New Announcement',
+      message,
+      { type: 'announcement', screen: 'Announcements' }
+    );
 
     // The messages are stored either way, so this is not a send failure — but the
     // coach should know whether anyone was actually pinged.
     return {
       success: true,
       count: data?.length || 0,
-      notificationsSent: receiverUserIds.length - pushFailures,
-      notificationsAttempted: receiverUserIds.length,
+      notificationsSent: sent,
+      notificationsAttempted: attempted,
     };
   } catch (error: any) {
     console.error('Error in sendMessage:', error);
@@ -122,12 +140,14 @@ export const sendMessage = async (
 export const deliverScheduledMessages = async (senderId: string): Promise<number> => {
   try {
     const now = new Date().toISOString();
-    const { data: pending } = await supabase
+    const { data } = await supabase
       .from('messages')
-      .select('id')
+      .select('id, receiver_id, subject, message')
       .eq('sender_id', senderId)
       .eq('is_delivered', false)
       .lte('scheduled_at', now);
+
+    const pending = data as { id: string; receiver_id: string; subject: string; message: string }[] | null;
 
     if (!pending?.length) return 0;
 
@@ -136,6 +156,17 @@ export const deliverScheduledMessages = async (senderId: string): Promise<number
       .from('messages')
       .update({ is_delivered: true })
       .in('id', ids);
+
+    await Promise.allSettled(
+      pending.map((m) =>
+        sendPushes(
+          [m.receiver_id],
+          m.subject ?? 'New Announcement',
+          m.message,
+          { type: 'announcement', screen: 'Announcements' }
+        )
+      )
+    );
 
     return ids.length;
   } catch (error) {

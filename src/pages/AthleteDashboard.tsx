@@ -4,6 +4,7 @@ import { format, differenceInCalendarWeeks, isAfter, subDays, startOfDay } from 
 import { Bell, Send, ChevronRight, Plus, Paperclip } from "lucide-react";
 import { toast } from "sonner";
 import { TopNav } from "@/components/TopNav";
+import { LoadError } from "@/components/pulse/LoadError";
 import { Avatar } from "@/components/pulse/Avatar";
 import { UnderlineTabs } from "@/components/pulse/Tabs";
 import { WeeklyLoadChart, WeeklyLoadPoint } from "@/components/pulse/charts";
@@ -477,6 +478,7 @@ export default function AthleteDashboard() {
   const [plans, setPlans] = useState<PlanRow[]>([]);
   const [notes, setNotes] = useState<CoachNote[]>([]);
   const [coachDbId, setCoachDbId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [searchParams] = useSearchParams();
   const [tab, setTab] = useState(() => {
     const t = searchParams.get("tab");
@@ -511,6 +513,7 @@ export default function AthleteDashboard() {
   const loadData =useCallback(async () => {
     if (!user?.id || !id) return;
     setLoading(true);
+    setLoadError(null);
     try {
       const [found, teamIds] = await Promise.all([
         getPlayerById(id),
@@ -530,8 +533,12 @@ export default function AthleteDashboard() {
       setNotes(noteData);
       setCoachDbId(profile?.coach_id ?? null);
     } catch (error) {
+      // Previously toast-only: a failed load still fell through to "Athlete not found"
+      // below (athlete stayed null), telling the coach the athlete doesn't exist when
+      // the real cause was a network/query failure.
       console.error("Error loading athlete:", error);
       toast.error("Failed to load athlete data");
+      setLoadError(error instanceof Error ? error.message : null);
     } finally {
       setLoading(false);
     }
@@ -628,8 +635,14 @@ export default function AthleteDashboard() {
       <div className="v-app">
         <TopNav />
         <main style={{ padding: "48px 28px", maxWidth: 720, margin: "0 auto", width: "100%", textAlign: "center" }}>
-          <div className="v-h2">Athlete not found</div>
-          <p className="v-meta" style={{ marginTop: 8 }}>This athlete doesn't exist or isn't in your roster.</p>
+          {loadError ? (
+            <LoadError message={loadError} onRetry={loadData} title="Couldn't load this athlete" />
+          ) : (
+            <>
+              <div className="v-h2">Athlete not found</div>
+              <p className="v-meta" style={{ marginTop: 8 }}>This athlete doesn't exist or isn't in your roster.</p>
+            </>
+          )}
           <Link to="/" className="v-btn" style={{ marginTop: 16, display: "inline-flex", height: 36, fontSize: 13, padding: "0 16px" }}>← Back to dashboard</Link>
         </main>
       </div>

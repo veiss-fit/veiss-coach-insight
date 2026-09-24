@@ -58,6 +58,8 @@ interface SetSpec {
 }
 
 interface BuilderExercise {
+  /** UI-only: stable React key so removing a card doesn't shift the rest onto the wrong state. */
+  id: string
   name: string
   /** One entry per set — the source of truth for both the count and each set's reps/velocity. */
   perSet: SetSpec[]
@@ -76,10 +78,11 @@ const fromTemplateExercise = (ex: TemplateExercise): BuilderExercise => {
   if (ex.perSet && ex.perSet.length > 0) {
     const perSet = ex.perSet.map(s => ({ reps: s.reps ?? 5, targetVelocity: s.targetVelocity ?? null }))
     const varies = perSet.some(s => s.reps !== perSet[0].reps || s.targetVelocity !== perSet[0].targetVelocity)
-    return { name: ex.name, perSet, weight: 0, weightUnit: 'lbs', customized: varies }
+    return { id: crypto.randomUUID(), name: ex.name, perSet, weight: 0, weightUnit: 'lbs', customized: varies }
   }
   // Template saved before per-set support existed — synthesize a uniform set list.
   return {
+    id: crypto.randomUUID(),
     name: ex.name,
     perSet: makeUniformSets(ex.sets ?? 3, { reps: ex.reps ?? 5, targetVelocity: ex.targetVelocity ?? 0.75 }),
     weight: 0,
@@ -376,6 +379,8 @@ function ExerciseCard({ ex, idx, onChange, onRemove }: ExerciseCardProps) {
 // ─── Template editor dialog (create / edit) ──────────────────────────────────
 
 interface EditorExercise {
+  /** UI-only: stable React key so removing a row doesn't shift the rest onto the wrong state. */
+  id: string
   name: string
   perSet: SetSpec[]
   customized: boolean
@@ -386,10 +391,11 @@ const toEditorExercise = (ex: TemplateExercise): EditorExercise => {
   if (ex.perSet && ex.perSet.length > 0) {
     const perSet = ex.perSet.map(s => ({ reps: s.reps ?? 5, targetVelocity: s.targetVelocity ?? null }))
     const varies = perSet.some(s => s.reps !== perSet[0].reps || s.targetVelocity !== perSet[0].targetVelocity)
-    return { name: ex.name, perSet, customized: varies, showVelocity: perSet.some(s => s.targetVelocity != null) }
+    return { id: crypto.randomUUID(), name: ex.name, perSet, customized: varies, showVelocity: perSet.some(s => s.targetVelocity != null) }
   }
   // Template saved before per-set support existed — synthesize a uniform set list.
   return {
+    id: crypto.randomUUID(),
     name: ex.name,
     perSet: makeUniformSets(ex.sets ?? 3, { reps: ex.reps ?? 5, targetVelocity: ex.targetVelocity ?? 0.75 }),
     customized: false,
@@ -618,7 +624,7 @@ function TemplateEditorDialog({ open, initial, onSave, onClose }: TemplateEditor
               <button
                 className="v-btn"
                 style={{ fontSize: 12 }}
-                onClick={() => setExercises(p => [...p, { name: '', perSet: makeUniformSets(3, { reps: 5, targetVelocity: null }), customized: false, showVelocity: false }])}
+                onClick={() => setExercises(p => [...p, { id: crypto.randomUUID(), name: '', perSet: makeUniformSets(3, { reps: 5, targetVelocity: null }), customized: false, showVelocity: false }])}
               >
                 <Plus size={12} strokeWidth={1.5} />Add
               </button>
@@ -631,7 +637,7 @@ function TemplateEditorDialog({ open, initial, onSave, onClose }: TemplateEditor
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {exercises.map((ex, i) => (
                   <TemplateExerciseRow
-                    key={i}
+                    key={ex.id}
                     ex={ex}
                     idx={i}
                     onChange={(idx, patch) => update(idx, patch)}
@@ -739,6 +745,7 @@ function TemplatesTab({ onUse }: TemplatesTabProps) {
                       style={{ width: 28, padding: 0, justifyContent: 'center', color: 'var(--bad)' }}
                       title="Delete"
                       onClick={async () => {
+                        if (!confirm(`Delete "${t.name}"?`)) return
                         const ok = await deleteTemplate(t.id)
                         if (ok) toast.success('Template deleted')
                         else toast.error("Couldn't delete that template. Please try again.")
@@ -893,7 +900,7 @@ const SendProgramming = () => {
   const useTemplate = (t: WorkoutTemplate) => {
     setSelectedTemplateIds([t.id])
     rebuildFromTemplates([t.id])
-    if (!workoutName.trim()) setWorkoutName(t.name)
+    setWorkoutName(t.name)
     setTab('build')
   }
 
@@ -903,7 +910,7 @@ const SendProgramming = () => {
     setExercises(p => p.map((e, idx) => (idx === i ? v : e)))
   const removeExercise = (i: number) => setExercises(p => p.filter((_, idx) => idx !== i))
   const addExercise = () =>
-    setExercises(p => [...p, { name: '', perSet: makeUniformSets(3), weight: 0, weightUnit: 'lbs', customized: false }])
+    setExercises(p => [...p, { id: crypto.randomUUID(), name: '', perSet: makeUniformSets(3), weight: 0, weightUnit: 'lbs', customized: false }])
 
   const resetBuilder = () => {
     setWorkoutName(defaultWorkoutName())
@@ -947,55 +954,31 @@ const SendProgramming = () => {
         notes: 'Assigned by Coach',
       }
 
-      // Each date is a separate insert that commits on its own — there is no
-      // transaction across them. Track which dates actually succeeded instead of
-      // assuming all did: the previous version hardcoded selectedDates.length into
-      // the success message, so 4-of-5 sending still claimed "across 5 dates" and
-      // then navigated away before the coach could read the error (§2.5).
-      const failedDates: string[] = []
-      let totalCount = 0
-      let pushAttempted = 0
-      let pushSent = 0
-
-      for (const date of selectedDates) {
-        const result = await sendWorkoutPlan(selectedAthletes, coachDbId, date, planData)
-        if (result.success) {
-          totalCount += result.count ?? 0
-          pushAttempted += result.notificationsAttempted ?? 0
-          pushSent += result.notificationsSent ?? 0
-        } else {
-          failedDates.push(format(date, 'MMM d'))
-          console.error(`[Send programming] ${format(date, 'MMM d')} failed:`, result.error)
-        }
-      }
-
-      const sentDates = selectedDates.length - failedDates.length
+      // One insert covering every athlete x date, and one push per athlete
+      // (not per date) — sendWorkoutPlan takes the whole date list at once, so
+      // this is all-or-nothing instead of the previous per-date partial-failure
+      // tracking (which also meant one push PER DATE per athlete — a 4-date
+      // send pinged each athlete 4 times for the same workout).
+      const result = await sendWorkoutPlan(selectedAthletes, coachDbId, selectedDates, planData)
       const athleteLabel = `${selectedAthletes.length} athlete${selectedAthletes.length !== 1 ? 's' : ''}`
+      const dateLabel = `${selectedDates.length} date${selectedDates.length !== 1 ? 's' : ''}`
+
+      if (!result.success) {
+        toast.error(`Couldn't send "${workoutName}": ${result.error ?? 'unknown error'}`)
+        return
+      }
 
       // Plans are saved regardless; this only tells the coach whether devices were
       // actually pinged, which used to be console-only information (§6.5).
-      if (pushAttempted > 0 && pushSent === 0) {
+      if ((result.notificationsAttempted ?? 0) > 0 && result.notificationsSent === 0) {
         toast.warning("Saved, but no push notifications could be delivered.", {
           description: 'Athletes will still see the workout in the app.',
           duration: 8000,
         })
       }
 
-      if (failedDates.length === 0) {
-        toast.success(
-          `"${workoutName}" sent to ${athleteLabel} across ${sentDates} date${sentDates !== 1 ? 's' : ''}`
-        )
-        navigate('/')
-      } else if (sentDates === 0) {
-        toast.error(`Couldn't send "${workoutName}" for any of the selected dates.`)
-      } else {
-        // Partial success: stay on the page so the coach can see which dates failed
-        // and retry just those, rather than being bounced to the dashboard.
-        toast.warning(
-          `Sent ${sentDates} of ${selectedDates.length} dates to ${athleteLabel}. Failed: ${failedDates.join(', ')}.`,
-          { duration: 10000 }
-        )
-      }
+      toast.success(`"${workoutName}" sent to ${athleteLabel} across ${dateLabel}`)
+      navigate('/')
     } catch (err) {
       console.error('[Send programming] Unexpected failure:', err)
       toast.error('An error occurred while sending the programming')
@@ -1164,7 +1147,7 @@ const SendProgramming = () => {
                     ) : (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                         {exercises.map((ex, i) => (
-                          <ExerciseCard key={i} ex={ex} idx={i} onChange={changeExercise} onRemove={removeExercise} />
+                          <ExerciseCard key={ex.id} ex={ex} idx={i} onChange={changeExercise} onRemove={removeExercise} />
                         ))}
                       </div>
                     )}

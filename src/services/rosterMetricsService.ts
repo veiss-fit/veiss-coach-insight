@@ -7,6 +7,7 @@ import { summarizeSession, type RepInput } from '@/lib/metrics/setVelocitySummar
 import { summarizeTimingSession } from '@/lib/metrics/repTiming';
 import { rosterSignals, type ExerciseSignalInput, type RosterSignals } from '@/lib/metrics/rosterSignals';
 import { velocityVsBaseline } from '@/lib/metrics/velocityVsBaseline';
+import { getAttendanceSummary, type WorkoutPlanLike, type WorkoutSessionLike } from '@/lib/workoutAttendance';
 
 /**
  * Roster-wide 8-week metric series, fetched with a fixed number of batched
@@ -164,6 +165,7 @@ interface SessionRow {
   id: string;
   user_id: string;
   created_at: string;
+  name: string | null;
 }
 
 interface RepRow {
@@ -181,7 +183,23 @@ interface PlanRow {
   date: string;
   is_completed: boolean | null;
   player_id: string;
+  title: string | null;
+  session_id: string | null;
 }
+
+/** Same session-matching attendance algorithm as the roster table (A4.3: one shared definition). */
+const toPlanLike = (pl: PlanRow): WorkoutPlanLike => ({
+  date: pl.date,
+  title: pl.title,
+  is_completed: !!pl.is_completed,
+  session_id: pl.session_id,
+});
+const toSessionLike = (s: SessionRow): WorkoutSessionLike => ({
+  id: s.id,
+  date: s.created_at.slice(0, 10),
+  name: s.name,
+  createdAt: s.created_at,
+});
 
 /** Carry-forward fill so sparklines have a continuous line; leading gaps take the first real value. */
 const fillSeries = (series: (number | null)[]): number[] => {
@@ -349,7 +367,7 @@ export async function getRosterMetrics(
     chunk(userIds, ID_CHUNK_SIZE).map((ids) =>
       supabase
         .from('sessions')
-        .select('id, user_id, created_at')
+        .select('id, user_id, created_at, name')
         .in('user_id', ids)
         .gte('created_at', windowStart.toISOString())
         .order('created_at', { ascending: true })
@@ -405,11 +423,11 @@ export async function getRosterMetrics(
     chunk(playerIds, ID_CHUNK_SIZE).map((ids) =>
       supabase
         .from('workout_plans')
-        .select('date, is_completed, player_id')
+        .select('date, is_completed, player_id, title, session_id')
         .in('player_id', ids)
         .eq('is_template', false)
-        .gte('date', windowStart.toISOString().slice(0, 10))
-        .lte('date', now.toISOString().slice(0, 10))
+        .gte('date', format(windowStart, 'yyyy-MM-dd'))
+        .lte('date', format(now, 'yyyy-MM-dd'))
     )
   );
 
@@ -488,7 +506,11 @@ export async function getRosterMetrics(
     if (own.length > 0) sessionsByPlayer.set(p.id, own.length);
     const ownPlans = planRows.filter((pl) => pl.player_id === p.id);
     if (ownPlans.length > 0) {
-      completionByPlayer.set(p.id, Math.round((ownPlans.filter((pl) => pl.is_completed).length / ownPlans.length) * 100));
+      const ownSessionsForAttendance = sessionRows.filter((s) => s.user_id === p.user_id);
+      completionByPlayer.set(
+        p.id,
+        getAttendanceSummary(ownPlans.map(toPlanLike), ownSessionsForAttendance.map(toSessionLike)).attendancePercent
+      );
     }
 
     const countsByDay = [0, 0, 0, 0, 0, 0, 0];
@@ -524,14 +546,16 @@ export async function getRosterMetrics(
   for (let w = 0; w < WEEKS; w++) {
     const inWeek = planRows.filter((pl) => weekIdxOf(new Date(pl.date + 'T12:00:00')) === w);
     if (inWeek.length > 0) {
-      attWeekly[w] = Math.round((inWeek.filter((pl) => pl.is_completed).length / inWeek.length) * 100);
+      const sessionsInWeek = sessionRows.filter((s) => weekIdxOf(new Date(s.created_at)) === w);
+      attWeekly[w] = getAttendanceSummary(inWeek.map(toPlanLike), sessionsInWeek.map(toSessionLike)).attendancePercent;
     }
   }
-  // Overall = sum(completed) / sum(assigned) across the whole window — the same
-  // plan rows attWeekly buckets by week, so the KPI's headline number and its
-  // sparkline/delta can never disagree about what they're both measuring.
+  // Overall = same session-matching algorithm as the roster table and the per-player
+  // leaderboard figure (toPlanLike/toSessionLike, A4.3), over the same plan+session
+  // rows attWeekly buckets by week — so the KPI's headline number, its sparkline, and
+  // every other attendance figure on the page measure the same thing.
   const avgAttendance = planRows.length > 0
-    ? Math.round((planRows.filter((pl) => pl.is_completed).length / planRows.length) * 100)
+    ? getAttendanceSummary(planRows.map(toPlanLike), sessionRows.map(toSessionLike)).attendancePercent
     : 0;
 
   const sessionsByDay = [0, 0, 0, 0, 0, 0, 0]; // Mon..Sun

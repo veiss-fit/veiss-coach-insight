@@ -278,7 +278,7 @@ const Index = () => {
               unit="%"
               delta={attNow != null && attPrev != null ? attNow - attPrev : null}
               deltaSuffix="pt"
-              footnote="this week"
+              footnote="8 weeks"
               barData={team && team.attSeries.length > 1 ? team.attSeries : undefined}
               accent="var(--brand)"
             />

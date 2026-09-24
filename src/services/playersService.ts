@@ -1,6 +1,11 @@
+import { format, startOfWeek, subWeeks } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { getAttendanceSummary, WorkoutPlanLike, WorkoutSessionLike } from '@/lib/workoutAttendance';
 import { Database } from '@/types/database';
+
+/** Same window as rosterMetricsService's WEEKS, so the roster table's per-athlete
+ *  attendance matches the team tile and leaderboard (A4.3: one attendance definition). */
+const ATTENDANCE_WINDOW_WEEKS = 8;
 
 type Player = Database['public']['Tables']['players']['Row'];
 type Team = Database['public']['Tables']['groups']['Row'];
@@ -233,10 +238,14 @@ export const getPlayersByTeamId = async (teamId: string): Promise<PlayerWithStat
       return { avgVelocity: 0, attendance: 0, loadRec: 'New' as const, avgROM: 0, avgTempo: 0, lastWorkout: null };
     }
 
+    const windowStart = startOfWeek(subWeeks(new Date(), ATTENDANCE_WINDOW_WEEKS - 1), { weekStartsOn: 1 });
+
     const { data: workoutPlans } = await supabase
       .from('workout_plans')
-      .select('date, title, is_completed')
-      .eq('player_id', playerId);
+      .select('date, title, is_completed, session_id')
+      .eq('player_id', playerId)
+      .eq('is_template', false)
+      .gte('date', format(windowStart, 'yyyy-MM-dd'));
 
     const sessionOwnerIds = Array.from(new Set([playerId, player.user_id].filter(Boolean) as string[]));
 
@@ -285,18 +294,23 @@ export const getPlayersByTeamId = async (teamId: string): Promise<PlayerWithStat
       }
     }
 
+    const windowStartMs = windowStart.getTime();
     const attendanceSummary = getAttendanceSummary(
-      ((workoutPlans || []) as Pick<WorkoutPlan, 'date' | 'title' | 'is_completed'>[]).map((plan) => ({
+      ((workoutPlans || []) as Pick<WorkoutPlan, 'date' | 'title' | 'is_completed' | 'session_id'>[]).map((plan) => ({
         date: plan.date,
         title: plan.title,
         is_completed: plan.is_completed,
+        session_id: plan.session_id,
       })) as WorkoutPlanLike[],
-      ((allSessions || []) as Pick<Session, 'id' | 'created_at' | 'name'>[]).map((session) => ({
-        id: session.id,
-        date: session.created_at.slice(0, 10),
-        name: session.name,
-        createdAt: session.created_at,
-      })) as WorkoutSessionLike[]
+      // Same 8-week window as the plans query — lastWorkout above still looks at all-time sessions.
+      ((allSessions || []) as Pick<Session, 'id' | 'created_at' | 'name'>[])
+        .filter((session) => new Date(session.created_at).getTime() >= windowStartMs)
+        .map((session) => ({
+          id: session.id,
+          date: session.created_at.slice(0, 10),
+          name: session.name,
+          createdAt: session.created_at,
+        })) as WorkoutSessionLike[]
     );
     const attendance = attendanceSummary.attendancePercent;
 
