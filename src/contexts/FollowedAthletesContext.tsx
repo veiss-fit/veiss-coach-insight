@@ -3,10 +3,12 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "./AuthContext";
 import { getPlayersWithStatsByCoach, type PlayerWithStats } from "@/services/playersService";
 import { getRosterMetrics, type RosterMetricsResult } from "@/services/rosterMetricsService";
+import { INITIAL_DRAFT, thresholdsFromDraft, type AttentionThresholds, type ThresholdDraft } from "@/lib/metrics/attentionFlags";
 
 /** Strip slots: how many athletes the panel can follow at once. */
 export const MAX_FOLLOWED = 4;
 const FOLLOWED_KEY = "veiss.followedAthletes";
+const THRESHOLDS_KEY = "veiss.attentionThresholds";
 
 const readFollowed = (): string[] | null => {
   try {
@@ -14,6 +16,15 @@ const readFollowed = (): string[] | null => {
     return raw ? (JSON.parse(raw) as string[]) : null;
   } catch {
     return null;
+  }
+};
+
+const readDraft = (): ThresholdDraft => {
+  try {
+    const raw = localStorage.getItem(THRESHOLDS_KEY);
+    return raw ? { ...INITIAL_DRAFT, ...(JSON.parse(raw) as ThresholdDraft) } : INITIAL_DRAFT;
+  } catch {
+    return INITIAL_DRAFT;
   }
 };
 
@@ -26,6 +37,11 @@ interface FollowedAthletesContextValue {
   panelOpen: boolean;
   setPanelOpen: (value: boolean | ((prev: boolean) => boolean)) => void;
   openAthlete: (athlete: PlayerWithStats) => void;
+  /** Coach's flag cut-offs, shared by the roster table, the followed-athletes panel and card,
+   *  and the Needs Attention KPI tile, so they never disagree. Persisted across reloads. */
+  draft: ThresholdDraft;
+  setDraft: (d: ThresholdDraft) => void;
+  thresholds: AttentionThresholds;
 }
 
 const FollowedAthletesContext = createContext<FollowedAthletesContextValue | null>(null);
@@ -43,6 +59,7 @@ export function FollowedAthletesProvider({ children }: { children: ReactNode }) 
   const [roster, setRoster] = useState<RosterMetricsResult | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [storedFollowed, setStoredFollowed] = useState<string[] | null>(readFollowed);
+  const [draft, setDraftState] = useState<ThresholdDraft>(readDraft);
 
   useEffect(() => {
     if (!profile) return;
@@ -92,9 +109,23 @@ export function FollowedAthletesProvider({ children }: { children: ReactNode }) 
 
   const openAthlete = useCallback((athlete: PlayerWithStats) => navigate(`/athlete/${athlete.id}`), [navigate]);
 
+  const setDraft = useCallback((d: ThresholdDraft) => {
+    setDraftState(d);
+    try {
+      localStorage.setItem(THRESHOLDS_KEY, JSON.stringify(d));
+    } catch {
+      /* storage unavailable: cut-offs last for this visit only */
+    }
+  }, []);
+
+  const thresholds = useMemo(() => thresholdsFromDraft(draft), [draft]);
+
   const value = useMemo(
-    () => ({ athletes, followedAthletes, followedIds, setFollowedIds, signalsByPlayer, panelOpen, setPanelOpen, openAthlete }),
-    [athletes, followedAthletes, followedIds, setFollowedIds, signalsByPlayer, panelOpen, openAthlete]
+    () => ({
+      athletes, followedAthletes, followedIds, setFollowedIds, signalsByPlayer, panelOpen, setPanelOpen, openAthlete,
+      draft, setDraft, thresholds,
+    }),
+    [athletes, followedAthletes, followedIds, setFollowedIds, signalsByPlayer, panelOpen, openAthlete, draft, setDraft, thresholds]
   );
 
   return <FollowedAthletesContext.Provider value={value}>{children}</FollowedAthletesContext.Provider>;

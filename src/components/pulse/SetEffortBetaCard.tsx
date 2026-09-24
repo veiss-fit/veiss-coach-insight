@@ -1,4 +1,5 @@
 import { BetaBadge, MetricInfoTip } from "./BetaBadge";
+import { fmtShortDate } from "@/lib/format";
 
 export interface SetEffortPoint {
   set: number;
@@ -13,8 +14,6 @@ export interface SetEffortBetaCardProps {
   sets: SetEffortPoint[];
 }
 
-const fmtDate = (iso: string) => new Date(iso).toLocaleDateString("en-US", { day: "numeric", month: "short", timeZone: "UTC" });
-
 /**
  * Group 6a — RIR/RPE. Half of the old "Effort & readiness" card, split out because RIR/RPE are
  * athlete-reported per set (no single "session RIR" is defined), same grain and x-axis as
@@ -27,7 +26,7 @@ export function SetEffortBetaCard({ exercise, sessionDate, sets }: SetEffortBeta
       <div className="row" style={{ justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <div style={{ minWidth: 0 }}>
           <div className="v-h2" style={{ color: "var(--ink-0)" }}>{exercise}</div>
-          <div className="v-meta" style={{ fontSize: 11 }}>{fmtDate(sessionDate)} · per set · athlete-reported</div>
+          <div className="v-meta" style={{ fontSize: 11 }}>{fmtShortDate(sessionDate)} · per set · athlete-reported</div>
         </div>
         <span className="row" style={{ gap: 4 }}>
           <BetaBadge />

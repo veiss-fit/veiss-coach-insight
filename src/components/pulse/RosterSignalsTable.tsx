@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
-import { Check, ChevronDown, ChevronRight, FlaskConical, Info, Pencil, Plus, Search, SlidersHorizontal, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, FlaskConical, Pencil, Plus, Search, SlidersHorizontal, X } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { format } from "date-fns";
@@ -11,9 +10,12 @@ import {
   DEFAULT_THRESHOLDS,
   attentionFlags,
   orderByAttention,
+  INITIAL_DRAFT,
+  thresholdsFromDraft,
   type AttentionSignal,
   type AttentionThresholds,
   type SortKey,
+  type ThresholdDraft,
 } from "@/lib/metrics/attentionFlags";
 import { athleteFacts } from "@/lib/metrics/athleteFacts";
 import { Avatar } from "./Avatar";
@@ -21,6 +23,8 @@ import { AttBar } from "./AttBar";
 import { GroupChip } from "./chips";
 import { ComingSoonMetricsCard, DEFAULT_COMING_SOON_METRICS } from "./ComingSoonMetricsCard";
 import type { FilterGroup } from "./FilterBar";
+import { signedInt } from "@/lib/format";
+import { InfoTip } from "./InfoTip";
 
 interface RosterSignalsTableProps {
   athletes: PlayerWithStats[];
@@ -52,8 +56,6 @@ const dash = (
     —
   </span>
 );
-const signed = (n: number) => `${n > 0 ? "+" : n < 0 ? "−" : ""}${Math.abs(n).toFixed(0)}%`;
-
 export type ColumnKey = "attendance" | "drop" | "tempo" | "last";
 /** The coach can show at most this many columns besides Athlete and Group. */
 export const MAX_COLUMNS = 4;
@@ -65,33 +67,6 @@ const COLUMN_LABEL: Record<ColumnKey, string> = {
   last: "Last session",
 };
 const ALL_COLUMNS: ColumnKey[] = ["attendance", "drop", "tempo", "last"];
-
-/** (i) tooltip button. */
-function InfoTip({ label, info }: { label: string; info: React.ReactNode }) {
-  return (
-    <TooltipProvider delayDuration={100}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            aria-label={`About ${label.toLowerCase()}`}
-            onClick={(e) => e.stopPropagation()}
-            style={{ display: "inline-flex", border: "none", background: "transparent", padding: 2, cursor: "help", color: "var(--ink-2)" }}
-          >
-            <Info size={13} strokeWidth={1.5} />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent
-          side="bottom"
-          align="start"
-          style={{ maxWidth: 320, fontSize: 12, lineHeight: 1.45, textTransform: "none", letterSpacing: "normal", fontWeight: 400 }}
-        >
-          {info}
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-  );
-}
 
 /**
  * Column header. In edit mode the name becomes a dropdown: pick which column
@@ -112,7 +87,11 @@ function ColumnHeader({
   onPick: (next: ColumnKey | null) => void;
 }) {
   if (!editing && !column) return null;
-  const tip = column && info && <InfoTip label={COLUMN_LABEL[column]} info={info} />;
+  const tip = column && info && (
+    <InfoTip label={`About ${COLUMN_LABEL[column].toLowerCase()}`} align="start" maxWidth={320}>
+      {info}
+    </InfoTip>
+  );
   if (!editing) {
     return (
       <th>
@@ -289,7 +268,7 @@ function ExerciseSignal({
       <div>
         <div className="row" style={{ gap: 6 }}>
           <span className="mono" style={{ fontSize: 12.5, color: "var(--ink-0)", fontWeight: flagged ? 600 : 400 }}>
-            {signed(signal.change)}
+            {signedInt(signal.change)}
           </span>
           <span className="v-meta ellipsis" style={{ fontSize: 11, maxWidth: 150 }}>
             {signal.exercise}
@@ -498,19 +477,6 @@ function AttentionControls({
   );
 }
 
-const SIGNALS = SIGNAL_LABELS.map((s) => s.key);
-export type ThresholdDraft = Record<AttentionSignal, string>;
-export const INITIAL_DRAFT = Object.fromEntries(SIGNALS.map((k) => [k, String(DEFAULT_THRESHOLDS[k])])) as ThresholdDraft;
-
-const toThreshold = (v: string): number | null => {
-  const n = parseFloat(v);
-  return v.trim() !== "" && Number.isFinite(n) && n >= 0 ? n : null;
-};
-
-/** Cut-off text boxes to numbers (an empty or invalid box turns that signal off). */
-export const thresholdsFromDraft = (draft: ThresholdDraft) =>
-  Object.fromEntries(SIGNALS.map((k) => [k, toThreshold(draft[k])])) as unknown as AttentionThresholds;
-
 /**
  * SP-12 and SP-13 prototype: copy of the roster table (AthleteTable.tsx). The
  * Velocity column is replaced by signals (biggest drop vs baseline, slowest
@@ -521,8 +487,10 @@ export const thresholdsFromDraft = (draft: ThresholdDraft) =>
  * shown. Flagged rows can be pinned to the top; the coach picks the sort key.
  * No composite score. Storybook only.
  *
- * TODO(page integration): the chosen slots and the cut-offs live in component
- * state here. Persist them per coach (e.g. profile settings) when placed.
+ * TODO(page integration): the chosen column slots live in component state
+ * here and reset on reload; the cut-offs (draft/onDraftChange) are lifted to
+ * FollowedAthletesContext and persist via localStorage. Persist slots per
+ * coach (e.g. profile settings) too when placed.
  */
 export function RosterSignalsTable({
   athletes,
@@ -545,8 +513,8 @@ export function RosterSignalsTable({
   const [editing, setEditing] = useState(false);
   const [slots, setSlots] = useState<(ColumnKey | null)[]>([...ALL_COLUMNS]);
 
-  const thresholds = thresholdsFromDraft(draft);
-  const now = new Date(today ?? new Date().toISOString()).getTime();
+  const thresholds = useMemo(() => thresholdsFromDraft(draft), [draft]);
+  const now = useMemo(() => (today ? new Date(today) : new Date()).getTime(), [today]);
 
   const pick = (slot: number, next: ColumnKey | null) => {
     const out = [...slots];
@@ -564,8 +532,7 @@ export function RosterSignalsTable({
     });
     const metricSort = sort === "name" || sort === "flagged" ? "default" : sort;
     return orderByAttention(withFlags, (r) => r.facts, (r) => r.flags.flagged, metricSort, sort === "flagged");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [athletes, signalsByPlayer, draft, sort, now]);
+  }, [athletes, signalsByPlayer, thresholds, sort, now]);
 
   /** Slots to draw: all of them while editing (empty ones as "Add column"), otherwise only filled ones. */
   const drawn = slots.map((column, slot) => ({ column, slot })).filter((s) => editing || s.column);

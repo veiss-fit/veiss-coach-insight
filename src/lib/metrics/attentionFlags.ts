@@ -50,6 +50,22 @@ export function attentionFlags(f: AttentionFacts, t: AttentionThresholds): Atten
   return { days, drop, tempo, attendance, flagged: days || drop || tempo || attendance };
 }
 
+export type ThresholdDraft = Record<AttentionSignal, string>;
+export const INITIAL_DRAFT = Object.fromEntries(
+  (Object.keys(DEFAULT_THRESHOLDS) as AttentionSignal[]).map((k) => [k, String(DEFAULT_THRESHOLDS[k])])
+) as ThresholdDraft;
+
+const toThreshold = (v: string): number | null => {
+  const n = parseFloat(v);
+  return v.trim() !== "" && Number.isFinite(n) && n >= 0 ? n : null;
+};
+
+/** Cut-off text boxes to numbers (an empty or invalid box turns that signal off). */
+export const thresholdsFromDraft = (draft: ThresholdDraft): AttentionThresholds =>
+  Object.fromEntries(
+    (Object.keys(DEFAULT_THRESHOLDS) as AttentionSignal[]).map((k) => [k, toThreshold(draft[k])])
+  ) as unknown as AttentionThresholds;
+
 export type SortKey = "default" | "days" | "drop" | "tempo" | "attendance";
 
 const FACT_OF: Record<Exclude<SortKey, "default">, keyof AttentionFacts> = {

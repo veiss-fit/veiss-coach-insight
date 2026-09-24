@@ -1,4 +1,5 @@
 import { BetaBadge, MetricInfoTip } from "./BetaBadge";
+import { fmtShortDate } from "@/lib/format";
 
 export interface RepTimingSetPoint {
   set: number;
@@ -18,7 +19,6 @@ export interface RepTimingBetaCardProps {
 const VEL_COLOR = "var(--brand)";
 const POWER_COLOR = "#2563eb";
 const BAR_AREA = 90, HEADROOM = 20, BAR_W = 30, BAR_GAP = 4;
-const fmtDate = (iso: string) => new Date(iso).toLocaleDateString("en-US", { day: "numeric", month: "short", timeZone: "UTC" });
 
 /**
  * Group 4 — Rep timing, new fields. Same grain and x-axis as the shipped RepTimingCards: per set,
@@ -35,7 +35,7 @@ export function RepTimingBetaCard({ exercise, sessionDate, sets }: RepTimingBeta
       <div className="row" style={{ justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <div style={{ minWidth: 0 }}>
           <div className="v-h2" style={{ color: "var(--ink-0)" }}>{exercise}</div>
-          <div className="v-meta" style={{ fontSize: 11 }}>{fmtDate(sessionDate)} · per set · new rep-timing fields</div>
+          <div className="v-meta" style={{ fontSize: 11 }}>{fmtShortDate(sessionDate)} · per set · new rep-timing fields</div>
         </div>
         <span className="row" style={{ gap: 4 }}>
           <BetaBadge />

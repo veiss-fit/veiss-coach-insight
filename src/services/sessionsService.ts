@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { canonicalizeExerciseName } from '@/lib/targetEvaluation';
+import { isValidExerciseName } from '@/lib/athleteSummaryUtils';
 import { Database } from '@/types/database';
 
 type SessionRow = Database['public']['Tables']['sessions']['Row'];
@@ -146,9 +147,6 @@ export const getSessionExercises = async (sessionId: string): Promise<ExerciseDa
     }
 
     // 2. Group reps by exercise — skip artifact names (null, < 2 letters, or known generic labels)
-    const ARTIFACT_EXERCISE_NAMES = new Set([
-      "Workout", "Exercise", "Movement", "Training", "Session",
-    ]);
     // Grouped by CANONICAL name (see canonicalizeExerciseName's alias map) so
     // e.g. "Squat" and "Squats" reps merge into one "Back Squat" exercise
     // instead of fragmenting into unrelated entries — confirmed live
@@ -157,9 +155,7 @@ export const getSessionExercises = async (sessionId: string): Promise<ExerciseDa
     const exerciseMap = new Map<string, Rep[]>();
     reps.forEach((rep) => {
       const raw = rep.exercise_name;
-      if (!raw) return;
-      if ((raw.match(/[a-zA-Z]/g) ?? []).length < 2) return;
-      if (ARTIFACT_EXERCISE_NAMES.has(raw)) return;
+      if (!isValidExerciseName(raw)) return;
       const key = canonicalizeExerciseName(raw);
       if (!exerciseMap.has(key)) exerciseMap.set(key, []);
       exerciseMap.get(key)!.push(rep);

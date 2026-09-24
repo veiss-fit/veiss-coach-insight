@@ -36,6 +36,7 @@ export function LoadRecChip({ rec }: { rec: string }) {
   );
 }
 
+// TODO(cleanup): Storybook-only, no production caller currently.
 export function EngagementChip({ level }: { level: string }) {
   const tone = level === "High" ? "good" : level === "Low" ? "bad" : "neutral";
   return (

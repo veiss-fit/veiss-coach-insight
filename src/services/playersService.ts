@@ -97,6 +97,27 @@ export interface CoachGroup {
  * players assigned — unlike deriving groups from the player list, which
  * silently drops any group nobody has been assigned to yet.
  */
+/**
+ * Cheap {id, user_id} refs for a coach's roster, scoped by team — used to kick
+ * off roster-series queries (getRosterMetrics) in parallel with the heavier
+ * per-player stats fetch instead of waiting on it first.
+ */
+export const getCoachPlayerRefs = async (coachUserId: string): Promise<Array<{ id: string; user_id: string | null }>> => {
+  const teamIds = await getCoachTeamIds(coachUserId);
+  if (teamIds.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from('players')
+    .select('id, user_id')
+    .in('team_id', teamIds) as { data: Array<{ id: string; user_id: string | null }> | null; error: unknown };
+
+  if (error) {
+    console.error('Error fetching player refs:', error);
+    return [];
+  }
+  return data ?? [];
+};
+
 export const getCoachGroups = async (coachUserId: string): Promise<CoachGroup[]> => {
   const coachId = await getCoachId(coachUserId);
   if (!coachId) return [];
@@ -235,14 +256,9 @@ export const getPlayersByTeamId = async (teamId: string): Promise<PlayerWithStat
 
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const thirtyDaysAgoMs = thirtyDaysAgo.getTime();
 
-    const { data: sessions } = sessionOwnerIds.length > 0
-      ? await supabase
-          .from('sessions')
-          .select('id, created_at')
-          .in('user_id', sessionOwnerIds)
-          .gte('created_at', thirtyDaysAgo.toISOString())
-      : { data: [] as Pick<Session, 'id' | 'created_at'>[] };
+    const sessions = (allSessions ?? []).filter(s => new Date(s.created_at).getTime() >= thirtyDaysAgoMs);
 
     let avgVelocity = 0;
     let avgROM = 0;

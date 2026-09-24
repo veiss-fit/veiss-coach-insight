@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { RosterViewSwitcher, type RosterView } from './RosterViewSwitcher';
-import { INITIAL_DRAFT } from './RosterSignalsTable';
+import { INITIAL_DRAFT } from '@/lib/metrics/attentionFlags';
 import type { LeaderboardMetric, LeaderboardRow } from './LeaderboardPanel';
 import type { DitherSettings } from './rankDither';
 import { DITHER_ARGS, DITHER_ARG_TYPES } from './ditherStoryControls';

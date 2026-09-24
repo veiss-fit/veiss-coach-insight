@@ -1,3 +1,4 @@
+// TODO(cleanup): Storybook-only, no production caller currently (Index.tsx no longer renders this table).
 import { ChevronRight } from "lucide-react";
 import { format } from "date-fns";
 import type { PlayerWithStats } from "@/services/playersService";

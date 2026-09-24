@@ -5,6 +5,7 @@ import { StatsDetailMenu } from "./StatsDetailMenu";
 import { SetWindow } from "./SetWindow";
 import { twoColumnGrid } from "./twoColumnGrid";
 import { glowStyle, type GlowProps } from "./glow";
+import { signedInt } from "@/lib/format";
 
 const BAR_AREA = 130;
 /** Room above the tallest bar for its total label. */
@@ -148,7 +149,7 @@ function pillsFor(sets: SetTiming[]): string[] {
   for (const [label, key, c] of changes) {
     if (c.ok) {
       const r = Math.round(c.change);
-      out.push(`${label} ${r === 0 ? "0%" : r > 0 ? `+${r}%` : `−${Math.abs(r)}%`} · set ${c.firstSet} to ${c.lastSet}`);
+      out.push(`${label} ${signedInt(r)} · set ${c.firstSet} to ${c.lastSet}`);
     } else if (c.ok === false && sets.some((s) => s[key] != null)) {
       out.push(`${label} change: ${c.reason}`);
     }

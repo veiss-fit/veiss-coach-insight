@@ -1,8 +1,7 @@
 import type { ExerciseSets } from "@/lib/metrics/setVelocitySummary";
 import type { HistorySession } from "@/lib/metrics/velocityVsBaseline";
 import { fastestAtHeaviestLoad } from "@/lib/metrics/velocityRecords";
-
-const fmtDate = (iso: string) => new Date(iso).toLocaleDateString("en-US", { day: "numeric", month: "short", timeZone: "UTC" });
+import { fmtShortDate } from "@/lib/format";
 
 /** Header stays put while the rows scroll. */
 const th: React.CSSProperties = { color: "var(--ink-2)", whiteSpace: "nowrap", position: "sticky", top: 0, zIndex: 1, background: "var(--surface-2)" };
@@ -73,7 +72,7 @@ export function PersonalRecordsCard({ exercises, history = {}, sessionDate }: Pe
                           <span style={{ color: "var(--ink-0)", fontWeight: 600 }}>{r.best.toFixed(2)} m/s</span>
                         </span>
                       </td>
-                      <td><span className="mono" style={num}>{fmtDate(r.date)}</span></td>
+                      <td><span className="mono" style={num}>{fmtShortDate(r.date)}</span></td>
                       <td><span className="mono" style={num}>{r.set}</span></td>
                     </>
                   )}

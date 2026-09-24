@@ -1,22 +1,8 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { BetaBadge, MetricInfoTip } from "./BetaBadge";
-
-/** Measures both dimensions, so the chart can stretch to fill whatever height the grid gives the card (not a fixed height). */
-function useMeasuredSize<T extends HTMLElement>(fallback: { width: number; height: number }) {
-  const ref = useRef<T>(null);
-  const [size, setSize] = useState(fallback);
-  useEffect(() => {
-    if (!ref.current) return;
-    const ro = new ResizeObserver(([e]) =>
-      setSize({ width: e.contentRect.width || fallback.width, height: e.contentRect.height || fallback.height })
-    );
-    ro.observe(ref.current);
-    return () => ro.disconnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  return { ref, ...size };
-}
+import { useMeasuredSize } from "@/hooks/useMeasuredSize";
+import { signedPct } from "@/lib/format";
 
 export interface CompositeScoreWeekPoint {
   label: string;
@@ -49,11 +35,6 @@ const FADE_MS = 160;
 const LABEL_W = 100;
 const LABEL_H = 36;
 const DIM_OPACITY = 0.15;
-
-const signedPct = (v: number) => {
-  const r = Math.round(v * 10) / 10;
-  return r === 0 ? "0%" : r > 0 ? `+${r.toFixed(1)}%` : `−${Math.abs(r).toFixed(1)}%`;
-};
 
 function ScoreRing({ label, value, color, size = 68 }: { label: string; value: number; color: string; size?: number }) {
   const thickness = Math.max(6, size * 0.12);

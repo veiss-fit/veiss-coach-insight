@@ -1,3 +1,4 @@
+// TODO(cleanup): Storybook-only, no production caller currently (the athlete page's readiness tab was removed).
 import type { DeviationIndicator, RAGStatus } from "@/lib/athleteSummaryUtils";
 import { Sparkline } from "./Sparkline";
 

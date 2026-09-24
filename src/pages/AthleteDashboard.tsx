@@ -5,33 +5,20 @@ import { Bell, Send, ChevronRight, Plus, Paperclip } from "lucide-react";
 import { toast } from "sonner";
 import { TopNav } from "@/components/TopNav";
 import { Avatar } from "@/components/pulse/Avatar";
-// TODO(cleanup): unused since the athlete-page KPI strip was removed.
-import { KpiTile } from "@/components/pulse/KpiTile";
-import { Sparkline } from "@/components/pulse/Sparkline";
 import { UnderlineTabs } from "@/components/pulse/Tabs";
-import {
-  VelocityTrendChart, ForceVelocityChart, RepTraceChart, WeeklyLoadChart,
-  VelTrendPoint, FVPoint, WeeklyLoadPoint,
-} from "@/components/pulse/charts";
+import { WeeklyLoadChart, WeeklyLoadPoint } from "@/components/pulse/charts";
 import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { useAuth } from "@/contexts/AuthContext";
-import { supabase } from "@/lib/supabase";
-import { getPlayersWithStatsByCoach, PlayerWithStats } from "@/services/playersService";
-import { getPlayerSessions, SessionData, ExerciseData } from "@/services/sessionsService";
+import { getPlayerById, getCoachTeamIds, PlayerWithStats } from "@/services/playersService";
+import { getPlayerSessions, SessionData } from "@/services/sessionsService";
 import { getPlayerWorkoutPlans } from "@/services/workoutPlansService";
-import { getRosterMetrics, RosterMetricsResult } from "@/services/rosterMetricsService";
 import { getPlayerCoachNotes, addCoachNote, CoachNote } from "@/services/coachFeedbackService";
-import {
-  computeAnomalyIndicators, computeSparkline, DeviationIndicator, RAGStatus,
-  sessionAvgVelocity, sessionVelocityDropoff, sessionRomConsistency,
-  sessionEccentricConcentricRatio, sessionTUT, sessionVolumeGated, periodVolume,
-  velocityIndicatorSource, findPrimaryExercise, compositeRagStatus,
-} from "@/lib/athleteSummaryUtils";
+import { findPrimaryExercise } from "@/lib/athleteSummaryUtils";
 import { lastDaysFor } from "@/lib/rosterFlags";
 import { findMatchingSessionForPlan } from "@/lib/workoutAttendance";
 import { SESSIONS_TARGET } from "@/lib/vbtZones";
 import { canonicalizeExerciseName } from "@/lib/targetEvaluation";
-import { historyByExercise, sessionSets, sessionRom, sessionTiming, sessionMoment } from "@/lib/metrics/sessionAdapters";
+import { historyByExercise, sessionSets, sessionRom, sessionTiming, sessionMoment, byMoment } from "@/lib/metrics/sessionAdapters";
 import { RangeOfMotionCards } from "@/components/pulse/RangeOfMotionCard";
 import { RepTimingCards } from "@/components/pulse/RepTimingCard";
 import { FadeSwap } from "@/components/pulse/FadeSwap";
@@ -75,28 +62,6 @@ function planStatus(plan: PlanRow, today: Date): PlanStatus {
   if (plan.is_completed) return "completed";
   return new Date(plan.date + "T23:59:59") < today ? "missed" : "queued";
 }
-
-const RAG_COLOR: Record<RAGStatus, string> = {
-  green: "var(--good)",
-  amber: "var(--warn)",
-  red: "var(--bad)",
-  insufficient: "var(--ink-3)",
-};
-
-// TODO(cleanup): unused since the athlete-page KPI strip was removed.
-const READINESS_LABEL: Record<RAGStatus, string> = {
-  green: "On track",
-  amber: "Monitor",
-  red: "Fatigue risk",
-  insufficient: "Not enough data",
-};
-
-const METRIC_FN: Record<string, (s: SessionData) => number | null> = {
-  velocity: sessionAvgVelocity,
-  romConsistency: sessionRomConsistency,
-  eccentricConcentric: sessionEccentricConcentricRatio,
-  tut: sessionTUT,
-};
 
 // ─── Sessions tab ─────────────────────────────────────────────────────────────
 
@@ -181,10 +146,15 @@ interface NoteGuard {
 type CardGlow ={ exercise: string; sessionId: string | null } | null;
 
 /** `glow` is the exercise card highlighted after a roster link. It lives on the page so it stays cleared when the tab is left and re-entered. */
-function SessionsView({ sessions, plans, focus, glow, onGlowClear, onPlanChange, guardSwitch }: { sessions: SessionData[]; plans: PlanRow[]; focus: { sessionId: string | null; exercise: string | null; view: string | null }; glow: CardGlow; onGlowClear: () => void; onPlanChange: (planId: string | null) => void; guardSwitch: (proceed: () => void) => void }) {
+function SessionsView({ sessions, plans, history, focus, glow, onGlowClear, onPlanChange, guardSwitch }: { sessions: SessionData[]; plans: PlanRow[]; history: Record<string, HistorySession[]>; focus: { sessionId: string | null; exercise: string | null; view: string | null }; glow: CardGlow; onGlowClear: () => void; onPlanChange: (planId: string | null) => void; guardSwitch: (proceed: () => void) => void }) {
   const [view, setView] = useState(() => SESSION_VIEWS.find((o) => o.id === focus.view)?.id ?? "velocity");
   // True only right after the blob was clicked; a workout change clears it, and a tab switch remounts this view.
   const [fadeViews, setFadeViews] = useState(false);
+  // Computed once per plans/sessions change instead of re-matching per plan on every read below.
+  const planSessionMap = useMemo(
+    () => new Map(plans.map((p) => [p.id, sessionForPlan(p, sessions)])),
+    [plans, sessions]
+  );
   const pickerPlans = useMemo<PickerPlan[]>(
     () => plans.map((p) => ({
       id: p.id,
@@ -192,9 +162,9 @@ function SessionsView({ sessions, plans, focus, glow, onGlowClear, onPlanChange,
       title: p.title,
       exercises: Array.isArray(p.exercises) ? (p.exercises as PickerPlan["exercises"]) : [],
       is_completed: p.is_completed,
-      hasData: sessionForPlan(p, sessions) != null,
+      hasData: planSessionMap.get(p.id) != null,
     })),
-    [plans, sessions]
+    [plans, planSessionMap]
   );
 
   // Open on the workout behind a roster link (?session=), else the latest past workout that has a session.
@@ -202,14 +172,13 @@ function SessionsView({ sessions, plans, focus, glow, onGlowClear, onPlanChange,
     const todayKey = format(new Date(), "yyyy-MM-dd");
     const byDate = [...plans].sort((a, b) => b.date.localeCompare(a.date));
     if (focus.sessionId) {
-      const hit = byDate.find((p) => sessionForPlan(p, sessions)?.id === focus.sessionId);
+      const hit = byDate.find((p) => planSessionMap.get(p.id)?.id === focus.sessionId);
       if (hit) return hit;
     }
-    return byDate.find((p) => p.date <= todayKey && sessionForPlan(p, sessions)) ?? null;
+    return byDate.find((p) => p.date <= todayKey && planSessionMap.get(p.id)) ?? null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const history = useMemo(() => historyByExercise(sessions), [sessions]);
   const [planId, setPlanId] = useState<string | null>(first?.id ?? null);
   const plan = plans.find((p) => p.id === planId) ?? null;
   // Tell the page which workout is selected (null when none, and when this view is left) so the note form knows.
@@ -219,7 +188,7 @@ function SessionsView({ sessions, plans, focus, glow, onGlowClear, onPlanChange,
     return () => onPlanChange(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activePlanId]);
-  const matched = plan ? sessionForPlan(plan, sessions) : null;
+  const matched = plan ? planSessionMap.get(plan.id) ?? null : null;
   const shown = plans.length === 0 ? sessions : matched ? [matched] : [];
   const emptyMessage = plans.length === 0
     ? "No sessions logged yet."
@@ -236,30 +205,6 @@ function SessionsView({ sessions, plans, focus, glow, onGlowClear, onPlanChange,
       ) : (
         <SessionsTab key={plan?.id ?? "none"} sessions={shown} history={history} view={view} animate={fadeViews} glow={glow} onGlowClear={onGlowClear} emptyMessage={emptyMessage} />
       )}
-    </>
-  );
-}
-
-// TODO(cleanup): unused since the Sessions tab shows the set-velocity graph per exercise.
-function SessionExerciseTrace({ exercise }: { exercise: ExerciseData }) {
-  const reps = [...exercise.repData]
-    .filter((r) => r.velocity > 0)
-    .sort((a, b) => a.setNumber - b.setNumber || a.repNumber - b.repNumber)
-    .map((r) => ({ set: r.setNumber, rep: r.repNumber, vel: r.velocity, weight: r.weight }));
-
-  const vels = reps.map((r) => r.vel);
-  const sets = new Set(reps.map((r) => r.set)).size;
-
-  if (reps.length === 0) return <div className="v-meta" style={{ padding: "12px 0" }}>No rep data recorded for this exercise.</div>;
-
-  return (
-    <>
-      <RepTraceChart reps={reps} weightUnit={exercise.weightUnit} />
-      <div className="row" style={{ marginTop: 10, gap: 24, fontSize: 11.5, color: "var(--ink-2)", flexWrap: "wrap" }}>
-        <span className="mono">{reps.length} reps · {sets} set{sets !== 1 ? "s" : ""}</span>
-        <span className="mono">peak {Math.max(...vels).toFixed(2)} m/s</span>
-        <span className="mono">low {Math.min(...vels).toFixed(2)} m/s</span>
-      </div>
     </>
   );
 }
@@ -301,118 +246,6 @@ function SessionsTab({ sessions, history, view, animate, glow, onGlowClear, empt
         })}
       </div>
     </FadeSwap>
-  );
-}
-
-// ─── Readiness tab ────────────────────────────────────────────────────────────
-
-// TODO(cleanup): tab removed. The baseline card lives on as DeviationBaselineCard (Storybook only).
-function ReadinessTab({ athlete, sessions, indicators }: { athlete: PlayerWithStats; sessions: SessionData[]; indicators: DeviationIndicator[] }) {
-  // getPlayerSessions orders newest-first, so picking "the last drop-off value"
-  // without re-sorting grabbed the OLDEST session's number, not the most recent
-  // one — this is almost certainly what produced a visibly-wrong readiness score
-  // during the walkthrough (D44). Sort chronologically first, same convention
-  // athleteSummaryUtils.ts uses everywhere else, so "last" really means latest.
-  const chronological = [...sessions].sort(
-    (a, b) => new Date(a.startedAt ?? a.createdAt).getTime() - new Date(b.startedAt ?? b.createdAt).getTime()
-  );
-  const drops = chronological
-    .map((s) => sessionVelocityDropoff(s))
-    .filter((v): v is number => v != null);
-  const drop = drops.length ? Math.round(drops[drops.length - 1]) : 0;
-  const lastDays = lastDaysFor(athlete);
-  const lastDaysCapped = Number.isFinite(lastDays) ? Math.min(lastDays, 30) : 30;
-  const score = Math.max(20, Math.min(100, 100 - drop * 1.4 - lastDaysCapped * 2));
-  const tone = score >= 80 ? "good" : score >= 60 ? "warn" : "bad";
-
-  const velInd = indicators.find((ind) => ind.metric === "velocity");
-  const velDeltaPct = velInd?.deltaPercent ?? null;
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: 16 }}>
-        {/* Readiness score */}
-        <div className="v-card padded">
-          <div className="v-h2">Readiness score</div>
-          <div className="v-meta" style={{ marginTop: 2 }}>Heuristic: velocity drop-off, recency, and attendance.</div>
-          <div className="row" style={{ marginTop: 18, gap: 16, alignItems: "center" }}>
-            <div style={{ width: 110, height: 110, position: "relative", flexShrink: 0 }}>
-              <svg viewBox="0 0 110 110" width="110" height="110">
-                <circle cx="55" cy="55" r="46" stroke="var(--surface-sunk)" strokeWidth="10" fill="none" />
-                <circle
-                  cx="55" cy="55" r="46"
-                  stroke={`var(--${tone})`} strokeWidth="10" fill="none"
-                  strokeDasharray={`${(score / 100) * 289} 289`}
-                  strokeLinecap="round"
-                  transform="rotate(-90 55 55)"
-                />
-              </svg>
-              <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-                <span className="num" style={{ fontSize: 30, fontWeight: 600 }}>{Math.round(score)}</span>
-                <span className="v-mute2" style={{ fontSize: 10 }}>of 100</span>
-              </div>
-            </div>
-            <div style={{ flex: 1 }}>
-              {[
-                { l: "Velocity drop-off", v: `${drop}%`, t: drop >= 15 ? "warn" : "good" },
-                { l: "Recency", v: Number.isFinite(lastDays) ? `${lastDays} days ago` : "no sessions", t: lastDays >= 7 ? "bad" : lastDays >= 4 ? "warn" : "good" },
-                { l: "Attendance", v: `${athlete.attendance}%`, t: athlete.attendance >= 85 ? "good" : athlete.attendance >= 70 ? "warn" : "bad" },
-                { l: "Velocity vs base", v: velDeltaPct != null ? `${velDeltaPct > 0 ? "+" : ""}${velDeltaPct.toFixed(1)}%` : "—", t: velDeltaPct == null ? "neutral" : velDeltaPct >= 0 ? "good" : "warn" },
-              ].map((row) => (
-                <div key={row.l} className="row" style={{ justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid var(--line-0)" }}>
-                  <span style={{ fontSize: 12, color: "var(--ink-2)" }}>{row.l}</span>
-                  <span className="v-chip" data-tone={row.t}>{row.v}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Deviation indicators (z-score baseline model) */}
-        <div className="v-card padded">
-          <div className="v-h2">Deviation from baseline</div>
-          <div className="v-meta" style={{ marginTop: 2 }}>
-            Last 4 sessions vs historical baseline · green ≤1σ, amber ≤2σ, red &gt;2σ.
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 14 }}>
-            {indicators.map((ind) => {
-              // "velocity" is scoped to whichever lift the indicator itself was
-              // built from (see velocityIndicatorSource) — resolving it fresh
-              // here instead of a static lookup keeps the sparkline reading the
-              // exact same per-session values the indicator's z-score used.
-              const spark = ind.metric === "velocity"
-                ? computeSparkline(sessions, velocityIndicatorSource(sessions).extractFn)
-                : computeSparkline(sessions, METRIC_FN[ind.metric] ?? sessionAvgVelocity);
-              return (
-                <div key={ind.metric} style={{ border: "1px solid var(--line-0)", borderRadius: 8, padding: "10px 12px" }}>
-                  <div className="row" style={{ justifyContent: "space-between" }}>
-                    <span className="v-label" style={{ fontSize: 9.5 }}>{ind.label}</span>
-                    <span style={{ width: 8, height: 8, borderRadius: 999, background: RAG_COLOR[ind.ragStatus], flexShrink: 0 }} title={ind.ragStatus} />
-                  </div>
-                  <div className="row" style={{ alignItems: "baseline", gap: 6, marginTop: 4 }}>
-                    <span className="num" style={{ fontSize: 17, fontWeight: 600 }}>
-                      {ind.value != null ? ind.formatFn(ind.value) : "—"}
-                    </span>
-                    {ind.deltaPercent != null && (
-                      <span className="mono" style={{ fontSize: 10.5, color: ind.deltaPercent >= 0 ? "var(--good)" : "var(--bad)" }}>
-                        {ind.deltaPercent > 0 ? "+" : ""}{ind.deltaPercent.toFixed(1)}%
-                      </span>
-                    )}
-                  </div>
-                  {ind.ragStatus === "insufficient" ? (
-                    <div className="v-mute2" style={{ fontSize: 10.5, marginTop: 6 }}>Needs ≥7 sessions</div>
-                  ) : (
-                    !spark.insufficient && (
-                      <Sparkline data={spark.points.map((p) => p.value)} stroke={RAG_COLOR[ind.ragStatus]} fill="transparent" height={20} />
-                    )
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -636,17 +469,12 @@ function InsightRail({
 
 export default function AthleteDashboard() {
   const { id } = useParams<{ id: string }>();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [athlete, setAthlete] = useState<PlayerWithStats | null>(null);
   const [sessions, setSessions] = useState<SessionData[]>([]);
   const [plans, setPlans] = useState<PlanRow[]>([]);
-  // Still fetched via getRosterMetrics for this athlete's OWN dropPct/
-  // lastSessionDate (drives the header flags/chips) — no longer used for any
-  // peer/group averaging, which was removed (self-vs-teammates comparison is
-  // out of scope for this dashboard's athlete detail page).
-  const [athleteMetrics, setAthleteMetrics] = useState<RosterMetricsResult | null>(null);
   const [notes, setNotes] = useState<CoachNote[]>([]);
   const [coachDbId, setCoachDbId] = useState<string | null>(null);
   const [searchParams] = useSearchParams();
@@ -684,34 +512,30 @@ export default function AthleteDashboard() {
     if (!user?.id || !id) return;
     setLoading(true);
     try {
-      const roster = await getPlayersWithStatsByCoach(user.id);
-      const found = roster.find((p) => p.id === id) ?? null;
-      setAthlete(found);
-      if (!found) return;
+      const [found, teamIds] = await Promise.all([
+        getPlayerById(id),
+        getCoachTeamIds(user.id),
+      ]);
+      const inCoachRoster = found && found.team_id && teamIds.includes(found.team_id) ? found : null;
+      setAthlete(inCoachRoster);
+      if (!inCoachRoster) return;
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const coachQuery = (supabase as any)
-        .from("coaches").select("id").eq("user_id", user.id).maybeSingle() as Promise<{ data: { id: string } | null }>;
-
-      const [sessionData, planData, metrics, noteData, coachRow] = await Promise.all([
-        getPlayerSessions(found.id, found.user_id),
-        getPlayerWorkoutPlans(found.id),
-        getRosterMetrics([{ id: found.id, user_id: found.user_id }]),
-        getPlayerCoachNotes(found.id),
-        coachQuery,
+      const [sessionData, planData, noteData] = await Promise.all([
+        getPlayerSessions(inCoachRoster.id, inCoachRoster.user_id),
+        getPlayerWorkoutPlans(inCoachRoster.id),
+        getPlayerCoachNotes(inCoachRoster.id),
       ]);
       setSessions(sessionData);
       setPlans((planData ?? []) as unknown as PlanRow[]);
-      setAthleteMetrics(metrics);
       setNotes(noteData);
-      setCoachDbId(coachRow?.data?.id ?? null);
+      setCoachDbId(profile?.coach_id ?? null);
     } catch (error) {
       console.error("Error loading athlete:", error);
       toast.error("Failed to load athlete data");
     } finally {
       setLoading(false);
     }
-  }, [user?.id, id]);
+  }, [user?.id, id, profile?.coach_id]);
 
   useEffect(() => {
     loadData();
@@ -719,18 +543,11 @@ export default function AthleteDashboard() {
 
   // ── Derivations ────────────────────────────────────────────────────────────
   const sorted = useMemo(() => [...sessions].sort((a, b) => sessionTime(a) - sessionTime(b)), [sessions]);
-  const now = useMemo(() => new Date(), []);
-
-  const indicators = useMemo(() => computeAnomalyIndicators(sessions), [sessions]);
-  // TODO(cleanup): unused since the athlete-page KPI strip was removed.
-  const readinessStatus = useMemo(() => compositeRagStatus(indicators), [indicators]);
-
-  const dropSeries = useMemo(
-    () => sorted.map((s) => sessionVelocityDropoff(s)).filter((v): v is number => v != null),
+  const lastSessionDate = useMemo(
+    () => sorted.length ? sorted[sorted.length - 1].startedAt ?? sorted[sorted.length - 1].createdAt : null,
     [sorted]
   );
-  // TODO(cleanup): unused since the athlete-page KPI strip was removed.
-  const latestDrop = dropSeries.length ? Math.round(dropSeries[dropSeries.length - 1]) : null;
+  const now = useMemo(() => new Date(), []);
 
   const weekIdx = useCallback(
     (d: Date, weeks: number) => weeks - 1 - differenceInCalendarWeeks(now, d, { weekStartsOn: 1 }),
@@ -741,47 +558,6 @@ export default function AthleteDashboard() {
   // anomaly indicator uses, so both surfaces name the same lift: most reps
   // logged in the last 30 days, ties broken by most recently trained.
   const primaryExercise = useMemo(() => findPrimaryExercise(sorted), [sorted]);
-  const primaryLiftVels = useMemo(() => {
-    if (!primaryExercise) return [];
-    const vals: number[] = [];
-    for (const s of sorted) {
-      const ex = s.exercises.find((e) => e.name === primaryExercise.name && e.avgVelocity > 0);
-      if (ex) vals.push(ex.avgVelocity);
-    }
-    return vals;
-  }, [sorted, primaryExercise]);
-  const primaryLiftRecentVel = useMemo(() => {
-    const m = mean(primaryLiftVels.slice(-3));
-    return m != null ? +m.toFixed(2) : null;
-  }, [primaryLiftVels]);
-  // TODO(cleanup): unused since the athlete-page KPI strip was removed.
-  const primaryLiftVelDelta = useMemo(() => {
-    if (primaryLiftVels.length < 5) return null;
-    const prior = mean(primaryLiftVels.slice(0, -3));
-    return primaryLiftRecentVel != null && prior != null ? +(primaryLiftRecentVel - prior).toFixed(2) : null;
-  }, [primaryLiftVels, primaryLiftRecentVel]);
-
-  // TODO(cleanup): unused since the Performance tab got the new cards.
-  const velTrend12 = useMemo<VelTrendPoint[]>(() => {
-    const WEEKS = 12;
-    const buckets: Array<{ vals: number[]; n: number }> = Array.from({ length: WEEKS }, () => ({ vals: [], n: 0 }));
-    for (const s of sorted) {
-      const w = weekIdx(new Date(s.startedAt ?? s.createdAt), WEEKS);
-      if (w < 0 || w >= WEEKS) continue;
-      const v = sessionAvgVelocity(s);
-      buckets[w].n++;
-      if (v != null) buckets[w].vals.push(v);
-    }
-    const points: VelTrendPoint[] = [];
-    let prev: number | null = null;
-    buckets.forEach((b, i) => {
-      const v = mean(b.vals) ?? prev;
-      if (v == null) return; // skip leading empty weeks
-      prev = v;
-      points.push({ label: i === WEEKS - 1 ? "now" : `W-${WEEKS - 1 - i}`, v: +v.toFixed(2), n: b.n });
-    });
-    return points;
-  }, [sorted, weekIdx]);
 
   const weekly8 = useMemo<WeeklyLoadPoint[]>(() => {
     const WEEKS = 8;
@@ -794,54 +570,6 @@ export default function AthleteDashboard() {
   }, [sorted, weekIdx]);
 
   const sessionsThisWeek = weekly8.length ? weekly8[weekly8.length - 1].v : 0;
-
-  // Load–velocity points, grouped per exercise — a load-velocity relationship
-  // only means something within ONE exercise (squat load vs. bench load don't
-  // belong on the same regression line), so this is scoped to whichever
-  // exercise is selected below rather than blended across all of them. Weight
-  // is the mean of that SET's own logged reps, not one flat exercise-level
-  // number, so ramping/pyramid sets each plot at their real load.
-  // TODO(cleanup): unused since the Performance tab got the new cards.
-  const fvByExercise = useMemo(() => {
-    const map = new Map<string, { points: FVPoint[]; unit: string }>();
-    const cutoff = subDays(now, 56);
-    const recentCutoff = subDays(now, 14);
-    for (const s of sorted) {
-      const when = new Date(s.startedAt ?? s.createdAt);
-      if (when < cutoff) continue;
-      for (const ex of s.exercises) {
-        const bySet = new Map<number, { vels: number[]; weights: number[] }>();
-        for (const r of ex.repData) {
-          if (r.velocity <= 0) continue;
-          let bucket = bySet.get(r.setNumber);
-          if (!bucket) { bucket = { vels: [], weights: [] }; bySet.set(r.setNumber, bucket); }
-          bucket.vels.push(r.velocity);
-          if (r.weight > 0) bucket.weights.push(r.weight);
-        }
-        for (const { vels, weights } of bySet.values()) {
-          if (weights.length === 0) continue; // no load recorded for this set — nothing to plot on a load axis
-          const v = mean(vels);
-          const load = mean(weights);
-          if (v == null || load == null) continue;
-          const entry = map.get(ex.name) ?? { points: [] as FVPoint[], unit: ex.weightUnit };
-          entry.points.push({ exercise: ex.name, load: +load.toFixed(1), vel: +v.toFixed(2), recent: when >= recentCutoff });
-          entry.unit = ex.weightUnit;
-          map.set(ex.name, entry);
-        }
-      }
-    }
-    for (const entry of map.values()) entry.points = entry.points.slice(-60);
-    return map;
-  }, [sorted, now]);
-
-  const fvExerciseOptions = useMemo(
-    () => [...fvByExercise.entries()].sort((a, b) => b[1].points.length - a[1].points.length).map(([name]) => name),
-    [fvByExercise]
-  );
-  const [fvExercisePick, setFvExercisePick] = useState<string | null>(null);
-  const fvExercise = fvExercisePick && fvByExercise.has(fvExercisePick) ? fvExercisePick : fvExerciseOptions[0] ?? null;
-  const fvPoints = fvExercise ? fvByExercise.get(fvExercise)!.points : [];
-  const fvUnit = fvExercise ? fvByExercise.get(fvExercise)!.unit : "lbs";
 
 // All-mock, matching WeeklyLoadVolumeBetaCard's own stories — see BetaBadge.
   const loadVolumeWeeks = useMemo<WeeklyLoadVolumePoint[]>(() => {
@@ -908,7 +636,7 @@ export default function AthleteDashboard() {
     );
   }
 
-  const lastDays = athlete ? lastDaysFor(athlete, athleteMetrics?.perPlayer.get(athlete.id)) : Infinity;
+  const lastDays = athlete ? lastDaysFor(athlete, { lastSessionDate }) : Infinity;
 
   return (
     <div className="v-app">
@@ -1019,7 +747,7 @@ export default function AthleteDashboard() {
 
                 {/* key: the data arrives after the page mounts; restart the picker on its first workout when it does */}
                 {tab === "sessions" && (
-                  <SessionsView key={`${plans.length}-${sessions.length}`} sessions={sessions} plans={plans} focus={sessionFocus} glow={glow} onGlowClear={() => setGlow(null)} onPlanChange={setActivePlanId} guardSwitch={guardSwitch} />
+                  <SessionsView key={`${plans.length}-${sessions.length}`} sessions={sessions} plans={plans} history={allHistory} focus={sessionFocus} glow={glow} onGlowClear={() => setGlow(null)} onPlanChange={setActivePlanId} guardSwitch={guardSwitch} />
                 )}
                 {tab === "programming" && <ProgrammingTab plans={plans} />}
               </div>

@@ -2,7 +2,7 @@ import { Users } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useFollowedAthletes, MAX_FOLLOWED } from "@/contexts/FollowedAthletesContext";
 import { athleteFacts } from "@/lib/metrics/athleteFacts";
-import { attentionFlags, DEFAULT_THRESHOLDS } from "@/lib/metrics/attentionFlags";
+import { attentionFlags } from "@/lib/metrics/attentionFlags";
 import { FollowedAthleteCard, AddFollowCard } from "./FollowedAthleteCard";
 
 /**
@@ -14,14 +14,14 @@ import { FollowedAthleteCard, AddFollowCard } from "./FollowedAthleteCard";
  */
 export function FollowedAthletesPanel() {
   const { profile } = useAuth();
-  const { athletes, followedAthletes, followedIds, setFollowedIds, signalsByPlayer, panelOpen, setPanelOpen, openAthlete } =
+  const { athletes, followedAthletes, followedIds, setFollowedIds, signalsByPlayer, panelOpen, setPanelOpen, openAthlete, thresholds } =
     useFollowedAthletes();
 
   if (!profile) return null;
 
   const now = Date.now();
   const followedFlagged = followedAthletes.map(
-    (a) => attentionFlags(athleteFacts(a, signalsByPlayer.get(a.id), now), DEFAULT_THRESHOLDS).flagged
+    (a) => attentionFlags(athleteFacts(a, signalsByPlayer.get(a.id), now), thresholds).flagged
   );
 
   return (
@@ -112,7 +112,7 @@ export function FollowedAthletesPanel() {
             key={a.id}
             athlete={a}
             signals={signalsByPlayer.get(a.id)}
-            thresholds={DEFAULT_THRESHOLDS}
+            thresholds={thresholds}
             onOpen={openAthlete}
             onUnfollow={(x) => setFollowedIds(followedIds.filter((id) => id !== x.id))}
           />

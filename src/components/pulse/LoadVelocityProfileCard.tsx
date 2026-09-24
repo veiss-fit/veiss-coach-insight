@@ -5,6 +5,7 @@ import { loadVelocityProfile, MIN_LOADS, PROFILE_WINDOW_DAYS, type LoadVelocityP
 import { useMeasuredWidth } from "./charts";
 import { StatsDetailMenu } from "./StatsDetailMenu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { fmtShortDate } from "@/lib/format";
 
 const ACCENT = "var(--brand)";
 const HEIGHT = 220;
@@ -12,8 +13,6 @@ const PL = 60;
 const PR = 16;
 const PT = 16;
 const PB = 40;
-
-const fmtDate = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 
 const TIP_BOX: React.CSSProperties = {
   position: "absolute",
@@ -146,7 +145,7 @@ function ProfileChart({ profile, est }: { profile: LoadVelocityProfile; est: One
             <span>{points[hover].best.toFixed(2)} m/s</span>
           </div>
           <div style={{ marginTop: 2, color: "rgba(255,255,255,0.65)", fontSize: 10 }}>
-            latest {fmtDate(points[hover].latest)}
+            latest {fmtShortDate(points[hover].latest)}
           </div>
         </div>
       )}

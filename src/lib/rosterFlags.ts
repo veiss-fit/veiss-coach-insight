@@ -17,7 +17,7 @@ export interface AthleteFlag {
 }
 
 /** Days since the athlete's last logged session (Infinity when never). */
-export function lastDaysFor(athlete: PlayerWithStats, m?: RosterAthleteMetrics): number {
+export function lastDaysFor(athlete: PlayerWithStats, m?: Pick<RosterAthleteMetrics, 'lastSessionDate'>): number {
   const dateStr = m?.lastSessionDate ?? athlete.lastWorkout?.date ?? null;
   if (!dateStr) return Infinity;
   return Math.max(0, differenceInCalendarDays(new Date(), new Date(dateStr)));
@@ -47,17 +47,4 @@ export function flagsFor(athlete: PlayerWithStats, m?: RosterAthleteMetrics): At
     flags.push({ kind: 'steady', tone: 'neutral', label: 'On plan' });
   }
   return flags;
-}
-
-/** Higher = more attention needed. TODO(cleanup): unused, Index.tsx no longer ranks athletes. */
-export function priorityScore(athlete: PlayerWithStats, m?: RosterAthleteMetrics): number {
-  const lastDays = lastDaysFor(athlete, m);
-  const cappedLastDays = Number.isFinite(lastDays) ? Math.min(lastDays, 30) : 30;
-  return (m?.dropPct ?? 0) * 1.4 + Math.max(0, 90 - athlete.attendance) + cappedLastDays * 2;
-}
-
-/** TODO(cleanup): unused, Index.tsx no longer counts flagged athletes. */
-export function isFlagged(athlete: PlayerWithStats, m?: RosterAthleteMetrics): boolean {
-  const tone = flagsFor(athlete, m)[0].tone;
-  return tone === 'bad' || tone === 'warn';
 }

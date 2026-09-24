@@ -7,6 +7,7 @@ import { StatsDetailMenu } from "./StatsDetailMenu";
 import { SetWindow } from "./SetWindow";
 import { twoColumnGrid } from "./twoColumnGrid";
 import { glowStyle, type GlowProps } from "./glow";
+import { signedInt } from "@/lib/format";
 
 const BAR_AREA = 120;
 /** Room above the tallest bar for its value label. */
@@ -263,8 +264,6 @@ const LOSS_INFO = (
   </p>
   </>
 );
-
-const signedInt = (r: number) => (r === 0 ? "0%" : r > 0 ? `+${r}%` : `−${Math.abs(r)}%`);
 
 function lossSummaryText(sets: SetVelocitySummary[]): string | null {
   const s = exerciseLossSummary(sets);

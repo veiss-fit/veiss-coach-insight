@@ -1,3 +1,4 @@
+// TODO(cleanup): Storybook-only, no production caller currently.
 import { trainingExposure, type SessionInput } from "@/lib/metrics/trainingExposure";
 import { SESSIONS_TARGET } from "@/lib/vbtZones";
 import { WeeklyLoadChart, type WeeklyLoadPoint } from "./charts";

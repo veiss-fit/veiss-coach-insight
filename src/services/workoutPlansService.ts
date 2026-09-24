@@ -260,41 +260,6 @@ export const deleteWorkoutPlan = async (planId: string): Promise<boolean> => {
 };
 
 /**
- * Get upcoming workout plans for a team
- * TODO(cleanup): unused since the "Worth a look" cards left Index.tsx.
- */
-export const getUpcomingWorkoutPlans = async (
-  playerIds: string[],
-  daysAhead: number = 7
-): Promise<WorkoutPlan[]> => {
-  try {
-    const today = new Date();
-    const futureDate = new Date();
-    futureDate.setDate(futureDate.getDate() + daysAhead);
-
-    const { data, error } = await supabase
-      .from('workout_plans')
-      .select('*, players(full_name)')
-      .in('player_id', playerIds)
-      .gte('date', today.toISOString().split('T')[0])
-      .lte('date', futureDate.toISOString().split('T')[0])
-      .eq('is_completed', false)
-      .order('date', { ascending: true });
-
-    if (error) {
-      console.error('Error fetching upcoming workout plans:', error);
-      throw error;
-    }
-
-    // FIX: Cast to any to resolve the mismatch caused by the join
-    return (data as any) || [];
-  } catch (error) {
-    console.error('Error in getUpcomingWorkoutPlans:', error);
-    throw error;
-  }
-};
-
-/**
  * Get workout plan by ID
  */
 export const getWorkoutPlanById = async (planId: string): Promise<WorkoutPlan | null> => {

@@ -1,3 +1,4 @@
+// TODO(cleanup): Storybook-only, no production caller currently (Index.tsx no longer renders this card).
 import { Calendar } from "lucide-react";
 import type { PlayerWithStats } from "@/services/playersService";
 import type { RosterAthleteMetrics } from "@/services/rosterMetricsService";
