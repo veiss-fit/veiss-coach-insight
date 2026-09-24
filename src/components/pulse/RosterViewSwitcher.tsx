@@ -1,5 +1,6 @@
 import { BlobSelector, type BlobOption } from "./BlobSelector";
-import { RosterSignalsTable, type ThresholdDraft } from "./RosterSignalsTable";
+import { RosterSignalsTable } from "./RosterSignalsTable";
+import type { ThresholdDraft } from "@/lib/metrics/attentionFlags";
 import { LeaderboardPanel, type LeaderboardPanelProps } from "./LeaderboardPanel";
 import { TrainingGridPanel, type TrainingGridRow } from "./TrainingGridPanel";
 import { TeamPrsPanel, type TeamPrsPanelProps } from "./TeamPrsPanel";

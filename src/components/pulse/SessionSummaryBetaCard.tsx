@@ -1,4 +1,5 @@
 import { BetaBadge, MetricInfoTip } from "./BetaBadge";
+import { fmtShortDate } from "@/lib/format";
 
 export interface SessionSummaryBetaStats {
   caloriesKcal: number;
@@ -10,8 +11,6 @@ export interface SessionSummaryBetaCardProps {
   /** From a wearable, not the bar sensor. All-mock data — see BetaBadge. */
   stats: SessionSummaryBetaStats;
 }
-
-const fmtDate = (iso: string) => new Date(iso).toLocaleDateString("en-US", { day: "numeric", month: "short", timeZone: "UTC" });
 
 /**
  * Group 6b — Calories. Other half of the old "Effort & readiness" card, split out
@@ -25,7 +24,7 @@ export function SessionSummaryBetaCard({ sessionName, sessionDate, stats }: Sess
       <div className="row" style={{ justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <div style={{ minWidth: 0 }}>
           <div className="v-h2" style={{ color: "var(--ink-0)" }}>{sessionName}</div>
-          <div className="v-meta" style={{ fontSize: 11 }}>{fmtDate(sessionDate)} · whole session · wearable</div>
+          <div className="v-meta" style={{ fontSize: 11 }}>{fmtShortDate(sessionDate)} · whole session · wearable</div>
         </div>
         <span className="row" style={{ gap: 4 }}>
           <BetaBadge />

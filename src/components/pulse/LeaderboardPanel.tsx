@@ -40,9 +40,28 @@ function useDevicePixelRatio() {
   return dpr;
 }
 
+/** ctx.roundRect landed later than the rest of Canvas2D — draw the path by hand where it's missing. */
+function roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  if (typeof ctx.roundRect === "function") {
+    ctx.roundRect(x, y, w, h, r);
+    return;
+  }
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.moveTo(x + rr, y);
+  ctx.arcTo(x + w, y, x + w, y + h, rr);
+  ctx.arcTo(x + w, y + h, x, y + h, rr);
+  ctx.arcTo(x, y + h, x, y, rr);
+  ctx.arcTo(x, y, x + w, y, rr);
+  ctx.closePath();
+}
+
 /**
- * Matrix of tiny square cells anchored to the right edge, sized to fill its container. Blocks light
- * up at random on the rightmost column and travel left one cell per step, leaving a decaying trail.
+ * Matrix of tiny square cells anchored to the right edge, sized to fill its container, drawn on a
+ * <canvas> via requestAnimationFrame (a DOM span per cell re-rendered every step was ~2,500 spans
+ * repainting 30ms apart across the top-3 rows). Blocks light up at random on the rightmost column
+ * and travel left one cell per step, leaving a decaying trail. The draw loop pauses while the tab
+ * is hidden, and travel/spawn timers skip their work too so nothing "catches up" on return.
  */
 function RankRowDither({
   color,
@@ -53,9 +72,12 @@ function RankRowDither({
   randomness = DEFAULT_DITHER.randomness,
   maxConcurrent = DEFAULT_DITHER.maxConcurrent,
 }: RankRowDitherProps) {
-  const ref = useRef<HTMLSpanElement>(null);
+  const wrapRef = useRef<HTMLSpanElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const [box, setBox] = useState({ width: 0, height: 0 });
-  const [heads, setHeads] = useState<DitherHead[]>([]);
+  // Mutated directly by the travel/spawn timers; the draw loop reads it every frame instead of
+  // going through React state, so a 30ms step doesn't force a re-render.
+  const headsRef = useRef<DitherHead[]>([]);
 
   const dpr = useDevicePixelRatio();
   const cellDev = Math.max(1, Math.round(DITHER_CELL * dpr));
@@ -67,7 +89,7 @@ function RankRowDither({
   const cols = box.width ? Math.max(1, Math.floor((box.width + gap) / pitch)) : 0;
 
   useLayoutEffect(() => {
-    const el = ref.current;
+    const el = wrapRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
     setBox({ width: rect.width, height: rect.height });
@@ -76,11 +98,20 @@ function RankRowDither({
     return () => ro.disconnect();
   }, []);
 
+  // Backing store at device-pixel resolution; the draw loop scales its transform so drawing math stays in CSS px.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !box.width || !box.height) return;
+    canvas.width = Math.round(box.width * dpr);
+    canvas.height = Math.round(box.height * dpr);
+  }, [box.width, box.height, dpr]);
+
   // Travel: every step, each lit block moves one cell left; drop it once its trail has left the grid.
   useEffect(() => {
     if (!cols) return;
     const id = setInterval(() => {
-      setHeads((prev) => prev.map((h) => ({ ...h, col: h.col + 1 })).filter((h) => h.col - DITHER_TRAIL < cols));
+      if (document.hidden) return;
+      headsRef.current = headsRef.current.map((h) => ({ ...h, col: h.col + 1 })).filter((h) => h.col - DITHER_TRAIL < cols);
     }, stepMs);
     return () => clearInterval(id);
   }, [stepMs, cols]);
@@ -98,13 +129,13 @@ function RankRowDither({
       timers.add(t);
     };
     const jittered = (ms: number) => Math.max(16, ms * (1 + randomness * (Math.random() * 2 - 1)));
-    const light = () =>
-      setHeads((prev) => {
-        const busy = new Set(prev.filter((h) => h.col <= DITHER_TRAIL).map((h) => h.row));
-        const free = Array.from({ length: rows }, (_, r) => r).filter((r) => !busy.has(r));
-        if (!free.length) return prev;
-        return [...prev, { row: free[Math.floor(Math.random() * free.length)], col: 0 }];
-      });
+    const light = () => {
+      if (document.hidden) return;
+      const busy = new Set(headsRef.current.filter((h) => h.col <= DITHER_TRAIL).map((h) => h.row));
+      const free = Array.from({ length: rows }, (_, r) => r).filter((r) => !busy.has(r));
+      if (!free.length) return;
+      headsRef.current = [...headsRef.current, { row: free[Math.floor(Math.random() * free.length)], col: 0 }];
+    };
     const startSet = () => {
       const count = 1 + Math.floor(Math.random() * maxConcurrent);
       let at = 0;
@@ -118,29 +149,63 @@ function RankRowDither({
     return () => timers.forEach(clearTimeout);
   }, [spawnMs, setGapMs, randomness, maxConcurrent, rows]);
 
-  const opacityAt = (row: number, distFromRight: number) => {
-    let op = 0.4;
-    for (const h of heads) {
-      if (h.row !== row) continue;
-      const trail = h.col - distFromRight;
-      if (trail < 0 || trail > DITHER_TRAIL) continue;
-      op = Math.max(op, 0.8 - trail * DITHER_TRAIL_STEP);
-    }
-    return op;
-  };
+  // Draw loop: redraws from headsRef every animation frame; stops scheduling while the tab is hidden and resumes on visibilitychange.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !rows || !cols || !box.width || !box.height) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const opacityAt = (row: number, distFromRight: number) => {
+      let op = 0.4;
+      for (const h of headsRef.current) {
+        if (h.row !== row) continue;
+        const trail = h.col - distFromRight;
+        if (trail < 0 || trail > DITHER_TRAIL) continue;
+        op = Math.max(op, 0.8 - trail * DITHER_TRAIL_STEP);
+      }
+      return op;
+    };
+
+    let raf = 0;
+    const gridHeight = rows * cell + Math.max(0, rows - 1) * gap;
+    const offsetY = (box.height - gridHeight) / 2;
+    const frame = () => {
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, box.width, box.height);
+      ctx.fillStyle = color;
+      for (let row = 0; row < rows; row++) {
+        for (let d = 0; d < cols; d++) {
+          const op = opacityAt(row, d);
+          if (op <= 0) continue;
+          ctx.globalAlpha = op;
+          const x = box.width - (d + 1) * cell - d * gap;
+          const y = offsetY + row * pitch;
+          roundRectPath(ctx, x, y, cell, cell, radius);
+          ctx.fill();
+        }
+      }
+      ctx.globalAlpha = 1;
+      raf = requestAnimationFrame(frame);
+    };
+    const start = () => {
+      if (!document.hidden) raf = requestAnimationFrame(frame);
+    };
+    const onVisibility = () => {
+      if (document.hidden) cancelAnimationFrame(raf);
+      else start();
+    };
+    start();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      cancelAnimationFrame(raf);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [rows, cols, cell, gap, radius, pitch, box.width, box.height, dpr, color]);
 
   return (
-    <span
-      ref={ref}
-      aria-hidden
-      className="v-rank-dither"
-      style={{ color, width: `${widthPct}%`, gridTemplateColumns: `repeat(${cols}, ${cell}px)`, gridAutoRows: cell, gap }}
-    >
-      {Array.from({ length: rows * cols }, (_, i) => {
-        const row = Math.floor(i / cols);
-        const distFromRight = cols - 1 - (i % cols);
-        return <span key={i} className="v-rank-dither-cell" style={{ opacity: opacityAt(row, distFromRight), borderRadius: radius }} />;
-      })}
+    <span ref={wrapRef} aria-hidden className="v-rank-dither" style={{ width: `${widthPct}%` }}>
+      <canvas ref={canvasRef} style={{ width: "100%", height: "100%", display: "block" }} />
     </span>
   );
 }

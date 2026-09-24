@@ -7,14 +7,13 @@ import { attentionFlags, type AttentionThresholds } from "@/lib/metrics/attentio
 import { athleteFacts } from "@/lib/metrics/athleteFacts";
 import { Avatar } from "./Avatar";
 import { GroupChip } from "./chips";
+import { signedInt } from "@/lib/format";
 
 /**
  * Placeholder design (not final): one athlete the coach follows, with the four
  * facts the roster table flags. A fact past its cut-off gets the same red tint as
  * the table. Cut-offs come from the caller so the card and the table agree.
  */
-
-const signed = (n: number) => `${n > 0 ? "+" : n < 0 ? "−" : ""}${Math.abs(n).toFixed(0)}%`;
 
 interface CardProps {
   athlete: PlayerWithStats;
@@ -49,7 +48,7 @@ export function FollowedAthleteCard({ athlete, signals, thresholds, today, onOpe
       flagged: flags.drop,
       value: drop ? (
         <>
-          {signed(drop.change)} {exerciseTag(drop.exercise)}
+          {signedInt(drop.change)} {exerciseTag(drop.exercise)}
         </>
       ) : null,
     },
@@ -58,7 +57,7 @@ export function FollowedAthleteCard({ athlete, signals, thresholds, today, onOpe
       flagged: flags.tempo,
       value: tempo ? (
         <>
-          {signed(tempo.change)} {exerciseTag(tempo.exercise)}
+          {signedInt(tempo.change)} {exerciseTag(tempo.exercise)}
         </>
       ) : null,
     },

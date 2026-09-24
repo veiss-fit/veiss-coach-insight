@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { chunk } from '@/lib/utils';
 import { addDays, differenceInCalendarWeeks, format, startOfWeek, subWeeks } from 'date-fns';
 import { isValidExerciseName } from '@/lib/athleteSummaryUtils';
 import { canonicalizeExerciseName } from '@/lib/targetEvaluation';
@@ -6,6 +7,7 @@ import { summarizeSession, type RepInput } from '@/lib/metrics/setVelocitySummar
 import { summarizeTimingSession } from '@/lib/metrics/repTiming';
 import { rosterSignals, type ExerciseSignalInput, type RosterSignals } from '@/lib/metrics/rosterSignals';
 import { velocityVsBaseline } from '@/lib/metrics/velocityVsBaseline';
+import { getAttendanceSummary, type WorkoutPlanLike, type WorkoutSessionLike } from '@/lib/workoutAttendance';
 
 /**
  * Roster-wide 8-week metric series, fetched with a fixed number of batched
@@ -17,22 +19,29 @@ import { velocityVsBaseline } from '@/lib/metrics/velocityVsBaseline';
 const WEEKS = 8;
 const PAGE_SIZE = 1000;
 const MAX_PAGES = 20;
+/** Max ids per `.in(...)` call — a long UUID list risks blowing the URL length limit. */
+const ID_CHUNK_SIZE = 200;
 
 export interface RosterAthleteMetrics {
   playerId: string;
-  /** Weekly avg velocity, oldest → newest. Weeks without sessions carry the previous value. */
+  /** Weekly avg velocity, oldest → newest. Weeks without sessions carry the previous value.
+   *  TODO(cleanup): only read by the Storybook-only AthleteCard/AthleteTable, no production caller currently. */
   velSeries: number[];
-  /** Sessions logged per week, oldest → newest. */
+  /** Sessions logged per week, oldest → newest.
+   *  TODO(cleanup): only read by the Storybook-only AthleteCard/AthleteTable, no production caller currently. */
   sessSeries: number[];
   sessionsThisWeek: number;
-  /** Mean session velocity of the last 3 sessions. */
+  /** Mean session velocity of the last 3 sessions.
+   *  TODO(cleanup): only read by the Storybook-only AthleteCard/AthleteTable, no production caller currently. */
   recentVel: number | null;
-  /** recentVel minus the mean of the sessions before those 3 (null when < 5 sessions). */
+  /** recentVel minus the mean of the sessions before those 3 (null when < 5 sessions).
+   *  TODO(cleanup): only read by the Storybook-only AthleteCard/AthleteTable, no production caller currently. */
   velDelta: number | null;
   /** Within-session velocity drop-off %, correctly partitioned per exercise
    *  (first-set-avg vs last-set-avg per exercise, averaged across exercises),
    *  of the most recent qualifying session. Matches athleteSummaryUtils'
-   *  sessionVelocityDropoff — see CALCULATIONS.md. */
+   *  sessionVelocityDropoff — see CALCULATIONS.md.
+   *  TODO(cleanup): only read by rosterFlags.flagsFor, whose only caller (AthleteCard) is Storybook-only. */
   dropPct: number | null;
   lastSessionDate: string | null;
 }
@@ -156,6 +165,7 @@ interface SessionRow {
   id: string;
   user_id: string;
   created_at: string;
+  name: string | null;
 }
 
 interface RepRow {
@@ -173,7 +183,23 @@ interface PlanRow {
   date: string;
   is_completed: boolean | null;
   player_id: string;
+  title: string | null;
+  session_id: string | null;
 }
+
+/** Same session-matching attendance algorithm as the roster table (A4.3: one shared definition). */
+const toPlanLike = (pl: PlanRow): WorkoutPlanLike => ({
+  date: pl.date,
+  title: pl.title,
+  is_completed: !!pl.is_completed,
+  session_id: pl.session_id,
+});
+const toSessionLike = (s: SessionRow): WorkoutSessionLike => ({
+  id: s.id,
+  date: s.created_at.slice(0, 10),
+  name: s.name,
+  createdAt: s.created_at,
+});
 
 /** Carry-forward fill so sparklines have a continuous line; leading gaps take the first real value. */
 const fillSeries = (series: (number | null)[]): number[] => {
@@ -197,6 +223,7 @@ const mean = (xs: number[]): number | null =>
  * function expects — the roster-wide query here can't afford a per-player
  * sessionsService fetch. Keep this in sync with athleteSummaryUtils.ts if
  * that logic ever changes.
+ * TODO(cleanup): feeds RosterAthleteMetrics.dropPct, only read by the Storybook-only AthleteCard.
  */
 function computeDropPctFromRows(reps: RepRow[]): number | null {
   // Grouped by CANONICAL name so confirmed raw-name collisions (Squat/Squats,
@@ -335,14 +362,19 @@ export async function getRosterMetrics(
   const now = new Date();
   const windowStart = startOfWeek(subWeeks(now, WEEKS - 1), { weekStartsOn: 1 });
 
-  // ── 1. Sessions for the whole roster in one query ─────────────────────────
-  const { data: sessions, error: sessionsError } = await supabase
-    .from('sessions')
-    .select('id, user_id, created_at')
-    .in('user_id', userIds)
-    .gte('created_at', windowStart.toISOString())
-    .order('created_at', { ascending: true });
+  // ── 1. Sessions for the whole roster, chunked past the .in(...) id-list limit ─
+  const sessionResults = await Promise.all(
+    chunk(userIds, ID_CHUNK_SIZE).map((ids) =>
+      supabase
+        .from('sessions')
+        .select('id, user_id, created_at, name')
+        .in('user_id', ids)
+        .gte('created_at', windowStart.toISOString())
+        .order('created_at', { ascending: true })
+    )
+  );
 
+  const sessionsError = sessionResults.find((r) => r.error)?.error;
   if (sessionsError) {
     console.error('rosterMetrics: sessions query failed', sessionsError);
     return {
@@ -351,17 +383,16 @@ export async function getRosterMetrics(
     };
   }
 
-  const sessionRows = (sessions ?? []) as SessionRow[];
+  const sessionRows = sessionResults.flatMap((r) => (r.data ?? [])) as SessionRow[];
 
-  // ── 2. Reps for those sessions, paginated past the 1000-row cap ──────────
-  const repsBySession = new Map<string, RepRow[]>();
-  if (sessionRows.length > 0) {
-    const sessionIds = sessionRows.map((s) => s.id);
+  // ── 2. Reps for those sessions, chunked by id-list size and paginated past the 1000-row cap ─
+  const fetchRepsForSessionIds = async (ids: string[]): Promise<RepRow[]> => {
+    const collected: RepRow[] = [];
     for (let page = 0; page < MAX_PAGES; page++) {
       const { data: reps, error: repsError } = await supabase
         .from('reps')
         .select('session_id, exercise_name, average_rep_speed, set_number, rep_number, weight, concentric_duration_s, eccentric_duration_s')
-        .in('session_id', sessionIds)
+        .in('session_id', ids)
         .order('id', { ascending: true })
         .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
@@ -369,26 +400,38 @@ export async function getRosterMetrics(
         console.error('rosterMetrics: reps query failed', repsError);
         break;
       }
-      for (const rep of (reps ?? []) as RepRow[]) {
-        const list = repsBySession.get(rep.session_id);
-        if (list) list.push(rep);
-        else repsBySession.set(rep.session_id, [rep]);
-      }
+      collected.push(...((reps ?? []) as RepRow[]));
       if (!reps || reps.length < PAGE_SIZE) break;
+    }
+    return collected;
+  };
+
+  const repsBySession = new Map<string, RepRow[]>();
+  if (sessionRows.length > 0) {
+    const sessionIds = sessionRows.map((s) => s.id);
+    const repChunks = await Promise.all(chunk(sessionIds, ID_CHUNK_SIZE).map(fetchRepsForSessionIds));
+    for (const rep of repChunks.flat()) {
+      const list = repsBySession.get(rep.session_id);
+      if (list) list.push(rep);
+      else repsBySession.set(rep.session_id, [rep]);
     }
   }
 
-  // ── 3. Plans for the attendance series in one query ──────────────────────
+  // ── 3. Plans for the attendance series, chunked past the .in(...) id-list limit ─
   const playerIds = withUser.map((p) => p.id);
-  const { data: plans } = await supabase
-    .from('workout_plans')
-    .select('date, is_completed, player_id')
-    .in('player_id', playerIds)
-    .eq('is_template', false)
-    .gte('date', windowStart.toISOString().slice(0, 10))
-    .lte('date', now.toISOString().slice(0, 10));
+  const planResults = await Promise.all(
+    chunk(playerIds, ID_CHUNK_SIZE).map((ids) =>
+      supabase
+        .from('workout_plans')
+        .select('date, is_completed, player_id, title, session_id')
+        .in('player_id', ids)
+        .eq('is_template', false)
+        .gte('date', format(windowStart, 'yyyy-MM-dd'))
+        .lte('date', format(now, 'yyyy-MM-dd'))
+    )
+  );
 
-  const planRows = (plans ?? []) as PlanRow[];
+  const planRows = planResults.flatMap((r) => (r.data ?? [])) as PlanRow[];
 
   // ── Per-session aggregates ────────────────────────────────────────────────
   interface SessionAgg {
@@ -463,7 +506,11 @@ export async function getRosterMetrics(
     if (own.length > 0) sessionsByPlayer.set(p.id, own.length);
     const ownPlans = planRows.filter((pl) => pl.player_id === p.id);
     if (ownPlans.length > 0) {
-      completionByPlayer.set(p.id, Math.round((ownPlans.filter((pl) => pl.is_completed).length / ownPlans.length) * 100));
+      const ownSessionsForAttendance = sessionRows.filter((s) => s.user_id === p.user_id);
+      completionByPlayer.set(
+        p.id,
+        getAttendanceSummary(ownPlans.map(toPlanLike), ownSessionsForAttendance.map(toSessionLike)).attendancePercent
+      );
     }
 
     const countsByDay = [0, 0, 0, 0, 0, 0, 0];
@@ -499,14 +546,16 @@ export async function getRosterMetrics(
   for (let w = 0; w < WEEKS; w++) {
     const inWeek = planRows.filter((pl) => weekIdxOf(new Date(pl.date + 'T12:00:00')) === w);
     if (inWeek.length > 0) {
-      attWeekly[w] = Math.round((inWeek.filter((pl) => pl.is_completed).length / inWeek.length) * 100);
+      const sessionsInWeek = sessionRows.filter((s) => weekIdxOf(new Date(s.created_at)) === w);
+      attWeekly[w] = getAttendanceSummary(inWeek.map(toPlanLike), sessionsInWeek.map(toSessionLike)).attendancePercent;
     }
   }
-  // Overall = sum(completed) / sum(assigned) across the whole window — the same
-  // plan rows attWeekly buckets by week, so the KPI's headline number and its
-  // sparkline/delta can never disagree about what they're both measuring.
+  // Overall = same session-matching algorithm as the roster table and the per-player
+  // leaderboard figure (toPlanLike/toSessionLike, A4.3), over the same plan+session
+  // rows attWeekly buckets by week — so the KPI's headline number, its sparkline, and
+  // every other attendance figure on the page measure the same thing.
   const avgAttendance = planRows.length > 0
-    ? Math.round((planRows.filter((pl) => pl.is_completed).length / planRows.length) * 100)
+    ? getAttendanceSummary(planRows.map(toPlanLike), sessionRows.map(toSessionLike)).attendancePercent
     : 0;
 
   const sessionsByDay = [0, 0, 0, 0, 0, 0, 0]; // Mon..Sun

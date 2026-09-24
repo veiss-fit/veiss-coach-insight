@@ -1,3 +1,4 @@
+// TODO(cleanup): Storybook-only, no production caller currently.
 import { Delta } from "./Delta";
 import { MiniBars } from "./MiniBars";
 

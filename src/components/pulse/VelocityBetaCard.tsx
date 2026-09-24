@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { BetaBadge, MetricInfoTip } from "./BetaBadge";
+import { fmtShortDate } from "@/lib/format";
 
 export type VelocityVariable = "mean" | "peak" | "eccMean" | "propulsive" | "at100ms";
 
@@ -32,7 +33,6 @@ export interface VelocityBetaCardProps {
 }
 
 const BAR_AREA = 110, HEADROOM = 22, BAR_W = 34;
-const fmtDate = (iso: string) => new Date(iso).toLocaleDateString("en-US", { day: "numeric", month: "short", timeZone: "UTC" });
 
 /**
  * Group 1 — Velocity. Same grain and x-axis as the shipped SetVelocityBars (per set, within one
@@ -51,7 +51,7 @@ export function VelocityBetaCard({ exercise, sessionDate, sets }: VelocityBetaCa
       <div className="row" style={{ justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <div style={{ minWidth: 0 }}>
           <div className="v-h2" style={{ color: "var(--ink-0)" }}>{exercise}</div>
-          <div className="v-meta" style={{ fontSize: 11 }}>{fmtDate(sessionDate)} · per set</div>
+          <div className="v-meta" style={{ fontSize: 11 }}>{fmtShortDate(sessionDate)} · per set</div>
         </div>
         <div className="row" style={{ gap: 6 }}>
           <Select value={variable} onValueChange={(v) => setVariable(v as VelocityVariable)}>

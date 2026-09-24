@@ -12,8 +12,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useAuth } from "@/contexts/AuthContext";
 import { Validators } from "@/lib/validators";
-import { supabase } from "@/lib/supabase";
-import { getPlayersWithStatsByCoach, PlayerWithStats } from "@/services/playersService";
+import { getPlayersWithStatsByCoach, getCoachGroups, PlayerWithStats } from "@/services/playersService";
 import { sendMessage, getCoachMessageHistory } from "@/services/messagesService";
 
 interface GroupRow {
@@ -54,28 +53,13 @@ export default function Messages() {
     setLoading(true);
     setLoadError(null);
     try {
-      // The generated client generics collapse to `never` on filtered queries
-      // (pre-existing, see TemplatesContext) — cast like the rest of the
-      // codebase until the client is typed at the source.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: coachRow } = await (supabase as any)
-        .from("coaches")
-        .select("id")
-        .eq("user_id", user.id)
-        .maybeSingle() as { data: { id: string } | null };
-
-      const groupQuery = coachRow?.id
-        ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (supabase as any).from("groups").select("id, name").eq("coach_id", coachRow.id).order("name", { ascending: true })
-        : supabase.from("groups").select("id, name").order("name", { ascending: true });
-
-      const [players, groupsResult, history] = await Promise.all([
+      const [players, groups, history] = await Promise.all([
         getPlayersWithStatsByCoach(user.id),
-        groupQuery,
+        getCoachGroups(user.id),
         getCoachMessageHistory(user.id),
       ]);
       setAthletes(players);
-      setGroupsList(groupsResult.data || []);
+      setGroupsList(groups);
       setSent(history);
     } catch (error) {
       // Previously console-only: a failed load rendered an empty composer with no

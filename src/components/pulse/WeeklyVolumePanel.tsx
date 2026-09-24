@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from "react";
+import { useState } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { BetaBadge, MetricInfoTip } from "./BetaBadge";
 import {
@@ -8,6 +8,7 @@ import {
   type LoadVolumeMetric,
   type WeeklyLoadVolumePoint,
 } from "./WeeklyLoadVolumeBetaCard";
+import { useMeasuredSize } from "@/hooks/useMeasuredSize";
 
 export type WeeklyVolumePoint = WeeklyLoadVolumePoint;
 
@@ -16,21 +17,6 @@ export interface WeeklyVolumePanelProps {
   data: WeeklyVolumePoint[];
   /** Share of reps in this window that carry a recorded weight and so count toward the totals (0-100). */
   coveragePct: number;
-}
-
-function useMeasuredSize<T extends HTMLElement>(fallback: { width: number; height: number }) {
-  const ref = useRef<T>(null);
-  const [size, setSize] = useState(fallback);
-  useEffect(() => {
-    if (!ref.current) return;
-    const ro = new ResizeObserver(([e]) =>
-      setSize({ width: e.contentRect.width || fallback.width, height: e.contentRect.height || fallback.height })
-    );
-    ro.observe(ref.current);
-    return () => ro.disconnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  return { ref, ...size };
 }
 
 const PL = 8, PR = 8, PT = 18, PB = 20;

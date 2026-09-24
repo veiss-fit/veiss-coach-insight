@@ -1,9 +1,8 @@
 import { useState } from "react";
 import { Avatar } from "./Avatar";
+import { fmtShortDate } from "@/lib/format";
 
 const VISIBLE_ROWS = 8;
-
-const fmtDate = (iso: string) => new Date(iso).toLocaleDateString("en-US", { day: "numeric", month: "short", timeZone: "UTC" });
 
 export interface TeamPrRow {
   playerId: string;
@@ -58,7 +57,7 @@ export function TeamPrsPanel({ rows, onRowClick }: TeamPrsPanelProps) {
                   <Avatar name={row.name} />
                   <div style={{ display: "flex", flexDirection: "column", minWidth: 0, gap: 1 }}>
                     <span className="ellipsis" style={{ fontSize: 12.5, color: "var(--ink-0)" }}>{row.name}</span>
-                    <span className="ellipsis" style={{ fontSize: 10.5, color: "var(--ink-2)" }}>{row.exercise} · {fmtDate(row.date)}</span>
+                    <span className="ellipsis" style={{ fontSize: 10.5, color: "var(--ink-2)" }}>{row.exercise} · {fmtShortDate(row.date)}</span>
                   </div>
                 </div>
                 <span className="mono" style={{ fontSize: 12, flexShrink: 0, whiteSpace: "nowrap" }}>

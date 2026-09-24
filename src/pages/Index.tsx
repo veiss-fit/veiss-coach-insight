@@ -14,21 +14,22 @@ import { WeeklyVolumePanel } from "@/components/pulse/WeeklyVolumePanel";
 import { FilterGroup } from "@/components/pulse/FilterBar";
 import { RosterViewSwitcher, VIEW_OPTIONS, type RosterView } from "@/components/pulse/RosterViewSwitcher";
 import { BlobSelector } from "@/components/pulse/BlobSelector";
-import { INITIAL_DRAFT, thresholdsFromDraft, type ThresholdDraft } from "@/components/pulse/RosterSignalsTable";
 import type { LeaderboardMetric, LeaderboardRow } from "@/components/pulse/LeaderboardPanel";
 import type { TrainingGridRow } from "@/components/pulse/TrainingGridPanel";
 import type { TeamPrRow } from "@/components/pulse/TeamPrsPanel";
 import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { useAuth } from "@/contexts/AuthContext";
-import { getPlayersWithStatsByCoach, getCoachGroups, CoachGroup, PlayerWithStats } from "@/services/playersService";
+import { useFollowedAthletes } from "@/contexts/FollowedAthletesContext";
+import { getPlayersWithStatsByCoach, getCoachGroups, getCoachPlayerRefs, CoachGroup, PlayerWithStats } from "@/services/playersService";
 import { getRosterMetrics, RosterMetricsResult } from "@/services/rosterMetricsService";
 import { deliverScheduledMessages } from "@/services/messagesService";
 import { athleteFacts } from "@/lib/metrics/athleteFacts";
-import { attentionFlags, DEFAULT_THRESHOLDS, type AttentionSignal } from "@/lib/metrics/attentionFlags";
+import { attentionFlags, type AttentionSignal } from "@/lib/metrics/attentionFlags";
 
 const Index = () => {
   const { profile, user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+  const { draft, setDraft, thresholds } = useFollowedAthletes();
   const openAthlete = useCallback(
     (athlete: PlayerWithStats) => navigate(`/athlete/${athlete.id}`),
     [navigate]
@@ -46,7 +47,6 @@ const Index = () => {
   const [rosterView, setRosterView] = useState<RosterView>("roster");
   const [leaderboardMetric, setLeaderboardMetric] = useState<LeaderboardMetric>("velocity");
   const [leaderboardExercise, setLeaderboardExercise] = useState("");
-  const [draft, setDraft] = useState<ThresholdDraft>(INITIAL_DRAFT);
 
   const loadData = useCallback(async () => {
     if (!profile) {
@@ -61,25 +61,24 @@ const Index = () => {
     try {
       setLoading(true);
       const coachUserId = user?.id ?? "";
-      // teamIds is resolved as part of scoping the roster query itself
-      // (getPlayersWithStatsByCoach → getCoachTeamIds internally); no separate
-      // dashboard-stats fetch is needed anymore — attendance now comes from
-      // the same rosterMetrics pipeline as its own trend (see below).
-      const [players, groups] = await Promise.all([
+      // A cheap {id, user_id} pass lets the roster-series fetch (getRosterMetrics)
+      // start alongside the heavier per-player stats fetch instead of waiting on it.
+      const refs = coachUserId ? await getCoachPlayerRefs(coachUserId) : [];
+      const rosterMetricsPromise = refs.length
+        ? getRosterMetrics(refs).catch((seriesError) => {
+            console.error("Roster series failed:", seriesError);
+            return null;
+          })
+        : Promise.resolve(null);
+
+      const [players, groups, rosterMetrics] = await Promise.all([
         getPlayersWithStatsByCoach(coachUserId),
         coachUserId ? getCoachGroups(coachUserId) : Promise.resolve([]),
+        rosterMetricsPromise,
       ]);
       setAthletes(players);
       setCoachGroups(groups);
-
-      // Batched roster series and signals (fixed query count, not per-player).
-      // Non-fatal: the core roster is already rendered if this fails.
-      try {
-        setRoster(await getRosterMetrics(players.map((p) => ({ id: p.id, user_id: p.user_id }))));
-      } catch (seriesError) {
-        console.error("Roster series failed:", seriesError);
-        setRoster(null);
-      }
+      setRoster(rosterMetrics);
 
       clearTimeout(timeoutId);
     } catch (error) {
@@ -120,7 +119,7 @@ const Index = () => {
     [navigate]
   );
 
-  const thresholds = useMemo(() => thresholdsFromDraft(draft), [draft]);
+  const byId = useMemo(() => new Map(athletes.map((a) => [a.id, a])), [athletes]);
 
   const signalsByPlayer = useMemo(() => roster?.signalsByPlayer ?? new Map(), [roster]);
   const team = roster?.team ?? null;
@@ -138,9 +137,9 @@ const Index = () => {
     if (!exerciseBaseline) return [];
     const rows = exerciseBaseline.byExercise.get(selectedExercise) ?? [];
     return rows
-      .map((r) => ({ playerId: r.playerId, name: athletes.find((a) => a.id === r.playerId)?.name ?? "Unknown", change: r.change, sessionId: r.sessionId }))
+      .map((r) => ({ playerId: r.playerId, name: byId.get(r.playerId)?.name ?? "Unknown", change: r.change, sessionId: r.sessionId }))
       .sort((a, b) => a.change - b.change);
-  }, [exerciseBaseline, selectedExercise, athletes]);
+  }, [exerciseBaseline, selectedExercise, byId]);
 
   // Leaderboard shares the same exercise list as Slower than baseline (same 8-week window).
   useEffect(() => {
@@ -151,7 +150,7 @@ const Index = () => {
 
   const leaderboardRows = useMemo<LeaderboardRow[]>(() => {
     if (!roster) return [];
-    const nameOf = (id: string) => athletes.find((a) => a.id === id)?.name ?? "Unknown";
+    const nameOf = (id: string) => byId.get(id)?.name ?? "Unknown";
     let entries: { playerId: string; value: number }[];
     if (leaderboardMetric === "velocity") {
       entries = roster.leaderboard.velocityByExercise.get(leaderboardExercise) ?? [];
@@ -165,7 +164,7 @@ const Index = () => {
     return [...entries]
       .sort((a, b) => b.value - a.value)
       .map((e) => ({ playerId: e.playerId, name: nameOf(e.playerId), value: e.value, firstPlaceCount: roster.leaderboard.firstPlaceCounts.get(e.playerId) }));
-  }, [roster, athletes, leaderboardMetric, leaderboardExercise]);
+  }, [roster, byId, leaderboardMetric, leaderboardExercise]);
 
   const trainingGridRows = useMemo<TrainingGridRow[]>(() => {
     if (!roster) return [];
@@ -176,11 +175,11 @@ const Index = () => {
 
   const teamPrRows = useMemo<TeamPrRow[]>(() => {
     if (!roster) return [];
-    const nameOf = (id: string) => athletes.find((a) => a.id === id)?.name ?? "Unknown";
+    const nameOf = (id: string) => byId.get(id)?.name ?? "Unknown";
     return [...roster.teamPrs]
       .map((r) => ({ ...r, name: nameOf(r.playerId) }))
       .sort((a, b) => +new Date(b.date) - +new Date(a.date));
-  }, [roster, athletes]);
+  }, [roster, byId]);
 
   // ── Derived: groups, filters, sort ─────────────────────────────────────────
   const groups = useMemo<FilterGroup[]>(() => {
@@ -233,21 +232,22 @@ const Index = () => {
   );
 
   // Needs-attention counts, same facts/thresholds pipeline as RosterSignalsTable,
-  // computed against the coach's saved cut-offs (not the table's in-progress draft).
+  // computed against the coach's saved cut-offs (shared via FollowedAthletesContext
+  // with the roster table, the followed panel, and the followed-athlete cards).
   const attentionCounts = useMemo(() => {
     const now = Date.now();
     const reasonCounts: Record<AttentionSignal, number> = { days: 0, drop: 0, tempo: 0, attendance: 0 };
     let flaggedCount = 0;
     for (const a of athletes) {
       const facts = athleteFacts(a, signalsByPlayer.get(a.id), now);
-      const flags = attentionFlags(facts, DEFAULT_THRESHOLDS);
+      const flags = attentionFlags(facts, thresholds);
       if (flags.flagged) flaggedCount++;
       (Object.keys(reasonCounts) as AttentionSignal[]).forEach((k) => {
         if (flags[k]) reasonCounts[k]++;
       });
     }
     return { flaggedCount, totalCount: athletes.length, reasonCounts };
-  }, [athletes, signalsByPlayer]);
+  }, [athletes, signalsByPlayer, thresholds]);
 
   // ───────────────────────────────────────────────────────────────────────────
 
@@ -278,7 +278,7 @@ const Index = () => {
               unit="%"
               delta={attNow != null && attPrev != null ? attNow - attPrev : null}
               deltaSuffix="pt"
-              footnote="this week"
+              footnote="8 weeks"
               barData={team && team.attSeries.length > 1 ? team.attSeries : undefined}
               accent="var(--brand)"
             />
@@ -288,7 +288,7 @@ const Index = () => {
               onExerciseChange={setSelectedExercise}
               athletes={slowerAthletes}
               onOpenAthlete={(a, exercise) => {
-                const athlete = athletes.find((x) => x.id === a.playerId);
+                const athlete = byId.get(a.playerId);
                 if (athlete) openExercise(athlete, exercise, a.sessionId, "drop");
               }}
             />
@@ -345,16 +345,16 @@ const Index = () => {
               metric: leaderboardMetric,
               onMetricChange: setLeaderboardMetric,
               rows: leaderboardRows,
-              onRowClick: (id) => openAthlete(athletes.find((a) => a.id === id)!),
+              onRowClick: (id) => openAthlete(byId.get(id)!),
             }}
             grid={{
               dayLabels: roster?.trainingGrid.dayLabels ?? [],
               rows: trainingGridRows,
-              onRowClick: (id) => openAthlete(athletes.find((a) => a.id === id)!),
+              onRowClick: (id) => openAthlete(byId.get(id)!),
             }}
             teamPrs={{
               rows: teamPrRows,
-              onRowClick: (id) => openAthlete(athletes.find((a) => a.id === id)!),
+              onRowClick: (id) => openAthlete(byId.get(id)!),
             }}
           />
         </section>

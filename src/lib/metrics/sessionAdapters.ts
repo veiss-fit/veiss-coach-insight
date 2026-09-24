@@ -51,6 +51,9 @@ export function sessionTiming(s: SessionData): ExerciseTiming[] {
 /** The moment a session is dated by: the same value `historyByExercise` uses, so a session never counts as its own baseline. */
 export const sessionMoment = when;
 
+/** Chronological sort comparator (oldest first) by `sessionMoment`. */
+export const byMoment = (a: SessionData, b: SessionData) => new Date(sessionMoment(a)).getTime() - new Date(sessionMoment(b)).getTime();
+
 /**
  * Sessions per canonical exercise name, most-trained exercise first (so a card that
  * opens on the first key opens on the exercise with the most history).

@@ -28,13 +28,20 @@ export interface WorkoutPlanData {
   notes?: string;
 }
 
+/** Local date parts, avoiding the UTC shift toISOString() would introduce for UTC+ zones. */
+const toDateStr = (d: Date): string =>
+  [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-');
+
 /**
- * Send a workout plan to one or more players
+ * Send a workout plan to one or more players, on one or more dates.
+ * One insert covering every player x date row, and ONE push per athlete
+ * regardless of how many dates were picked (previously one push per date —
+ * a 4-date send pinged each athlete 4 times for the same workout).
  */
 export const sendWorkoutPlan = async (
   playerIds: string[],
   coachId: string | null,
-  scheduledDate: Date,
+  dates: Date[],
   planData: WorkoutPlanData
 ): Promise<{
   success: boolean;
@@ -45,15 +52,6 @@ export const sendWorkoutPlan = async (
   notificationsAttempted?: number;
 }> => {
   try {
-    // Use local date parts to avoid UTC timezone shift (toISOString would subtract hours for UTC+ zones)
-    const dateStr = scheduledDate instanceof Date
-      ? [
-          scheduledDate.getFullYear(),
-          String(scheduledDate.getMonth() + 1).padStart(2, '0'),
-          String(scheduledDate.getDate()).padStart(2, '0'),
-        ].join('-')
-      : scheduledDate;
-
     // The mobile app currently reads a flat sets/reps/targetVelocity per exercise
     // (confirmed via a mobile-repo audit) and doesn't yet understand per-set data.
     // Keep those flat fields mirroring the FIRST set so it keeps showing a sensible
@@ -73,20 +71,20 @@ export const sendWorkoutPlan = async (
       };
     });
 
-    // Create workout plan records for each player
-    const workoutPlans = playerIds.map((playerId) => ({
-      player_id: playerId,
-      coach_id: coachId || null,
-      date: dateStr,
-      title: planData.workoutName,
-      description: planData.notes || null,
-      exercises: exercisesArray,
-      notes: planData.notes || null,
-      is_completed: false,
-      is_template: false,
-    }));
-
-    console.log('Inserting workout plans:', workoutPlans);
+    // Create one workout plan record per player x date.
+    const workoutPlans = dates.flatMap((date) =>
+      playerIds.map((playerId) => ({
+        player_id: playerId,
+        coach_id: coachId || null,
+        date: toDateStr(date),
+        title: planData.workoutName,
+        description: planData.notes || null,
+        exercises: exercisesArray,
+        notes: planData.notes || null,
+        is_completed: false,
+        is_template: false,
+      }))
+    );
 
     const { data, error } = await supabase
       .from('workout_plans')
@@ -99,14 +97,16 @@ export const sendWorkoutPlan = async (
       return { success: false, count: 0, error: error.message };
     }
 
-    // Resolve player_ids → auth user_ids via profiles, then push directly
+    // Resolve player_ids → auth user_ids via profiles, then push directly.
+    // De-duped: a player with more than one profiles row (bad data) would
+    // otherwise push the same athlete once per duplicate row.
     const { data: profiles, error: profilesError } = await supabase
       .from('profiles')
       .select('id')
       .in('player_id', playerIds);
 
     if (profilesError) console.error('Profiles lookup failed:', profilesError);
-    const userIds = (profiles || []).map((p: any) => p.id);
+    const userIds = Array.from(new Set((profiles || []).map((p: any) => p.id as string)));
     if (userIds.length === 0) console.warn('No auth user IDs resolved — no notifications will be sent');
 
     const pushResults = await Promise.allSettled(
@@ -129,8 +129,6 @@ export const sendWorkoutPlan = async (
       } else if (r.value?.error) {
         pushFailures++;
         console.error(`Push function error for userId ${userIds[i]}:`, r.value.error);
-      } else {
-        console.log(`✅ Push sent for userId ${userIds[i]}`);
       }
     });
 
@@ -256,41 +254,6 @@ export const deleteWorkoutPlan = async (planId: string): Promise<boolean> => {
   } catch (error) {
     console.error('Error in deleteWorkoutPlan:', error);
     return false;
-  }
-};
-
-/**
- * Get upcoming workout plans for a team
- * TODO(cleanup): unused since the "Worth a look" cards left Index.tsx.
- */
-export const getUpcomingWorkoutPlans = async (
-  playerIds: string[],
-  daysAhead: number = 7
-): Promise<WorkoutPlan[]> => {
-  try {
-    const today = new Date();
-    const futureDate = new Date();
-    futureDate.setDate(futureDate.getDate() + daysAhead);
-
-    const { data, error } = await supabase
-      .from('workout_plans')
-      .select('*, players(full_name)')
-      .in('player_id', playerIds)
-      .gte('date', today.toISOString().split('T')[0])
-      .lte('date', futureDate.toISOString().split('T')[0])
-      .eq('is_completed', false)
-      .order('date', { ascending: true });
-
-    if (error) {
-      console.error('Error fetching upcoming workout plans:', error);
-      throw error;
-    }
-
-    // FIX: Cast to any to resolve the mismatch caused by the join
-    return (data as any) || [];
-  } catch (error) {
-    console.error('Error in getUpcomingWorkoutPlans:', error);
-    throw error;
   }
 };
 

@@ -5,6 +5,7 @@ import { niceTicks, SET_COLORS, useMeasuredWidth } from "./charts";
 import { StatsDetailMenu } from "./StatsDetailMenu";
 import { twoColumnGrid } from "./twoColumnGrid";
 import { glowStyle, type GlowProps } from "./glow";
+import { signedPct } from "@/lib/format";
 
 const HEIGHT = 190;
 const PL = 52;
@@ -19,11 +20,6 @@ const FADE_MS = 160;
 const LABEL_W = 96;
 const LABEL_H = 36;
 const DIM_OPACITY = 0.15;
-
-const signedPct = (v: number) => {
-  const r = Math.round(v * 10) / 10;
-  return r === 0 ? "0%" : r > 0 ? `+${r.toFixed(1)}%` : `−${Math.abs(r).toFixed(1)}%`;
-};
 
 /**
  * SP-06 chart: one line per set, one point per counted rep (x = rep number,

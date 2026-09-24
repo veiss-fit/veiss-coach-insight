@@ -1,19 +1,7 @@
-import { useRef, useState, useEffect } from "react";
+import { useState } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { BetaBadge, MetricInfoTip } from "./BetaBadge";
-
-/** Measures both dimensions, so the chart can stretch to fill whatever height the grid gives the card (not a fixed height). */
-function useMeasuredSize<T extends HTMLElement>(fallbackWidth: number, fallbackHeight: number) {
-  const ref = useRef<T>(null);
-  const [size, setSize] = useState({ width: fallbackWidth, height: fallbackHeight });
-  useEffect(() => {
-    if (!ref.current) return;
-    const ro = new ResizeObserver(([e]) => setSize({ width: e.contentRect.width || fallbackWidth, height: e.contentRect.height || fallbackHeight }));
-    ro.observe(ref.current);
-    return () => ro.disconnect();
-  }, [fallbackWidth, fallbackHeight]);
-  return { ref, ...size };
-}
+import { useMeasuredSize } from "@/hooks/useMeasuredSize";
 
 export interface WeeklyLoadVolumePoint {
   label: string;
@@ -52,7 +40,7 @@ const PL = 8, PR = 8, PT = 18, PB = 20;
  */
 export function WeeklyLoadVolumeBetaCard({ athleteName, weeks, coveragePct }: WeeklyLoadVolumeBetaCardProps) {
   const [metric, setMetric] = useState<LoadVolumeMetric>("tonnageLbs");
-  const { ref, width: w, height: h } = useMeasuredSize<HTMLDivElement>(400, 130);
+  const { ref, width: w, height: h } = useMeasuredSize<HTMLDivElement>({ width: 400, height: 130 });
   const cW = Math.max(50, w - PL - PR);
   const cH = Math.max(30, h - PT - PB);
   const mx = Math.max(1, ...weeks.map((d) => d[metric]));

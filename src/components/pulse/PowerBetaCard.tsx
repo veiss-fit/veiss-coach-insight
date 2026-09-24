@@ -1,4 +1,5 @@
 import { BetaBadge, MetricInfoTip } from "./BetaBadge";
+import { fmtShortDate } from "@/lib/format";
 
 export interface PowerSetPoint {
   set: number;
@@ -16,7 +17,6 @@ export interface PowerBetaCardProps {
 const MEAN_COLOR = "var(--brand)";
 const PEAK_COLOR = "#2563eb";
 const BAR_AREA = 110, HEADROOM = 22, BAR_W = 30, BAR_GAP = 4;
-const fmtDate = (iso: string) => new Date(iso).toLocaleDateString("en-US", { day: "numeric", month: "short", timeZone: "UTC" });
 
 /**
  * Group 2 — Power. Same grain and x-axis as SetVelocityBars/RepTimingCards: per set, within one
@@ -33,7 +33,7 @@ export function PowerBetaCard({ exercise, sessionDate, sets }: PowerBetaCardProp
       <div className="row" style={{ justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <div style={{ minWidth: 0 }}>
           <div className="v-h2" style={{ color: "var(--ink-0)" }}>{exercise}</div>
-          <div className="v-meta" style={{ fontSize: 11 }}>{fmtDate(sessionDate)} · per set</div>
+          <div className="v-meta" style={{ fontSize: 11 }}>{fmtShortDate(sessionDate)} · per set</div>
         </div>
         <span className="row" style={{ gap: 4 }}>
           <BetaBadge />

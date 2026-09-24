@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Info } from "lucide-react";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { ChevronDown } from "lucide-react";
+import { InfoTip } from "./InfoTip";
 
 /** Overlay fade and slide duration, ms. */
 const PANEL_MS = 180;
@@ -121,22 +121,9 @@ export function StatsDetailMenu({ pills, info, infoLabel, idPrefix }: StatsDetai
         Stats detail
         <ChevronDown size={14} strokeWidth={1.5} style={{ transform: open ? "rotate(180deg)" : undefined, transition: "transform 120ms" }} />
       </button>
-      <TooltipProvider delayDuration={100}>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              aria-label={infoLabel}
-              style={{ display: "inline-flex", border: "none", background: "transparent", padding: 2, cursor: "help", color: "var(--ink-2)" }}
-            >
-              <Info size={15} strokeWidth={1.5} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" align="end" style={{ maxWidth: 320, fontSize: 12, lineHeight: 1.45 }}>
-            {info}
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
+      <InfoTip label={infoLabel} maxWidth={320} iconSize={15}>
+        {info}
+      </InfoTip>
       {mounted &&
         createPortal(
           <div
