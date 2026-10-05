@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { sessionPlacementIso, VISIBLE_SESSION_FILTER } from '@/services/sessionsService';
 import { chunk } from '@/lib/utils';
 import { addDays, differenceInCalendarWeeks, format, startOfWeek, subWeeks } from 'date-fns';
 import { isValidExerciseName } from '@/lib/athleteSummaryUtils';
@@ -164,7 +165,9 @@ const EMPTY_TRAINING_GRID: RosterMetricsResult['trainingGrid'] = {
 interface SessionRow {
   id: string;
   user_id: string;
+  /** Fetched as the row's `created_at`; replaced by the placement instant (see `sessionPlacementIso`) before any bucketing. */
   created_at: string;
+  started_at?: string | null;
   name: string | null;
 }
 
@@ -367,9 +370,12 @@ export async function getRosterMetrics(
     chunk(userIds, ID_CHUNK_SIZE).map((ids) =>
       supabase
         .from('sessions')
-        .select('id, user_id, created_at, name')
+        .select('id, user_id, created_at, started_at, name')
         .in('user_id', ids)
-        .gte('created_at', windowStart.toISOString())
+        .or(VISIBLE_SESSION_FILTER)
+        // A workout belongs to the week it was trained in (started_at), not the week it uploaded in, so
+        // fetch anything either field puts inside the window and drop the rest after placement below.
+        .or(`created_at.gte.${windowStart.toISOString()},started_at.gte.${windowStart.toISOString()}`)
         .order('created_at', { ascending: true })
     )
   );
@@ -383,7 +389,11 @@ export async function getRosterMetrics(
     };
   }
 
-  const sessionRows = sessionResults.flatMap((r) => (r.data ?? [])) as SessionRow[];
+  // From here on `created_at` holds the instant the workout is placed by: started_at unless it is missing
+  // or later than created_at. Every week bucket and "latest session" below follows that one rule.
+  const sessionRows = (sessionResults.flatMap((r) => (r.data ?? [])) as SessionRow[])
+    .map((s) => ({ ...s, created_at: sessionPlacementIso(s.started_at ?? null, s.created_at) }))
+    .filter((s) => new Date(s.created_at).getTime() >= windowStart.getTime());
 
   // ── 2. Reps for those sessions, chunked by id-list size and paginated past the 1000-row cap ─
   const fetchRepsForSessionIds = async (ids: string[]): Promise<RepRow[]> => {

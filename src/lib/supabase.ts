@@ -18,20 +18,6 @@ export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
 	},
 })
 
-// Helper function to get current user
-export const getCurrentUser = async () => {
-	const {
-		data: { user },
-		error,
-	} = await supabase.auth.getUser()
-
-	if (error) {
-		console.error('Error getting current user:', error)
-		return null
-	}
-
-	return user
-}
 
 // Helper function to get user profile with role (for coaches)
 export const getUserProfile = async (userId: string) => {
@@ -147,28 +133,9 @@ export const resetPassword = async (email: string) => {
 
 		console.log('Password reset email sent to:', email)
 		return { success: true, data }
-	} catch (error: any) {
+	} catch (error) {
 		console.error('Password reset exception:', error)
-		return { success: false, error: error.message || 'An error occurred while requesting password reset' }
+		return { success: false, error: error instanceof Error ? error.message : 'An error occurred while requesting password reset' }
 	}
 }
 
-// Helper function to update password with recovery token
-export const updatePassword = async (newPassword: string) => {
-	try {
-		const { data, error } = await supabase.auth.updateUser({
-			password: newPassword,
-		})
-
-		if (error) {
-			console.error('Error updating password:', error)
-			return { success: false, error: error.message }
-		}
-
-		console.log('Password updated successfully')
-		return { success: true, data }
-	} catch (error: any) {
-		console.error('Update password exception:', error)
-		return { success: false, error: error.message || 'An error occurred while updating password' }
-	}
-}

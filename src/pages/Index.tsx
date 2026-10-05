@@ -1,15 +1,34 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, lazy, Suspense } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { Send, Plus, Megaphone, Users } from "lucide-react";
-import { TopNav } from "@/components/TopNav";
 import { TeamSportManager } from "@/components/TeamSportManager";
 import { PageHeader } from "@/components/pulse/PageHeader";
 import { KpiTile } from "@/components/pulse/KpiTile";
 import { SlowerThanBaselineTile, type SlowerAthlete } from "@/components/pulse/SlowerThanBaselineTile";
-import { SessionsTile } from "@/components/pulse/SessionsTile";
 import { NeedsAttentionTile } from "@/components/pulse/NeedsAttentionTile";
+import { Skeleton } from "@/components/ui/skeleton";
+
+const SessionsTile = lazy(() =>
+  import("@/components/pulse/SessionsTile").then((m) => ({ default: m.SessionsTile }))
+);
+
+/** Mirrors SessionsTile's layout: label row, big number, 7-bar mini chart. */
+const SessionsTileSkeleton = () => (
+  <div className="v-card padded" style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0, height: "100%", boxSizing: "border-box", overflow: "hidden" }}>
+    <div className="row" style={{ justifyContent: "space-between" }}>
+      <Skeleton style={{ height: 11, width: 56 }} />
+      <Skeleton style={{ height: 11, width: 28 }} />
+    </div>
+    <Skeleton style={{ height: 22, width: 40, marginTop: 2 }} />
+    <div className="row" style={{ alignItems: "flex-end", gap: 4, marginTop: "auto", height: 30 }}>
+      {[14, 22, 10, 26, 18, 8, 20].map((h, i) => (
+        <Skeleton key={i} style={{ height: h, width: "100%" }} />
+      ))}
+    </div>
+  </div>
+);
 import { WeeklyVolumePanel } from "@/components/pulse/WeeklyVolumePanel";
 import { FilterGroup } from "@/components/pulse/FilterBar";
 import { RosterViewSwitcher, VIEW_OPTIONS, type RosterView } from "@/components/pulse/RosterViewSwitcher";
@@ -18,16 +37,12 @@ import type { LeaderboardMetric, LeaderboardRow } from "@/components/pulse/Leade
 import type { TrainingGridRow } from "@/components/pulse/TrainingGridPanel";
 import type { TeamPrRow } from "@/components/pulse/TeamPrsPanel";
 import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
-import { useAuth } from "@/contexts/AuthContext";
 import { useFollowedAthletes } from "@/contexts/FollowedAthletesContext";
-import { getPlayersWithStatsByCoach, getCoachGroups, getCoachPlayerRefs, CoachGroup, PlayerWithStats } from "@/services/playersService";
-import { getRosterMetrics, RosterMetricsResult } from "@/services/rosterMetricsService";
-import { deliverScheduledMessages } from "@/services/messagesService";
+import type { CoachGroup, PlayerWithStats } from "@/services/playersService";
 import { athleteFacts } from "@/lib/metrics/athleteFacts";
 import { attentionFlags, type AttentionSignal } from "@/lib/metrics/attentionFlags";
 
 const Index = () => {
-  const { profile, user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const { draft, setDraft, thresholds } = useFollowedAthletes();
   const openAthlete = useCallback(
@@ -35,10 +50,9 @@ const Index = () => {
     [navigate]
   );
 
-  const [athletes, setAthletes] = useState<PlayerWithStats[]>([]);
-  const [coachGroups, setCoachGroups] = useState<CoachGroup[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [roster, setRoster] = useState<RosterMetricsResult | null>(null);
+  // Roster, groups and the 8-week series are fetched once at the app root and shared with the
+  // followed-athletes panel; new workouts refresh them in place, so there is nothing to load or poll here.
+  const { athletes, coachGroups, roster, rosterLoading: loading, reloadRoster } = useFollowedAthletes();
 
   const [groupFilter, setGroupFilter] = useState("all");
   const [search, setSearch] = useState("");
@@ -47,67 +61,6 @@ const Index = () => {
   const [rosterView, setRosterView] = useState<RosterView>("roster");
   const [leaderboardMetric, setLeaderboardMetric] = useState<LeaderboardMetric>("velocity");
   const [leaderboardExercise, setLeaderboardExercise] = useState("");
-
-  const loadData = useCallback(async () => {
-    if (!profile) {
-      setLoading(false);
-      return;
-    }
-    const timeoutId = setTimeout(() => {
-      setLoading(false);
-      toast.error("Loading is taking longer than expected. Please refresh the page.");
-    }, 30000);
-
-    try {
-      setLoading(true);
-      const coachUserId = user?.id ?? "";
-      // A cheap {id, user_id} pass lets the roster-series fetch (getRosterMetrics)
-      // start alongside the heavier per-player stats fetch instead of waiting on it.
-      const refs = coachUserId ? await getCoachPlayerRefs(coachUserId) : [];
-      const rosterMetricsPromise = refs.length
-        ? getRosterMetrics(refs).catch((seriesError) => {
-            console.error("Roster series failed:", seriesError);
-            return null;
-          })
-        : Promise.resolve(null);
-
-      const [players, groups, rosterMetrics] = await Promise.all([
-        getPlayersWithStatsByCoach(coachUserId),
-        coachUserId ? getCoachGroups(coachUserId) : Promise.resolve([]),
-        rosterMetricsPromise,
-      ]);
-      setAthletes(players);
-      setCoachGroups(groups);
-      setRoster(rosterMetrics);
-
-      clearTimeout(timeoutId);
-    } catch (error) {
-      clearTimeout(timeoutId);
-      console.error("Error loading data:", error);
-      toast.error(`Failed to load dashboard data: ${error instanceof Error ? error.message : "Unknown error"}`);
-      setAthletes([]);
-      setRoster(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [profile, user?.id]);
-
-  useEffect(() => {
-    if (authLoading) {
-      setLoading(true);
-      return;
-    }
-    if (profile) loadData();
-    else setLoading(false);
-  }, [profile, authLoading, loadData]);
-
-  // Deliver any scheduled messages whose time has passed, checked every 60 seconds.
-  useEffect(() => {
-    if (!user?.id) return;
-    deliverScheduledMessages(user.id);
-    const interval = setInterval(() => deliverScheduledMessages(user.id!), 60_000);
-    return () => clearInterval(interval);
-  }, [user?.id]);
 
   // Signal-cell links: a drop opens the velocity graphs, a tempo shift the rep-timing (time) graphs.
   const openExercise = useCallback(
@@ -252,8 +205,7 @@ const Index = () => {
   // ───────────────────────────────────────────────────────────────────────────
 
   return (
-    <div className="v-app">
-      <TopNav />
+    <>
       <LoadingOverlay isLoading={loading} fullScreen message="Loading dashboard..." />
 
       <main style={{ padding: "20px 28px 28px", maxWidth: 1480, margin: "0 auto", width: "100%", flex: 1 }}>
@@ -292,11 +244,13 @@ const Index = () => {
                 if (athlete) openExercise(athlete, exercise, a.sessionId, "drop");
               }}
             />
-            <SessionsTile
-              sessionsThisWeek={team?.sessionsThisWeek ?? 0}
-              sessionsLastWeek={team?.sessionsLastWeek ?? 0}
-              sessionsByDay={team?.sessionsByDay ?? [0, 0, 0, 0, 0, 0, 0]}
-            />
+            <Suspense fallback={<SessionsTileSkeleton />}>
+              <SessionsTile
+                sessionsThisWeek={team?.sessionsThisWeek ?? 0}
+                sessionsLastWeek={team?.sessionsLastWeek ?? 0}
+                sessionsByDay={team?.sessionsByDay ?? [0, 0, 0, 0, 0, 0, 0]}
+              />
+            </Suspense>
             <NeedsAttentionTile
               flaggedCount={attentionCounts.flaggedCount}
               totalCount={attentionCounts.totalCount}
@@ -314,7 +268,7 @@ const Index = () => {
               <div className="v-meta" style={{ marginTop: 2 }}>Click any row to open the athlete detail.</div>
             </div>
             <div className="row" style={{ gap: 10 }}>
-              <BlobSelector options={VIEW_OPTIONS} value={rosterView} onChange={setRosterView} />
+              <BlobSelector<RosterView> options={VIEW_OPTIONS} value={rosterView} onChange={setRosterView} />
               <button className="v-btn ghost" style={{ fontSize: 12 }} onClick={() => setGroupManagerOpen(true)}>
                 <Users size={12} strokeWidth={1.5} />
                 Manage groups
@@ -367,9 +321,9 @@ const Index = () => {
       <TeamSportManager
         open={groupManagerOpen}
         onClose={() => setGroupManagerOpen(false)}
-        onPlayersChanged={loadData}
+        onPlayersChanged={reloadRoster}
       />
-    </div>
+    </>
   );
 };
 

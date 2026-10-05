@@ -3,17 +3,17 @@ import { useParams, useSearchParams, Link } from "react-router-dom";
 import { format, differenceInCalendarWeeks, isAfter, subDays, startOfDay } from "date-fns";
 import { Bell, Send, ChevronRight, Plus, Paperclip } from "lucide-react";
 import { toast } from "sonner";
-import { TopNav } from "@/components/TopNav";
 import { LoadError } from "@/components/pulse/LoadError";
 import { Avatar } from "@/components/pulse/Avatar";
 import { UnderlineTabs } from "@/components/pulse/Tabs";
 import { WeeklyLoadChart, WeeklyLoadPoint } from "@/components/pulse/charts";
 import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { useAuth } from "@/contexts/AuthContext";
-import { getPlayerById, getCoachTeamIds, PlayerWithStats } from "@/services/playersService";
-import { getPlayerSessions, SessionData } from "@/services/sessionsService";
-import { getPlayerWorkoutPlans } from "@/services/workoutPlansService";
-import { getPlayerCoachNotes, addCoachNote, CoachNote } from "@/services/coachFeedbackService";
+import { useAthleteData } from "@/hooks/useAthleteData";
+import { cancelWorkoutPlans } from "@/services/workoutPlansService";
+import { CancelWorkoutDialog } from "@/components/pulse/CancelWorkoutDialog";
+import type { SessionData } from "@/services/sessionsService";
+import { addCoachNote, type CoachNote } from "@/services/coachFeedbackService";
 import { findPrimaryExercise } from "@/lib/athleteSummaryUtils";
 import { lastDaysFor } from "@/lib/rosterFlags";
 import { findMatchingSessionForPlan } from "@/lib/workoutAttendance";
@@ -26,7 +26,7 @@ import { FadeSwap } from "@/components/pulse/FadeSwap";
 import { PersonalRecordsCard } from "@/components/pulse/PersonalRecordsCard";
 import { twoColumnGrid } from "@/components/pulse/twoColumnGrid";
 import { SetVelocityBlocks } from "@/components/pulse/SetVelocityBars";
-import type { HistorySession } from "@/lib/metrics/velocityVsBaseline";
+import { BASELINE_DAYS, type HistorySession } from "@/lib/metrics/velocityVsBaseline";
 import { LoadVelocityProfileCard } from "@/components/pulse/LoadVelocityProfileCard";
 import { WorkoutPicker, type PickerPlan } from "@/components/pulse/WorkoutPicker";
 import { BlobSelector, type BlobOption } from "@/components/pulse/BlobSelector";
@@ -55,6 +55,7 @@ interface PlanRow {
   exercises: unknown;
   is_completed: boolean | null;
   session_id?: string | null;
+  coach_id?: string | null;
 }
 
 type PlanStatus = "completed" | "missed" | "queued";
@@ -147,7 +148,7 @@ interface NoteGuard {
 type CardGlow ={ exercise: string; sessionId: string | null } | null;
 
 /** `glow` is the exercise card highlighted after a roster link. It lives on the page so it stays cleared when the tab is left and re-entered. */
-function SessionsView({ sessions, plans, history, focus, glow, onGlowClear, onPlanChange, guardSwitch }: { sessions: SessionData[]; plans: PlanRow[]; history: Record<string, HistorySession[]>; focus: { sessionId: string | null; exercise: string | null; view: string | null }; glow: CardGlow; onGlowClear: () => void; onPlanChange: (planId: string | null) => void; guardSwitch: (proceed: () => void) => void }) {
+function SessionsView({ sessions, plans, history, focus, glow, onGlowClear, onPlanChange, guardSwitch, onNeedDetail }: { sessions: SessionData[]; plans: PlanRow[]; history: Record<string, HistorySession[]>; focus: { sessionId: string | null; exercise: string | null; view: string | null }; glow: CardGlow; onGlowClear: () => void; onPlanChange: (planId: string | null) => void; guardSwitch: (proceed: () => void) => void; onNeedDetail: (ids: string[]) => void }) {
   const [view, setView] = useState(() => SESSION_VIEWS.find((o) => o.id === focus.view)?.id ?? "velocity");
   // True only right after the blob was clicked; a workout change clears it, and a tab switch remounts this view.
   const [fadeViews, setFadeViews] = useState(false);
@@ -190,6 +191,18 @@ function SessionsView({ sessions, plans, history, focus, glow, onGlowClear, onPl
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activePlanId]);
   const matched = plan ? planSessionMap.get(plan.id) ?? null : null;
+  // Only the workout on screen has its reps loaded, plus the weeks before it that its velocity baseline reads.
+  useEffect(() => {
+    if (!matched || (matched.repCount ?? 0) === 0) return;
+    const at = sessionTime(matched);
+    const from = at - BASELINE_DAYS * 86_400_000;
+    onNeedDetail(
+      sessions
+        .filter((x) => (x.repCount ?? 0) > 0 && (x.id === matched.id || (sessionTime(x) >= from && sessionTime(x) < at)))
+        .map((x) => x.id)
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matched?.id, matched?.repCount, sessions]);
   const shown = plans.length === 0 ? sessions : matched ? [matched] : [];
   const emptyMessage = plans.length === 0
     ? "No sessions logged yet."
@@ -235,7 +248,15 @@ function SessionsTab({ sessions, history, view, animate, glow, onGlowClear, empt
                 {format(new Date(s.date + "T12:00:00"), "EEE, MMM d")} · {s.notes || "Training session"}
               </div>
             )}
-            {view === "distance" ? (
+            {s.repCount === 0 ? (
+              <div className="v-card padded v-meta" style={{ textAlign: "center", padding: "32px 16px" }}>
+                {s.status === "missed" ? "Marked missed, no sensor data" : "Completed, no sensor data"}
+              </div>
+            ) : s.exercises.length === 0 ? (
+              <div className="v-card padded v-meta" style={{ textAlign: "center", padding: "32px 16px" }}>
+                Loading workout…
+              </div>
+            ) : view === "distance" ? (
               <RangeOfMotionCards exercises={sessionRom(s)} glowExercise={glowExercise} onGlowClear={onGlowClear} />
             ) : view === "time" ? (
               <RepTimingCards exercises={sessionTiming(s)} glowExercise={glowExercise} onGlowClear={onGlowClear} />
@@ -252,7 +273,14 @@ function SessionsTab({ sessions, history, view, animate, glow, onGlowClear, empt
 
 // ─── Programming tab ─────────────────────────────────────────────────────────
 
-function ProgrammingTab({ plans }: { plans: PlanRow[] }) {
+function ProgrammingTab({
+  plans, myCoachId, onCancelPlan,
+}: {
+  plans: PlanRow[];
+  /** Only this coach's own plans can be cancelled. */
+  myCoachId: string | null;
+  onCancelPlan: (plan: PlanRow) => void;
+}) {
   const today = startOfDay(new Date());
   const now = new Date();
 
@@ -345,6 +373,12 @@ function ProgrammingTab({ plans }: { plans: PlanRow[] }) {
                   <span className="v-chip" data-tone={status === "completed" ? "good" : status === "missed" ? "bad" : "neutral"}>
                     {status === "queued" ? "Queued" : status === "missed" ? "Missed" : "Completed"}
                   </span>
+                  {status === "queued" && !p.session_id && (p.coach_id ?? null) === myCoachId && (
+                    <>
+                      <Link to={`/send-programming?edit=${p.id}&mode=single`} className="v-btn ghost" style={{ height: 28, fontSize: 11.5 }}>Modify</Link>
+                      <button className="v-btn ghost" style={{ height: 28, fontSize: 11.5 }} onClick={() => onCancelPlan(p)}>Cancel</button>
+                    </>
+                  )}
                 </div>
               );
             })
@@ -470,15 +504,25 @@ function InsightRail({
 
 export default function AthleteDashboard() {
   const { id } = useParams<{ id: string }>();
+  const {
+    loading, loadError, athlete, sessions, plans: planRows, notes, setNotes, coachDbId,
+    recordHistory, recordsLoading, requestDetail, refreshedAt, reload, refresh,
+  } = useAthleteData(id);
   const { user, profile } = useAuth();
-
-  const [loading, setLoading] = useState(true);
-  const [athlete, setAthlete] = useState<PlayerWithStats | null>(null);
-  const [sessions, setSessions] = useState<SessionData[]>([]);
-  const [plans, setPlans] = useState<PlanRow[]>([]);
-  const [notes, setNotes] = useState<CoachNote[]>([]);
-  const [coachDbId, setCoachDbId] = useState<string | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const plans = planRows as unknown as PlanRow[];
+  const [cancelPlan, setCancelPlan] = useState<PlanRow | null>(null);
+  const [cancelBusy, setCancelBusy] = useState(false);
+  const confirmCancelPlan = async () => {
+    if (!cancelPlan || !user?.id) return;
+    setCancelBusy(true);
+    const result = await cancelWorkoutPlans([cancelPlan.id], profile?.coach_id ?? null, user.id);
+    setCancelBusy(false);
+    setCancelPlan(null);
+    if (!result.success) toast.error(result.error ?? "Couldn't cancel the workout");
+    else if (result.error) toast.warning(result.error);
+    else toast.success("Workout cancelled and the athlete notified");
+    void refresh();
+  };
   const [searchParams] = useSearchParams();
   const [tab, setTab] = useState(() => {
     const t = searchParams.get("tab");
@@ -510,51 +554,15 @@ export default function AthleteDashboard() {
     return () => document.removeEventListener("click", onClick, true);
   }, [glow]);
 
-  const loadData =useCallback(async () => {
-    if (!user?.id || !id) return;
-    setLoading(true);
-    setLoadError(null);
-    try {
-      const [found, teamIds] = await Promise.all([
-        getPlayerById(id),
-        getCoachTeamIds(user.id),
-      ]);
-      const inCoachRoster = found && found.team_id && teamIds.includes(found.team_id) ? found : null;
-      setAthlete(inCoachRoster);
-      if (!inCoachRoster) return;
-
-      const [sessionData, planData, noteData] = await Promise.all([
-        getPlayerSessions(inCoachRoster.id, inCoachRoster.user_id),
-        getPlayerWorkoutPlans(inCoachRoster.id),
-        getPlayerCoachNotes(inCoachRoster.id),
-      ]);
-      setSessions(sessionData);
-      setPlans((planData ?? []) as unknown as PlanRow[]);
-      setNotes(noteData);
-      setCoachDbId(profile?.coach_id ?? null);
-    } catch (error) {
-      // Previously toast-only: a failed load still fell through to "Athlete not found"
-      // below (athlete stayed null), telling the coach the athlete doesn't exist when
-      // the real cause was a network/query failure.
-      console.error("Error loading athlete:", error);
-      toast.error("Failed to load athlete data");
-      setLoadError(error instanceof Error ? error.message : null);
-    } finally {
-      setLoading(false);
-    }
-  }, [user?.id, id, profile?.coach_id]);
-
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
-
   // ── Derivations ────────────────────────────────────────────────────────────
   const sorted = useMemo(() => [...sessions].sort((a, b) => sessionTime(a) - sessionTime(b)), [sessions]);
   const lastSessionDate = useMemo(
     () => sorted.length ? sorted[sorted.length - 1].startedAt ?? sorted[sorted.length - 1].createdAt : null,
     [sorted]
   );
-  const now = useMemo(() => new Date(), []);
+  // Moves on with every refresh, so the weekly windows slide when the week changes even if no data did.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const now = useMemo(() => new Date(), [refreshedAt]);
 
   const weekIdx = useCallback(
     (d: Date, weeks: number) => weeks - 1 - differenceInCalendarWeeks(now, d, { weekStartsOn: 1 }),
@@ -603,6 +611,27 @@ export default function AthleteDashboard() {
 
   const allHistory = useMemo(() => historyByExercise(sessions), [sessions]);
 
+  // What the Sessions tab's picker lists: every plan, plus each workout no plan accounts for (one the
+  // athlete did on their own) as its own entry, so it can be opened like any other.
+  const pickerRows = useMemo<PlanRow[]>(() => {
+    const accounted = new Set<string>();
+    for (const p of plans) {
+      const hit = sessionForPlan(p, sessions);
+      if (hit) accounted.add(hit.id);
+    }
+    const unplanned = sessions
+      .filter((x) => !accounted.has(x.id))
+      .map<PlanRow>((x) => ({
+        id: `session-${x.id}`,
+        date: x.date,
+        title: x.notes ?? "Workout",
+        exercises: [],
+        is_completed: true,
+        session_id: x.id,
+      }));
+    return [...plans, ...unplanned];
+  }, [plans, sessions]);
+
   const compositeExerciseOptions = useMemo(() => Object.keys(allHistory).sort(), [allHistory]);
   const [compositeExercisePick, setCompositeExercisePick] = useState<string | null>(null);
   const compositeExercise =
@@ -625,35 +654,31 @@ export default function AthleteDashboard() {
         return false;
       }
     },
-    [athlete, coachDbId]
+    [athlete, coachDbId, setNotes]
   );
 
   // ── Render ────────────────────────────────────────────────────────────────
 
   if (!loading && !athlete) {
     return (
-      <div className="v-app">
-        <TopNav />
-        <main style={{ padding: "48px 28px", maxWidth: 720, margin: "0 auto", width: "100%", textAlign: "center" }}>
-          {loadError ? (
-            <LoadError message={loadError} onRetry={loadData} title="Couldn't load this athlete" />
-          ) : (
-            <>
-              <div className="v-h2">Athlete not found</div>
-              <p className="v-meta" style={{ marginTop: 8 }}>This athlete doesn't exist or isn't in your roster.</p>
-            </>
-          )}
-          <Link to="/" className="v-btn" style={{ marginTop: 16, display: "inline-flex", height: 36, fontSize: 13, padding: "0 16px" }}>← Back to dashboard</Link>
-        </main>
-      </div>
+      <main style={{ padding: "48px 28px", maxWidth: 720, margin: "0 auto", width: "100%", textAlign: "center" }}>
+        {loadError ? (
+          <LoadError message={loadError} onRetry={reload} title="Couldn't load this athlete" />
+        ) : (
+          <>
+            <div className="v-h2">Athlete not found</div>
+            <p className="v-meta" style={{ marginTop: 8 }}>This athlete doesn't exist or isn't in your roster.</p>
+          </>
+        )}
+        <Link to="/" className="v-btn" style={{ marginTop: 16, display: "inline-flex", height: 36, fontSize: 13, padding: "0 16px" }}>← Back to dashboard</Link>
+      </main>
     );
   }
 
   const lastDays = athlete ? lastDaysFor(athlete, { lastSessionDate }) : Infinity;
 
   return (
-    <div className="v-app">
-      <TopNav />
+    <>
       <LoadingOverlay isLoading={loading} fullScreen message="Loading athlete..." />
 
       {athlete && (
@@ -751,18 +776,21 @@ export default function AthleteDashboard() {
                     <div style={twoColumnGrid()}>
                       {/* SP-05: all-time records, so no "latest session": every exercise gets its whole history. */}
                       <PersonalRecordsCard
-                        exercises={Object.keys(allHistory).map((exercise) => ({ exercise, sets: [] }))}
-                        history={allHistory}
+                        exercises={Object.keys(recordHistory).map((exercise) => ({ exercise, sets: [] }))}
+                        history={recordHistory}
+                        loading={recordsLoading}
                       />
                     </div>
                   </div>
                 )}
 
-                {/* key: the data arrives after the page mounts; restart the picker on its first workout when it does */}
-                {tab === "sessions" && (
-                  <SessionsView key={`${plans.length}-${sessions.length}`} sessions={sessions} plans={plans} history={allHistory} focus={sessionFocus} glow={glow} onGlowClear={() => setGlow(null)} onPlanChange={setActivePlanId} guardSwitch={guardSwitch} />
+                {/* Mounted once the first load is done, so it opens on the right workout; later refreshes update it in place. */}
+                {tab === "sessions" && !loading && (
+                  <SessionsView sessions={sessions} plans={pickerRows} history={allHistory} focus={sessionFocus} glow={glow} onGlowClear={() => setGlow(null)} onPlanChange={setActivePlanId} guardSwitch={guardSwitch} onNeedDetail={requestDetail} />
                 )}
-                {tab === "programming" && <ProgrammingTab plans={plans} />}
+                {tab === "programming" && (
+                  <ProgrammingTab plans={plans} myCoachId={profile?.coach_id ?? null} onCancelPlan={setCancelPlan} />
+                )}
               </div>
             </div>
 
@@ -773,6 +801,19 @@ export default function AthleteDashboard() {
                 canAttachToWorkout={tab === "sessions" && activePlanId != null}
                 guardRef={noteGuard}
               />
+              <CancelWorkoutDialog
+                open={cancelPlan !== null}
+                onOpenChange={(o) => { if (!o) setCancelPlan(null); }}
+                title={`Cancel "${cancelPlan?.title ?? "Workout"}"?`}
+                description={
+                  cancelPlan
+                    ? `This removes the workout on ${format(new Date(cancelPlan.date + "T12:00:00"), "EEE, MMM d")} for ${athlete?.full_name ?? "this athlete"} and sends them an announcement and a notification. This cannot be undone.`
+                    : ""
+                }
+                busy={cancelBusy}
+                onConfirm={confirmCancelPlan}
+              />
+
               <AlertDialog open={pendingSwitch != null} onOpenChange={(o) => { if (!o) setPendingSwitch(null); }}>
                 <AlertDialogContent>
                   <AlertDialogHeader>
@@ -800,6 +841,6 @@ export default function AthleteDashboard() {
           </div>
         </main>
       )}
-    </div>
+    </>
   );
 }

@@ -47,7 +47,6 @@ VITE_SUPABASE_ANON_KEY=...
 All Supabase access goes through `src/lib/supabase.ts` (typed client via `src/types/database.ts`) and the service modules in `src/services/`:
 
 - `playersService.ts` — primary service; exports `PlayerWithStats` (player row + computed `avgVelocity`, `attendance`, `loadRec`, `avgROM`, `avgTempo`). Entry point is `getPlayersWithStatsByCoach(coachUserId)`.
-- `statsService.ts` — dashboard-level aggregate stats (`DashboardStats`).
 - `rosterMetricsService.ts` — 8-week per-athlete + team series (weekly velocity, sessions, plan-completion %, drop-off) via a fixed number of batched queries; feeds the dashboard KPIs, focus cards, and roster deltas. Never fetch these per-player.
 - `workoutPlansService.ts` — sending/reading workout plans per player. Templates are `workout_plans` rows with `is_template = true`.
 - `sessionsService.ts`, `messagesService.ts` — session and messaging data. `messages.priority` (`normal`/`urgent`) is persisted (migration 004).

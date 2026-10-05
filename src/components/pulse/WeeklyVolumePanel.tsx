@@ -3,12 +3,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { BetaBadge, MetricInfoTip } from "./BetaBadge";
 import {
   METRIC_LABEL,
-  METRIC_UNIT,
+  unitFor,
   fmtLoadVolumeVal,
   type LoadVolumeMetric,
   type WeeklyLoadVolumePoint,
 } from "./WeeklyLoadVolumeBetaCard";
 import { useMeasuredSize } from "@/hooks/useMeasuredSize";
+import { useUnits } from "@/contexts/UnitsContext";
 
 export type WeeklyVolumePoint = WeeklyLoadVolumePoint;
 
@@ -28,6 +29,7 @@ const PL = 8, PR = 8, PT = 18, PB = 20;
  */
 export function WeeklyVolumePanel({ data, coveragePct }: WeeklyVolumePanelProps) {
   const [metric, setMetric] = useState<LoadVolumeMetric>("tonnageLbs");
+  const { prefs } = useUnits();
   const { ref, width: w, height } = useMeasuredSize<HTMLDivElement>({ width: 400, height: 130 });
   const cW = Math.max(50, w - PL - PR);
   const cH = Math.max(20, height - PT - PB);
@@ -79,7 +81,7 @@ export function WeeklyVolumePanel({ data, coveragePct }: WeeklyVolumePanelProps)
               const top = ((y - 4) / height) * 100;
               return (
                 <div key={i} style={{ position: "absolute", left: `${left}%`, top: `${top}%`, transform: "translate(-50%, -100%)", fontSize: 9.5, fontFamily: "var(--font-mono)", color: "var(--ink-2)", whiteSpace: "nowrap" }}>
-                  {fmtLoadVolumeVal(metric, d[metric])}
+                  {fmtLoadVolumeVal(metric, d[metric], prefs.distance, prefs.weight)}
                 </div>
               );
             })}
@@ -95,7 +97,7 @@ export function WeeklyVolumePanel({ data, coveragePct }: WeeklyVolumePanelProps)
             })}
           </div>
           <div className="v-meta" style={{ fontSize: 10.5 }} title="Only reps with a recorded weight count toward these totals; unit not verified.">
-            {METRIC_UNIT[metric]} · based on {coveragePct.toFixed(0)}% of reps with a recorded weight
+            {unitFor(metric, prefs.distance, prefs.weight)} · based on {coveragePct.toFixed(0)}% of reps with a recorded weight
           </div>
         </>
       )}

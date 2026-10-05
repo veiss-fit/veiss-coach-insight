@@ -19,13 +19,13 @@ const MAX_VISIBLE_SETS = 4;
 const CONC_COLOR = "var(--brand)";
 const ECC_COLOR = "var(--ink-2)";
 
-const fmtS = (v: number) => `${v.toFixed(1)} s`;
-
 /**
  * SP-07 chart: one stacked bar per set. Bottom segment = mean concentric
  * duration, top segment = mean eccentric duration. The label above the bar is
  * their sum. Values are seconds.
  */
+const fmtS = (v: number) => `${v.toFixed(1)} s`;
+
 function TimingBars({ sets, scaleSets = sets }: { sets: SetTiming[]; /** Every set, for the bar scale, so bars do not rescale when the window moves. */ scaleSets?: SetTiming[] }) {
   const totals = sets.map((s) => (s.concMean ?? 0) + (s.eccMean ?? 0));
   const top = Math.max(...scaleSets.map((s) => (s.concMean ?? 0) + (s.eccMean ?? 0)), 0);

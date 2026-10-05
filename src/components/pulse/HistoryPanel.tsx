@@ -1,10 +1,13 @@
 import { useState, useEffect, useCallback } from "react";
 import { format } from "date-fns";
+import { useNavigate } from "react-router-dom";
 import { Dumbbell, Megaphone, Clock, Calendar, CalendarClock, Users } from "lucide-react";
 import { LoadError } from "@/components/pulse/LoadError";
 import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { useAuth } from "@/contexts/AuthContext";
-import { getCoachWorkoutHistory } from "@/services/workoutPlansService";
+import { toast } from "sonner";
+import { CancelWorkoutDialog } from "@/components/pulse/CancelWorkoutDialog";
+import { getCoachWorkoutHistory, cancelWorkoutPlans } from "@/services/workoutPlansService";
 import { getCoachMessageHistory } from "@/services/messagesService";
 
 interface WorkoutBatch {
@@ -14,6 +17,12 @@ interface WorkoutBatch {
   scheduledDates: string[];
   recipients: string[];
   exercises: unknown[] | null;
+  /** Plans in this batch that are still open and scheduled today or later: the ones a cancel removes. */
+  cancellablePlanIds: string[];
+  cancellableAthleteCount: number;
+  /** Every plan of the batch and how many of them are scheduled today or later. */
+  planIds: string[];
+  upcomingPlanCount: number;
 }
 
 interface AnnouncementBatch {
@@ -37,7 +46,7 @@ function StatTile({ label, value, sub }: { label: string; value: number; sub?: s
   );
 }
 
-function WorkoutRow({ w }: { w: WorkoutBatch }) {
+function WorkoutRow({ w, onCancel, onModify }: { w: WorkoutBatch; onCancel: (w: WorkoutBatch) => void; onModify: (w: WorkoutBatch) => void }) {
   const exerciseCount = Array.isArray(w.exercises) ? w.exercises.length : 0;
   const scheduled = w.scheduledDates
     .slice()
@@ -78,6 +87,18 @@ function WorkoutRow({ w }: { w: WorkoutBatch }) {
           {w.recipients.slice(0, 3).join(", ")}
           {w.recipients.length > 3 ? ` +${w.recipients.length - 3} more` : ""}
         </div>
+        {w.upcomingPlanCount > 0 && (
+          <div className="row" style={{ gap: 6, justifyContent: "flex-end", marginTop: 6 }}>
+            <button className="v-btn ghost" style={{ height: 28, fontSize: 11.5 }} onClick={() => onModify(w)}>
+              Modify
+            </button>
+            {w.cancellablePlanIds.length > 0 && (
+              <button className="v-btn ghost" style={{ height: 28, fontSize: 11.5 }} onClick={() => onCancel(w)}>
+                Cancel upcoming
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -127,7 +148,7 @@ function AnnouncementRow({ m }: { m: AnnouncementBatch }) {
  * "History" tab inside Send Programming (D18: consolidated out of top nav).
  */
 export function HistoryPanel() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"workouts" | "announcements">("workouts");
   const [workouts, setWorkouts] = useState<WorkoutBatch[]>([]);
@@ -140,7 +161,7 @@ export function HistoryPanel() {
     setLoadError(null);
     try {
       const [workoutsData, messagesData] = await Promise.all([
-        getCoachWorkoutHistory(user.id),
+        profile?.coach_id ? getCoachWorkoutHistory(profile.coach_id) : Promise.resolve([]),
         getCoachMessageHistory(user.id),
       ]);
       setWorkouts(workoutsData);
@@ -151,11 +172,34 @@ export function HistoryPanel() {
     } finally {
       setLoading(false);
     }
-  }, [user?.id]);
+  }, [user?.id, profile?.coach_id]);
 
   useEffect(() => {
     loadHistory();
   }, [loadHistory]);
+
+  const navigate = useNavigate();
+  // Modify opens the builder pre-filled from the batch's plans (the page reads them back by id).
+  const modifyBatch = (w: WorkoutBatch) => navigate(`/send-programming?edit=${w.planIds.join(",")}&mode=batch`);
+
+  const [cancelling, setCancelling] = useState<WorkoutBatch | null>(null);
+  const [cancelBusy, setCancelBusy] = useState(false);
+
+  const confirmCancel = async () => {
+    if (!cancelling || !user?.id) return;
+    setCancelBusy(true);
+    const result = await cancelWorkoutPlans(cancelling.cancellablePlanIds, profile?.coach_id ?? null, user.id);
+    setCancelBusy(false);
+    setCancelling(null);
+    if (!result.success) {
+      toast.error(result.error ?? "Couldn't cancel the workout");
+    } else if (result.error) {
+      toast.warning(result.error);
+    } else {
+      toast.success(`Cancelled ${result.cancelled} workout${result.cancelled !== 1 ? "s" : ""} and notified the athlete${cancelling.cancellableAthleteCount !== 1 ? "s" : ""}`);
+    }
+    void loadHistory();
+  };
 
   const reach =
     workouts.reduce((s, w) => s + w.recipients.length, 0) +
@@ -208,11 +252,24 @@ export function HistoryPanel() {
             {emptyMessage}
           </div>
         ) : tab === "workouts" ? (
-          workouts.map((w) => <WorkoutRow key={w.id} w={w} />)
+          workouts.map((w) => <WorkoutRow key={w.id} w={w} onCancel={setCancelling} onModify={modifyBatch} />)
         ) : (
           announcements.map((m) => <AnnouncementRow key={m.id} m={m} />)
         )}
       </div>
+
+      <CancelWorkoutDialog
+        open={cancelling !== null}
+        onOpenChange={(o) => { if (!o) setCancelling(null); }}
+        title={`Cancel "${cancelling?.workoutName ?? ""}"?`}
+        description={
+          cancelling
+            ? `This removes ${cancelling.cancellablePlanIds.length} upcoming workout${cancelling.cancellablePlanIds.length !== 1 ? "s" : ""} for ${cancelling.cancellableAthleteCount} athlete${cancelling.cancellableAthleteCount !== 1 ? "s" : ""} and sends each of them an announcement and a notification. Workouts already done or in the past are not touched. This cannot be undone.`
+            : ""
+        }
+        busy={cancelBusy}
+        onConfirm={confirmCancel}
+      />
     </div>
   );
 }

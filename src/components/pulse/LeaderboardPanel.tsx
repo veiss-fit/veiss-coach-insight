@@ -3,6 +3,9 @@ import { Star } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Avatar } from "./Avatar";
 import { DEFAULT_DITHER, ditherForRank, RANK_DITHER_WIDTH_PCT, type DitherSettings } from "./rankDither";
+import { fmtVelocity } from "@/lib/units";
+import { useUnits } from "@/contexts/UnitsContext";
+import type { UnitSystem } from "./UnitsSelector";
 
 /** Rank badge colors for the top 3; everyone else gets the neutral default. */
 const RANK_COLOR: Record<number, string> = { 1: "#D4AF37", 2: "#9CA3AF", 3: "#B08D57" };
@@ -251,10 +254,10 @@ export interface LeaderboardPanelProps {
   dither?: Partial<DitherSettings>;
 }
 
-function formatValue(metric: LeaderboardMetric, value: number): string {
+function formatValue(metric: LeaderboardMetric, value: number, velocitySystem: UnitSystem): string {
   switch (metric) {
     case "velocity":
-      return `${value.toFixed(2)} m/s`;
+      return fmtVelocity(value, velocitySystem);
     case "baseline":
       return `${value > 0 ? "+" : ""}${value.toFixed(0)}%`;
     case "sessions":
@@ -274,6 +277,7 @@ export function LeaderboardPanel({
   onRowClick,
   dither,
 }: LeaderboardPanelProps) {
+  const { prefs } = useUnits();
   const showExercise = METRIC_USES_EXERCISE[metric];
   const visible = rows.slice(0, VISIBLE_ROWS);
 
@@ -363,7 +367,7 @@ export function LeaderboardPanel({
                     padding: "2px 6px", borderRadius: 4, background: rankColor,
                   }}
                 >
-                  {formatValue(metric, row.value)}
+                  {formatValue(metric, row.value, prefs.velocity)}
                 </span>
               </button>
             );

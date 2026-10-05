@@ -18,7 +18,7 @@ export const Validators = {
   },
 
   // ===== REQUIRED FIELDS =====
-  required: (value: any, fieldName: string) => {
+  required: (value: unknown, fieldName: string) => {
     if (!value || (typeof value === 'string' && value.trim() === '')) {
       return `${fieldName} is required`;
     }

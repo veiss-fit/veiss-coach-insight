@@ -405,6 +405,8 @@
     flex-direction: column;
   }
   .v-topnav {
+    position: relative;
+    z-index: 60;
     height: 56px;
     padding: 0 24px;
     display: flex;

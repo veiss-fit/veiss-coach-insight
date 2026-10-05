@@ -1,5 +1,22 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { SessionsTile } from './SessionsTile';
+import { Skeleton } from '@/components/ui/skeleton';
+
+/** Mirrors the real skeleton used in Index.tsx's Suspense fallback for this tile. */
+const SessionsTileSkeleton = () => (
+  <div className="v-card padded" style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0, height: "100%", boxSizing: "border-box", overflow: "hidden" }}>
+    <div className="row" style={{ justifyContent: "space-between" }}>
+      <Skeleton className="animate-pulse" style={{ height: 11, width: 56 }} />
+      <Skeleton className="animate-pulse" style={{ height: 11, width: 28 }} />
+    </div>
+    <Skeleton className="animate-pulse" style={{ height: 22, width: 40, marginTop: 2 }} />
+    <div className="row" style={{ alignItems: "flex-end", gap: 4, marginTop: "auto", height: 30 }}>
+      {[14, 22, 10, 26, 18, 8, 20].map((h, i) => (
+        <Skeleton key={i} className="animate-pulse" style={{ height: h, width: "100%" }} />
+      ))}
+    </div>
+  </div>
+);
 
 const meta: Meta = {
   title: 'Home dashboard/SessionsTile',
@@ -44,4 +61,9 @@ export const WeekendHeavy: Story = {
   render: () => (
     <SessionsTile sessionsThisWeek={16} sessionsLastWeek={9} sessionsByDay={[1, 0, 1, 0, 1, 7, 6]} />
   ),
+};
+
+/** The Suspense fallback shown while the real tile's chunk is loading (Index.tsx). */
+export const LazyLoading: Story = {
+  render: () => <SessionsTileSkeleton />,
 };

@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import { PlanCompletionTile } from './PlanCompletionTile';
 
 const meta: Meta = {
-  title: 'Home dashboard/PlanCompletionTile',
+  title: 'Not used/PlanCompletionTile',
   parameters: {
     docs: {
       description: {

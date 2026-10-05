@@ -9,7 +9,7 @@ import type { PlayerWithStats } from '@/services/playersService';
 import type { RosterAthleteMetrics } from '@/services/rosterMetricsService';
 
 const meta: Meta = {
-  title: 'Metrics/SP-12 Roster table',
+  title: 'Not used/SP-12 Roster table',
   parameters: {
     docs: {
       description: {

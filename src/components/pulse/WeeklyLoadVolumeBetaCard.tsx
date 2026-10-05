@@ -2,6 +2,11 @@ import { useState } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { BetaBadge, MetricInfoTip } from "./BetaBadge";
 import { useMeasuredSize } from "@/hooks/useMeasuredSize";
+import { useUnits } from "@/contexts/UnitsContext";
+import { convertWeightLbs } from "@/lib/units";
+import type { UnitSystem } from "./UnitsSelector";
+
+const M_PER_FT = 0.3048;
 
 export interface WeeklyLoadVolumePoint {
   label: string;
@@ -17,9 +22,16 @@ export const METRIC_LABEL: Record<LoadVolumeMetric, string> = {
   totalWorkKj: "Total work",
   distanceM: "Bar distance",
 };
-export const METRIC_UNIT: Record<LoadVolumeMetric, string> = { tonnageLbs: "lbs", totalWorkKj: "kJ", distanceM: "m" };
-export const fmtLoadVolumeVal = (metric: LoadVolumeMetric, v: number) =>
-  metric === "tonnageLbs" ? (v >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${Math.round(v)}`) : metric === "distanceM" ? `${Math.round(v)}` : v.toFixed(1);
+export const unitFor = (metric: LoadVolumeMetric, distSystem: UnitSystem, weightSystem: UnitSystem): string =>
+  metric === "distanceM" ? (distSystem === "imperial" ? "ft" : "m") : metric === "tonnageLbs" ? (weightSystem === "metric" ? "kg" : "lbs") : "kJ";
+export const fmtLoadVolumeVal = (metric: LoadVolumeMetric, v: number, distSystem: UnitSystem, weightSystem: UnitSystem) => {
+  if (metric === "tonnageLbs") {
+    const c = convertWeightLbs(v, weightSystem);
+    return c >= 1000 ? `${(c / 1000).toFixed(1)}k` : `${Math.round(c)}`;
+  }
+  if (metric === "distanceM") return `${Math.round(distSystem === "imperial" ? v / M_PER_FT : v)}`;
+  return v.toFixed(1);
+};
 
 export interface WeeklyLoadVolumeBetaCardProps {
   athleteName: string;
@@ -40,6 +52,7 @@ const PL = 8, PR = 8, PT = 18, PB = 20;
  */
 export function WeeklyLoadVolumeBetaCard({ athleteName, weeks, coveragePct }: WeeklyLoadVolumeBetaCardProps) {
   const [metric, setMetric] = useState<LoadVolumeMetric>("tonnageLbs");
+  const { prefs } = useUnits();
   const { ref, width: w, height: h } = useMeasuredSize<HTMLDivElement>({ width: 400, height: 130 });
   const cW = Math.max(50, w - PL - PR);
   const cH = Math.max(30, h - PT - PB);
@@ -86,7 +99,7 @@ export function WeeklyLoadVolumeBetaCard({ athleteName, weeks, coveragePct }: We
                   <g key={i}>
                     <rect x={x} y={y} width={bw} height={barH} rx="2" fill="var(--brand)" opacity="0.85" />
                     <text x={x + bw / 2} y={y - 4} textAnchor="middle" fontSize="9.5" fontFamily="var(--font-mono)" fill="var(--ink-2)">
-                      {fmtLoadVolumeVal(metric, d[metric])}
+                      {fmtLoadVolumeVal(metric, d[metric], prefs.distance, prefs.weight)}
                     </text>
                     <text x={x + bw / 2} y={h - 6} textAnchor="middle" fontSize="9.5" fontFamily="var(--font-mono)" fill="var(--ink-3)">
                       {d.label}
@@ -97,7 +110,7 @@ export function WeeklyLoadVolumeBetaCard({ athleteName, weeks, coveragePct }: We
             </svg>
           </div>
           <div className="v-meta" style={{ fontSize: 10.5 }} title="Only reps with a recorded weight count toward these totals; unit not verified.">
-            {METRIC_UNIT[metric]} · based on {coveragePct.toFixed(0)}% of reps with a recorded weight
+            {unitFor(metric, prefs.distance, prefs.weight)} · based on {coveragePct.toFixed(0)}% of reps with a recorded weight
           </div>
         </>
       )}

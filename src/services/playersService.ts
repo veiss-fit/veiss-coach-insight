@@ -1,11 +1,17 @@
 import { format, startOfWeek, subWeeks } from 'date-fns';
 import { supabase } from '@/lib/supabase';
+import { sessionPlacementIso, VISIBLE_SESSION_FILTER } from '@/services/sessionsService';
 import { getAttendanceSummary, WorkoutPlanLike, WorkoutSessionLike } from '@/lib/workoutAttendance';
+import { chunk } from '@/lib/utils';
 import { Database } from '@/types/database';
 
 /** Same window as rosterMetricsService's WEEKS, so the roster table's per-athlete
  *  attendance matches the team tile and leaderboard (A4.3: one attendance definition). */
 const ATTENDANCE_WINDOW_WEEKS = 8;
+const PAGE_SIZE = 1000;
+const MAX_PAGES = 20;
+/** Max ids per `.in(...)` call — a long UUID list risks blowing the URL length limit. */
+const ID_CHUNK_SIZE = 200;
 
 type Player = Database['public']['Tables']['players']['Row'];
 type Team = Database['public']['Tables']['groups']['Row'];
@@ -72,7 +78,7 @@ export const getCoachId = async (coachUserId: string): Promise<string | null> =>
     .from('coaches')
     .select('id')
     .eq('user_id', coachUserId)
-    .single() as { data: { id: string } | null };
+    .maybeSingle() as { data: { id: string } | null };
   return data?.id ?? null;
 };
 
@@ -162,149 +168,178 @@ export const getAllPlayersWithStats = async (teamIds?: string[]): Promise<Player
     if (error) throw error;
     if (!players || players.length === 0) return [];
 
-    const playersWithStats = await Promise.all(
-      players.map(async (player: any) => {
-        const stats = await calculatePlayerStats(player.id);
-        return {
-          ...player,
-          name: player.full_name,
-          group: player.groups?.name || '',
-          team: player.groups,
-          ...stats,
-        } as PlayerWithStats;
-      })
-    );
+    const statsByPlayer = await getPlayerStatsBatch(players.map((p: any) => ({ id: p.id, user_id: p.user_id })));
 
-    return playersWithStats;
+    return players.map((player: any) => ({
+      ...player,
+      name: player.full_name,
+      group: player.groups?.name || '',
+      team: player.groups,
+      ...(statsByPlayer.get(player.id) ?? EMPTY_STATS),
+    })) as PlayerWithStats[];
   } catch (error) {
     console.error('Error in getAllPlayersWithStats:', error);
     throw error;
   }
 };
 
+export interface PlayerStats {
+  avgVelocity: number;
+  attendance: number;
+  loadRec: string;
+  avgROM: number;
+  avgTempo: number;
+  lastWorkout: { name: string; date: string } | null;
+}
+
+const EMPTY_STATS: PlayerStats = { avgVelocity: 0, attendance: 0, loadRec: 'New', avgROM: 0, avgTempo: 0, lastWorkout: null };
+
+type PlanRow = Pick<WorkoutPlan, 'player_id' | 'date' | 'title' | 'is_completed' | 'session_id'>;
+/** `created_at` is replaced by the placement instant (see `sessionPlacementIso`) right after the fetch. */
+type SessionRow = Pick<Session, 'id' | 'user_id' | 'created_at' | 'name'> & { started_at?: string | null };
+type RepRow = Pick<Rep, 'session_id' | 'average_rep_speed' | 'rom_mm' | 'concentric_duration_s'>;
+
 /**
- * Fetch players for a specific team (kept for backwards compatibility).
+ * Calculate stats (avg velocity/ROM/tempo, attendance, load rec, last workout)
+ * for many players at once — a fixed number of batched queries (one plans
+ * query, one sessions query, a paginated reps query, all chunked `.in(...)`)
+ * regardless of roster size, instead of calculatePlayerStats' 3-4 queries
+ * PER player (an N+1 pattern — was the slowest part of loading the roster).
+ * Same numbers as the old per-player version for the same inputs.
  */
-export const getPlayersByTeamIds = async (teamIds: string[]): Promise<PlayerWithStats[]> => {
-  try {
-    const { data: players, error } = await (supabase as any)
-      .from('players')
-      .select('*, groups!players_team_id_fkey(*)')
-      .in('team_id', teamIds)
-      .order('full_name', { ascending: true });
+export const getPlayerStatsBatch = async (
+  players: Array<{ id: string; user_id: string | null }>
+): Promise<Map<string, PlayerStats>> => {
+  const result = new Map<string, PlayerStats>();
+  if (players.length === 0) return result;
 
-    if (error) throw error;
-    if (!players || players.length === 0) return [];
+  const playerIds = players.map((p) => p.id);
+  const windowStart = startOfWeek(subWeeks(new Date(), ATTENDANCE_WINDOW_WEEKS - 1), { weekStartsOn: 1 });
+  const windowStartMs = windowStart.getTime();
 
-    const playersWithStats = await Promise.all(
-      players.map(async (player: any) => {
-        const stats = await calculatePlayerStats(player.id);
-        return {
-          ...player,
-          name: player.full_name,
-          group: player.groups?.name || '',
-          team: player.groups,
-          ...stats,
-        } as PlayerWithStats;
-      })
-    );
-
-    return playersWithStats;
-  } catch (error) {
-    console.error('Error in getPlayersByTeamIds:', error);
-    throw error;
+  // 1. Workout plans for every player, 8-week window, chunked by id-list size.
+  const plansByPlayer = new Map<string, WorkoutPlanLike[]>();
+  const planChunks = await Promise.all(
+    chunk(playerIds, ID_CHUNK_SIZE).map((ids) =>
+      supabase
+        .from('workout_plans')
+        .select('player_id, date, title, is_completed, session_id')
+        .in('player_id', ids)
+        .eq('is_template', false)
+        .gte('date', format(windowStart, 'yyyy-MM-dd'))
+    )
+  );
+  for (const { data } of planChunks) {
+    ((data ?? []) as PlanRow[]).forEach((plan) => {
+      const list = plansByPlayer.get(plan.player_id) ?? [];
+      list.push({ date: plan.date, title: plan.title, is_completed: plan.is_completed, session_id: plan.session_id });
+      plansByPlayer.set(plan.player_id, list);
+    });
   }
-};
 
-/**
- * Fetch players for a single team (kept for backwards compatibility).
- */
-export const getPlayersByTeamId = async (teamId: string): Promise<PlayerWithStats[]> => {
-  if (!teamId) return [];
-  return getPlayersByTeamIds([teamId]);
-};
+  // 2. Sessions for every player. A session's user_id can match either
+  //    players.id or players.user_id (legacy data quirk, see D4 in
+  //    KNOWN_BUGS.md) — same dual-match the old per-player version did.
+  const ownerToPlayer = new Map<string, string>();
+  players.forEach((p) => {
+    ownerToPlayer.set(p.id, p.id);
+    if (p.user_id) ownerToPlayer.set(p.user_id, p.id);
+  });
+  const ownerIds = Array.from(ownerToPlayer.keys());
 
-/**
- * Calculate player statistics from their workout data
- */export const calculatePlayerStats = async (playerId: string) => {
-  try {
-    const { data: player, error: playerError } = await (supabase as any)
-      .from('players')
-      .select('user_id')
-      .eq('id', playerId)
-      .single() as { data: { user_id: string | null } | null; error: any };
-
-    if (playerError || !player) {
-      return { avgVelocity: 0, attendance: 0, loadRec: 'New' as const, avgROM: 0, avgTempo: 0, lastWorkout: null };
+  const sessionsByPlayer = new Map<string, SessionRow[]>();
+  if (ownerIds.length > 0) {
+    const sessionChunks = await Promise.all(
+      chunk(ownerIds, ID_CHUNK_SIZE).map((ids) =>
+        supabase.from('sessions').select('id, user_id, created_at, started_at, name').in('user_id', ids).or(VISIBLE_SESSION_FILTER)
+      )
+    );
+    for (const { data } of sessionChunks) {
+      ((data ?? []) as SessionRow[]).forEach((row) => {
+        const s = { ...row, created_at: sessionPlacementIso(row.started_at ?? null, row.created_at) };
+        const playerId = s.user_id ? ownerToPlayer.get(s.user_id) : undefined;
+        if (!playerId) return;
+        const list = sessionsByPlayer.get(playerId) ?? [];
+        list.push(s);
+        sessionsByPlayer.set(playerId, list);
+      });
     }
+  }
 
-    const windowStart = startOfWeek(subWeeks(new Date(), ATTENDANCE_WINDOW_WEEKS - 1), { weekStartsOn: 1 });
+  // 3. Reps for every player's last-30-days sessions, paginated past the 1000-row cap.
+  const thirtyDaysAgoMs = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  const sessionIdToPlayer = new Map<string, string>();
+  const recentSessionIds: string[] = [];
+  sessionsByPlayer.forEach((sessions, playerId) => {
+    sessions.forEach((s) => {
+      if (s.created_at && new Date(s.created_at).getTime() >= thirtyDaysAgoMs) {
+        sessionIdToPlayer.set(s.id, playerId);
+        recentSessionIds.push(s.id);
+      }
+    });
+  });
 
-    const { data: workoutPlans } = await supabase
-      .from('workout_plans')
-      .select('date, title, is_completed, session_id')
-      .eq('player_id', playerId)
-      .eq('is_template', false)
-      .gte('date', format(windowStart, 'yyyy-MM-dd'));
+  const fetchRepsForSessionIds = async (ids: string[]): Promise<RepRow[]> => {
+    const collected: RepRow[] = [];
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const { data, error } = await supabase
+        .from('reps')
+        .select('session_id, average_rep_speed, rom_mm, concentric_duration_s')
+        .in('session_id', ids)
+        .not('average_rep_speed', 'is', null)
+        .order('id', { ascending: true })
+        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+      if (error) {
+        console.error('getPlayerStatsBatch: reps query failed', error);
+        break;
+      }
+      const rows = (data ?? []) as RepRow[];
+      collected.push(...rows);
+      if (rows.length < PAGE_SIZE) break;
+    }
+    return collected;
+  };
 
-    const sessionOwnerIds = Array.from(new Set([playerId, player.user_id].filter(Boolean) as string[]));
+  const repsByPlayer = new Map<string, RepRow[]>();
+  if (recentSessionIds.length > 0) {
+    const repChunks = await Promise.all(chunk(recentSessionIds, ID_CHUNK_SIZE).map(fetchRepsForSessionIds));
+    for (const rep of repChunks.flat()) {
+      const playerId = sessionIdToPlayer.get(rep.session_id);
+      if (!playerId) continue;
+      const list = repsByPlayer.get(playerId) ?? [];
+      list.push(rep);
+      repsByPlayer.set(playerId, list);
+    }
+  }
 
-    const { data: allSessions } = sessionOwnerIds.length > 0
-      ? await supabase
-          .from('sessions')
-          .select('id, created_at, name')
-          .in('user_id', sessionOwnerIds)
-      : { data: [] as Pick<Session, 'id' | 'created_at' | 'name'>[] };
+  // 4. Assemble per-player stats from the batched data above.
+  players.forEach((player) => {
+    const allSessions = sessionsByPlayer.get(player.id) ?? [];
 
-    const lastSession = (allSessions ?? [])
-      .filter(s => s.created_at)
+    const lastSession = allSessions
+      .filter((s) => s.created_at)
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0] ?? null;
-    const lastWorkout = lastSession
-      ? { name: lastSession.name ?? '', date: lastSession.created_at }
-      : null;
+    const lastWorkout = lastSession ? { name: lastSession.name ?? '', date: lastSession.created_at } : null;
 
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const thirtyDaysAgoMs = thirtyDaysAgo.getTime();
+    const recentSessions = allSessions.filter((s) => s.created_at && new Date(s.created_at).getTime() >= thirtyDaysAgoMs);
 
-    const sessions = (allSessions ?? []).filter(s => new Date(s.created_at).getTime() >= thirtyDaysAgoMs);
-
+    const reps = repsByPlayer.get(player.id) ?? [];
     let avgVelocity = 0;
     let avgROM = 0;
     let avgTempo = 0;
-
-    if (sessions && sessions.length > 0) {
-      const sessionIds = sessions.map(s => s.id);
-
-      // Pull ALL Phase 22 metrics
-      const { data: reps } = await (supabase as any)
-        .from('reps')
-        .select('average_rep_speed, rom_mm, concentric_duration_s, eccentric_duration_s')
-        .in('session_id', sessionIds)
-        .not('average_rep_speed', 'is', null) as { data: Array<{ average_rep_speed: number | null; rom_mm: number | null; concentric_duration_s: number | null }> | null };
-
-      if (reps && reps.length > 0) {
-        const totalV = reps.reduce((sum, r) => sum + (Number(r.average_rep_speed) || 0), 0);
-        const totalR = reps.reduce((sum, r) => sum + (Number(r.rom_mm) || 0), 0);
-        const totalC = reps.reduce((sum, r) => sum + (Number(r.concentric_duration_s) || 0), 0);
-
-        avgVelocity = parseFloat((totalV / reps.length).toFixed(2));
-        avgROM = Math.round(totalR / reps.length);
-        avgTempo = parseFloat((totalC / reps.length).toFixed(2));
-      }
+    if (reps.length > 0) {
+      const totalV = reps.reduce((sum, r) => sum + (Number(r.average_rep_speed) || 0), 0);
+      const totalR = reps.reduce((sum, r) => sum + (Number(r.rom_mm) || 0), 0);
+      const totalC = reps.reduce((sum, r) => sum + (Number(r.concentric_duration_s) || 0), 0);
+      avgVelocity = parseFloat((totalV / reps.length).toFixed(2));
+      avgROM = Math.round(totalR / reps.length);
+      avgTempo = parseFloat((totalC / reps.length).toFixed(2));
     }
 
-    const windowStartMs = windowStart.getTime();
     const attendanceSummary = getAttendanceSummary(
-      ((workoutPlans || []) as Pick<WorkoutPlan, 'date' | 'title' | 'is_completed' | 'session_id'>[]).map((plan) => ({
-        date: plan.date,
-        title: plan.title,
-        is_completed: plan.is_completed,
-        session_id: plan.session_id,
-      })) as WorkoutPlanLike[],
-      // Same 8-week window as the plans query — lastWorkout above still looks at all-time sessions.
-      ((allSessions || []) as Pick<Session, 'id' | 'created_at' | 'name'>[])
-        .filter((session) => new Date(session.created_at).getTime() >= windowStartMs)
+      (plansByPlayer.get(player.id) ?? []) as WorkoutPlanLike[],
+      allSessions
+        .filter((session) => session.created_at && new Date(session.created_at).getTime() >= windowStartMs)
         .map((session) => ({
           id: session.id,
           date: session.created_at.slice(0, 10),
@@ -322,51 +357,23 @@ export const getPlayersByTeamId = async (teamId: string): Promise<PlayerWithStat
     if (avgVelocity > 0) {
       if (avgVelocity > 0.85) loadRec = 'Increase Load';
       else if (avgVelocity < 0.40) loadRec = 'Decrease Load (Fatigue)';
-    } else if (!sessions || sessions.length === 0) {
+    } else if (recentSessions.length === 0) {
       loadRec = 'New';
     }
 
-    return {
-      avgVelocity,
-      attendance,
-      loadRec,
-      avgROM,
-      avgTempo,
-      lastWorkout,
-    };
-  } catch (error) {
-    console.error(error);
-    return { avgVelocity: 0, attendance: 0, loadRec: 'New' as const, avgROM: 0, avgTempo: 0, lastWorkout: null };
-  }
+    result.set(player.id, { avgVelocity, attendance, loadRec, avgROM, avgTempo, lastWorkout });
+  });
+
+  return result;
 };
 
-// /**
-//  * Add a new player
-//  */
-// export const addPlayer = async (playerData: {
-//   full_name: string;
-//   team_id: string | null;
-//   jersey_number?: number | null;
-//   user_id?: string | null;
-// }): Promise<Player> => {
-//   try {
-//     const { data, error } = await supabase
-//       .from('players')
-//       .insert(playerData)
-//       .select()
-//       .single();
-
-//     if (error) {
-//       console.error('Error adding player:', error);
-//       throw error;
-//     }
-
-//     return data;
-//   } catch (error) {
-//     console.error('Error in addPlayer:', error);
-//     throw error;
-//   }
-// };
+/**
+ * Stats for a single player — thin wrapper over getPlayerStatsBatch.
+ */
+export const calculatePlayerStats = async (playerId: string, userId: string | null = null): Promise<PlayerStats> => {
+  const batch = await getPlayerStatsBatch([{ id: playerId, user_id: userId }]);
+  return batch.get(playerId) ?? EMPTY_STATS;
+};
 
 /**
  * Assign an existing player to a team.
@@ -400,49 +407,6 @@ export const assignPlayerToTeam = async (
     return true;
   } catch (error) {
     console.error('Error in assignPlayerToTeam:', error);
-    throw error;
-  }
-};
-
-/**
- * Get player-role profiles that haven't been linked to a player record yet,
- * scoped to players who appear in this coach's teams.
- *
- * NOTE: Truly "unassigned" players (no team_id, no player_id) have no coach
- * association by definition, so a global scan is not possible without an
- * invitation table. This function returns only profiles whose player_id links
- * to a player record owned by this coach's teams — covering the reassignment
- * use case without leaking cross-coach data.
- * TODO: Replace with a proper invitation flow if cross-coach discovery is needed.
- */
-export const getUnassignedUsers = async (coachUserId: string): Promise<Array<{
-  id: string;
-  full_name: string | null;
-}>> => {
-  if (!coachUserId) return [];
-
-  try {
-    const teamIds = await getCoachTeamIds(coachUserId);
-    if (teamIds.length === 0) return [];
-
-    // Get player IDs in this coach's teams that don't yet have a linked profile
-    const { data: players, error: playersError } = await (supabase as any)
-      .from('players')
-      .select('id, full_name, user_id')
-      .in('team_id', teamIds)
-      .is('user_id', null) as {
-        data: Array<{ id: string; full_name: string; user_id: string | null }> | null;
-        error: any;
-      };
-
-    if (playersError) {
-      console.error('Error fetching unlinked players:', playersError);
-      throw playersError;
-    }
-
-    return (players || []).map(p => ({ id: p.id, full_name: p.full_name }));
-  } catch (error) {
-    console.error('Error in getUnassignedUsers:', error);
     throw error;
   }
 };
@@ -501,7 +465,7 @@ export const getPlayerById = async (playerId: string): Promise<PlayerWithStats |
       return null;
     }
 
-    const stats = await calculatePlayerStats(player.id);
+    const stats = await calculatePlayerStats(player.id, player.user_id);
 
     return {
       ...player,

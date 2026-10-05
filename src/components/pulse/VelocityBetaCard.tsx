@@ -2,6 +2,8 @@ import { useState } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { BetaBadge, MetricInfoTip } from "./BetaBadge";
 import { fmtShortDate } from "@/lib/format";
+import { convertVelocity } from "@/lib/units";
+import { useUnits } from "@/contexts/UnitsContext";
 
 export type VelocityVariable = "mean" | "peak" | "eccMean" | "propulsive" | "at100ms";
 
@@ -42,6 +44,8 @@ const BAR_AREA = 110, HEADROOM = 22, BAR_W = 34;
  */
 export function VelocityBetaCard({ exercise, sessionDate, sets }: VelocityBetaCardProps) {
   const [variable, setVariable] = useState<VelocityVariable>("mean");
+  const { prefs } = useUnits();
+  const velUnit = prefs.velocity === "imperial" ? "ft/s" : "m/s";
   const color = VARIABLE_COLOR[variable];
   const max = Math.max(0.1, ...sets.map((s) => s.values[variable]));
   const px = (v: number) => Math.max(2, (v / (max * 1.1)) * BAR_AREA);
@@ -79,7 +83,7 @@ export function VelocityBetaCard({ exercise, sessionDate, sets }: VelocityBetaCa
             <div key={s.set} style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
               <div style={{ height: BAR_AREA + HEADROOM, width: "100%", display: "flex", justifyContent: "center", alignItems: "flex-end", borderBottom: "1px solid var(--line-1)" }}>
                 <div style={{ width: BAR_W, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end" }}>
-                  <span className="mono" style={{ fontSize: 11.5, color: "var(--ink-1)", marginBottom: 2 }}>{s.values[variable].toFixed(2)}</span>
+                  <span className="mono" style={{ fontSize: 11.5, color: "var(--ink-1)", marginBottom: 2 }}>{convertVelocity(s.values[variable], prefs.velocity).toFixed(2)}</span>
                   <div style={{ width: "100%", height: px(s.values[variable]), background: color, borderRadius: "2px 2px 0 0" }} />
                 </div>
               </div>
@@ -88,7 +92,7 @@ export function VelocityBetaCard({ exercise, sessionDate, sets }: VelocityBetaCa
           ))}
         </div>
       )}
-      <div className="v-meta" style={{ fontSize: 10 }}>m/s</div>
+      <div className="v-meta" style={{ fontSize: 10 }}>{velUnit}</div>
     </div>
   );
 }
