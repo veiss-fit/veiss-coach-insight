@@ -1,514 +1,352 @@
 # CALCULATIONS.md
 
-Authoritative reference for every number, chart, and badge rendered on the coach
-dashboard: what it actually computes, where the inputs come from, and what its
-known limitations are. Written as part of the fix for a prior data-correctness
-audit of this dashboard (findings delivered in conversation, not checked into
-the repo); this file is the living source of truth going forward, not a
-one-time report.
+Full re-audit of the current working tree (2026-09-25). The previous version of
+this file described an architecture that has since been substantially rewritten
+— an old anomaly/readiness system (`computeAnomalyIndicators`, the athlete-page
+Readiness tab) has been removed entirely and replaced by a new numbered metric
+library (`src/lib/metrics/*.ts`, referencing an internal spec `temp/METRIC_SPEC.md`
+as "SP-01" through "SP-13"). This file replaces the old one and reflects what the
+code actually does today, not what it did when the old doc was written.
 
-Conventions used below:
-- **DB/JSON fields** — the literal Supabase columns or `workout_plans.exercises`
-  jsonb keys the number is built from.
-- **Rounding** — exact rounding/formatting applied before display.
-- **Limitations** — anything a coach should know before trusting the number.
-
----
-
-## 1. Load recommendation (Increase / Decrease / Maintain / New)
-
-`src/services/playersService.ts` → `calculatePlayerStats`, bucketed for display
-via `src/lib/targetEvaluation.ts` → `classifyLoadRec`.
-
-**Formula**: velocity-based threshold on `avgVelocity` (flat mean of
-`average_rep_speed` across every rep logged in the last 30 days, all
-exercises pooled):
-- `avgVelocity > 0.85` → **"Increase Load"**
-- `avgVelocity < 0.40` → **"Decrease Load (Fatigue)"**
-- otherwise → **"Maintain"**
-- no sessions in the last 30 days → **"New"**
-
-**Where it's shown**: `LoadRecChip` (`src/components/pulse/chips.tsx`) on
-`AthleteCard.tsx`, `AthletePicker.tsx`; the "Load recommendation mix" donut +
-legend on `Index.tsx` (3 buckets: Increase / Maintain / Reduce).
-
-**Display fix kept from the earlier pass**: the chip and the donut both
-classify via the shared `classifyLoadRec()` (prefix match on
-`"increase"`/`"decrease"`, exact match on `"maintain"`) instead of the
-original strict-equality bug that compared against literal strings
-("Increase"/"Decrease") the engine never actually produced — that bug made
-every athlete render as "Maintain" regardless of their real recommendation.
-Fixed once, shared by both surfaces, so they can't independently drift out of
-sync again.
-
-**Limitation**: this is a flat, cross-exercise average with no per-exercise
-anchor — an athlete who does one fast bodyweight movement and one slow heavy
-squat in the same window gets one blended number compared against a single
-global threshold pair that implicitly assumes one exercise/load context. A
-target-velocity-range-based recommendation was built and then removed (see
-git history) — there's currently no coach-set target for this to evaluate
-against, so it's back to the threshold rule above.
+Every section below was verified by reading the real source on disk, not
+inferred from comments or the old doc. Where the code's own comments flag a
+number as unverified/uncalibrated/mock, that's carried through here verbatim.
 
 ---
 
-## 2. Attendance — three independent, intentionally different numbers
+## Part 0 — How to read this doc
 
-There are three separate attendance/adherence calculations in this app.
-**They are not expected to match** — they measure different things by
-design. This section exists specifically to keep that from being
-"discovered" as a bug again.
+**Pipeline shape**, same for almost every number on this dashboard:
+
+```
+Supabase tables (sessions, reps, workout_plans, players, groups, messages)
+        │
+        ▼
+Row-shaping layer  (sessionsService.ts, sessionAdapters.ts, rosterMetricsService's
+                     own inline batch queries, playersService's batch queries)
+        │
+        ▼
+Metric functions   (src/lib/metrics/*.ts for single-session VBT math,
+                     src/lib/workoutAttendance.ts for attendance,
+                     rosterMetricsService.ts / rosterSignals.ts / athleteFacts.ts /
+                     attentionFlags.ts for roster-wide aggregation)
+        │
+        ▼
+Page-level assembly (Index.tsx, AthleteDashboard.tsx, SendProgramming.tsx, History.tsx,
+                      Messages.tsx — some inline math lives here too, undocumented
+                      until now)
+        │
+        ▼
+Card components    (src/components/pulse/*.tsx)
+```
+
+**Every rep-level calc excludes invalid data the same way**: a rep only counts
+toward a velocity calc if `average_rep_speed` is not null and `> 0`; toward a
+ROM calc if `rom_mm > 0`; toward a timing calc if the relevant duration `> 0`.
+A stored `0` is treated as "no reading," never as a real zero. This rule is
+implemented independently in several places (see Part 6, "known duplication")
+rather than shared from one function — worth knowing if it's ever changed.
+
+**Exercise names are canonicalized** at read time via
+`src/lib/targetEvaluation.ts` → `canonicalizeExerciseName`/`EXERCISE_NAME_ALIASES`
+(`"Squat"`/`"Squats"` → `"Back Squat"`, `"rdl"` → `"Romanian Deadlift"` — only
+these two, confirmed against live data, not extrapolated). Applied in
+`sessionsService.ts` (session grouping), `sessionAdapters.ts` (re-applied,
+harmlessly redundant since it's idempotent), and `rosterMetricsService.ts`'s
+own raw-row grouping. Names failing `isValidExerciseName` (fewer than 2 letters,
+or a hardware artifact label — `"Workout"`, `"Exercise"`, `"Movement"`,
+`"Training"`, `"Session"`) are excluded everywhere.
+
+---
+
+## Part 1 — Row shaping: DB rows → session/exercise/rep objects
+
+### `sessionsService.ts` → `getPlayerSessions`, `buildExercises`
+- **DB inputs**: `sessions.id/started_at/created_at/status/name`, `reps.exercise_name/set_number/rep_number/average_rep_speed/rom_mm/concentric_duration_s/eccentric_duration_s/weight`. Falls back to `workouts` table (names only, zeroed metrics) when a session has zero `reps` rows.
+- **Formula**: fetches reps per session (chunked `.in()` up to 200 ids, paginated 1000/page up to 20 pages). Groups reps by canonicalized exercise name into `ExerciseData`. Computes `ExerciseData.avgVelocity` (mean valid `average_rep_speed`, `.toFixed(2)`), `.avgROM` (mean valid `rom_mm`, `Math.round`), `.avgTempo` (mean valid `concentric_duration_s`, `.toFixed(2)`) — **but these three pre-computed averages are not consumed by any of the Part 2 metric functions**, which all recompute their own means from raw `RepData` independently. Likely dead weight on `ExerciseData`, not fully confirmed dead app-wide.
+- **Timezone note**: session date extracted via local-timezone conversion (`toLocalDateString`) specifically to avoid a UTC day-shift bug — deliberate, documented in code.
+- **Feeds**: everything in Part 2, via `sessionAdapters.ts`.
+
+### `sessionAdapters.ts` — shape adapter
+- Converts `SessionData`/`ExerciseData`/`RepData` into the metric library's `RepInput[]` shape: `repInputs`, `sessionSets`, `sessionRom`, `sessionTiming`, `sessionMoment`, `byMoment`, `historyByExercise`, `exposureInputs`.
+- Re-applies `isValidExerciseName`/`canonicalizeExerciseName` (redundant but harmless, see Part 0). Nulls out `weight` when `≤ 0` ("no load recorded"). `historyByExercise` sorts by session count descending (most-trained exercise opens first in the exercise picker).
+- Not a card itself — the glue `AthleteDashboard.tsx` uses throughout.
+
+### `rosterMetricsService.ts`'s own inline row shaping
+- Independent batched queries (sessions/reps/plans for the *whole roster* at once, chunked/paginated the same way) — deliberately **not** reusing `sessionsService.ts`, since that would mean one query per athlete (N+1). See Part 4.
+
+### `playersService.ts` → `getPlayerStatsBatch`
+- Same N+1-avoidance pattern as above, its own independent batched queries. See Part 3.
+
+---
+
+## Part 2 — Single-session / per-exercise / per-set VBT metrics
+
+All of these live in `src/lib/metrics/*.ts`, operate on one athlete's own
+sessions, and are the numbers shown on the athlete detail page's Sessions and
+Performance tabs.
+
+### SP-01 — Set velocity summary
+**File**: `metrics/setVelocitySummary.ts` → `summarizeSet`, `summarizeSession`
+**Formula**: per set, `vBest = max(valid rep velocities)`, `vMean = mean(valid rep velocities)`. `load` = the set's shared weight if every valid rep in it has the same weight `> 0`, else `null`.
+**Rendered by**: `SetVelocityBars.tsx` (bars/swatches), `PersonalRecordsCard.tsx` (indirectly, via SP-05), and every downstream SP-02/03/04/05 function.
+**Page**: AthleteDashboard → Sessions tab (Velocity view), Performance tab.
+
+### SP-02 — Within-set velocity loss
+**File**: `metrics/withinSetVelocityLoss.ts` → `withinSetVelocityLoss`, `exerciseLossSummary`
+**Formula**: `(vBest − vLast) / vBest × 100`, `vLast` = valid rep with the highest `rep_number`. Session-level summary = **median** (not mean) of per-set losses. Requires `MIN_VALID_REPS = 2` (spec default was 3, lowered by product decision).
+**Rendered by**: `SetVelocityBars.tsx` (per-set loss text, median-loss pill).
+**Page**: AthleteDashboard → Sessions tab, Velocity view.
+
+### SP-03 — Set-to-set velocity change
+**File**: `metrics/setToSetChange.ts` → `setToSetChange`
+**Formula**: `(vMean_last − vMean_first) / vMean_first × 100` between the first and last set with a valid rep — **only when both sets' loads are known and identical** (an unmatched-load comparison mostly measures the load change, not fatigue, per code comment). Needs ≥2 usable sets.
+**Rendered by**: `SetVelocityBars.tsx` ("set-to-set" pill).
+**Page**: AthleteDashboard → Sessions tab, Velocity view.
+
+### SP-04 — Velocity vs. own baseline
+**File**: `metrics/velocityVsBaseline.ts` → `commonLoad`, `velocityVsBaseline`
+**Formula**: session value = mean `vBest` over qualifying sets (Tier A: latest session's sets share one known load, only same-load sets counted across history; Tier B: load unknown/mixed → all sets pooled, flagged "not load-matched"). Baseline = **exponential moving average** over earlier sessions within `BASELINE_DAYS = 42` days (`EMA_ALPHA = 0.3`, seeded at the oldest session in-window) — spec called for a plain mean, product owner asked for an EMA instead. `change = (latest − baseline) / baseline × 100`.
+**Uncalibrated constants** (code's own words): `BASELINE_DAYS`, `EMA_ALPHA`.
+**Rendered by**: `SetVelocityBars.tsx` (dashed target line, "vs target ±N%" pill, "not load-matched" badge). Also reused roster-wide (Part 4).
+**Page**: AthleteDashboard → Sessions tab, Velocity view.
+
+### SP-05 — Velocity personal record
+**File**: `metrics/velocityRecords.ts` → `fastestAtHeaviestLoad`
+**Formula**: across all history, per exercise: heaviest ever verified `load`, then fastest `vBest` among sets at that load. Ties on load → earliest session wins. All-time, no window.
+**Dead field**: `LoadRecord.isNew` is computed but never read by any component (self-documented `TODO(cleanup)`, confirmed).
+**Rendered by**: `PersonalRecordsCard.tsx`.
+**Page**: AthleteDashboard → Performance tab.
+
+### SP-06 — Range of motion / vertical displacement
+**File**: `metrics/rangeOfMotion.ts` → `summarizeRomSet`, `summarizeRomSession`, `romSetToSetChange`, `romConsistency`
+**Formula**: `meanMm` = mean of counted reps' `rom_mm`; `cvPct` = sample SD/mean × 100 (needs ≥2 counted reps). `romSetToSetChange` = `(lastSet − firstSet)/firstSet × 100` between first/last set with data (load **not** considered, unlike SP-03). `romConsistency` = median of per-set CVs.
+**Rendered by**: `RangeOfMotionCard.tsx` (`RangeOfMotionCards`, `RomLines` chart).
+**Page**: AthleteDashboard → Sessions tab, "Distance" view.
+
+### SP-07 — Rep timing (TUT / E:C ratio)
+**File**: `metrics/repTiming.ts` → `summarizeTimingSet`, `summarizeTimingSession`, `exerciseTimingSummary`, `concentricSetToSetChange`, `eccentricSetToSetChange`
+**Formula**: `tut` = Σ(concentric + eccentric) over reps with both durations present. `ecRatio` = Σeccentric/Σconcentric. Session-level `tut` is **summed** across sets (not averaged); `conc`/`ecc`/`ecRatio` are averaged. Set-to-set change = first-vs-last set with data, no load-matching.
+**Rendered by**: `RepTimingCard.tsx` (`RepTimingCards`).
+**Page**: AthleteDashboard → Sessions tab, "Time" view.
+
+### SP-08 — Training exposure (sessions/week, days since last) — **DEAD CODE**
+**File**: `metrics/trainingExposure.ts` → `trainingExposure`; `sessionAdapters.ts` → `exposureInputs`
+**Formula**: buckets sessions with ≥1 valid rep into 8 Monday-starting weeks; `daysSinceLast` = calendar days to today.
+**Status**: zero production callers. Its only consumer, `TrainingExposureCard.tsx`, is itself Storybook-only (self-documented `TODO(cleanup)`, confirmed by grep — only `.stories.tsx` imports it). The live "Weekly sessions" panel on AthleteDashboard's Performance tab (see Part 5) reimplements the same weekly-bucketing logic **independently, inline** — a second, undocumented implementation of "sessions per week" that could silently drift from this one since neither calls the other.
+
+### SP-09 — Load-velocity profile
+**File**: `metrics/loadVelocityProfile.ts` → `loadVelocityProfile`
+**Formula**: one point per distinct load within `PROFILE_WINDOW_DAYS = 56` days: `best = max(vBest at that load)`. Least-squares linear fit (`slope`, `intercept`, `r2`) when ≥2 loads (`MIN_LOADS = 2`; `r2 = 1` by construction with exactly 2 points). `span` = velocity drop from lightest to heaviest load tested.
+**Rendered by**: `LoadVelocityProfileCard.tsx` (scatter + fit line + R² + span pills).
+**Page**: AthleteDashboard → Performance tab.
+**Note**: scoped to one exercise at a time by design (no cross-exercise mixing) — this design principle survives from the old doc even though the implementation was rewritten.
+
+### SP-10 — Estimated 1RM (prototype)
+**File**: `metrics/estimatedOneRm.ts` → `isUpperBodyExercise`, `estimateOneRm`
+**Formula**: `oneRm = (mvt − intercept) / slope` off the SP-09 fit line. `mvt` (minimum velocity threshold) is coach-editable, default `0.16` m/s ("lowest of three published bench values: 0.16, 0.165, 0.23" — code's own words). Requires `slope < 0` and a positive result. Restricted to exercises matching a hardcoded upper-body name-keyword regex — **"a guess, not a validated list"** per code comment.
+**Rendered by**: `LoadVelocityProfileCard.tsx` (estimate dot, tooltip, editable min-velocity input).
+**Page**: AthleteDashboard → Performance tab.
+**Caveat carried from old doc**: overall weight-logging coverage was measured at 21.8% (see Part 8) — this feature exists despite that low-coverage caveat, and the UI marks the estimate "rough" when extrapolating past the heaviest load actually tested.
+
+### Primary exercise selection
+**File**: `athleteSummaryUtils.ts` → `findPrimaryExercise`, `isValidExerciseName`
+**Formula**: exercise with the most valid reps in the last 30 days, ties broken by most recently trained.
+**Used for**: selecting the default exercise for `CompositeScoreBetaCard` (a mock-data card — see Part 7). This is the only surviving function from the old doc's §14 fix; its original purpose (anchoring the anomaly-indicator baseline) no longer applies since that system was removed.
+
+### Deviation/anomaly indicators — **REMOVED FROM PRODUCTION, TYPES ONLY REMAIN**
+`athleteSummaryUtils.ts` still exports the `RAGStatus`/`DeviationIndicator`/`IndicatorTooltip` **types**, but the functions that used to compute them (`computeAnomalyIndicators`, `velocityIndicatorSource`, `compositeRagStatus`) do not exist anywhere in the current codebase. The one component that still imports these types, `DeviationBaselineCard.tsx`, is self-documented dead (`TODO(cleanup): Storybook-only, no production caller currently — the athlete page's readiness tab was removed`), confirmed by grep. There is no live "Readiness" score or z-score anomaly panel anywhere in this app today.
+
+---
+
+## Part 3 — Per-athlete stats used outside the session detail (roster row, cards, chip)
+
+### `playersService.ts` → `getPlayerStatsBatch` (batched, avoids N+1)
+Computes, per player, over the **last 30 days**' reps (all exercises pooled, no canonicalization):
+- **`avgVelocity`** = mean `average_rep_speed`, `.toFixed(2)`.
+- **`avgROM`** = mean `rom_mm`, `Math.round`.
+- **`avgTempo`** = mean `concentric_duration_s`, `.toFixed(2)`.
+- **`loadRec`**: `avgVelocity > 0.85` → `"Increase Load"`; `< 0.40` → `"Decrease Load (Fatigue)"`; else `"Maintain"`; `"New"` if zero sessions in the last 30 days.
+- **`attendance`** — see Part 6(b), computed over an **8-week** window (`ATTENDANCE_WINDOW_WEEKS = 8`, same constant name intent as `rosterMetricsService`'s `WEEKS`, explicitly kept in sync per code comment "A4.3: one attendance definition").
+- **`lastWorkout`** — most recent session's `{name, date}`.
+
+**Rendered by**: `LoadRecChip` (`chips.tsx`) — live callers are `SendProgramming.tsx` and `AthletePicker.tsx` only. (`AthleteCard.tsx` also references these fields but has zero importers anywhere in the app — see Part 9.)
+**Limitation** (carried from old doc, still true): flat cross-exercise average with no per-exercise anchor — an athlete doing one fast bodyweight movement and one slow heavy squat gets one blended number against a single global threshold.
+
+---
+
+## Part 4 — Roster-wide / team-wide aggregates
+
+Everything here comes from `rosterMetricsService.ts` → `getRosterMetrics`, called once per page load for the whole roster (never per-athlete — deliberately avoids N+1). 8-week window (`WEEKS = 8`) unless noted.
+
+### Per-athlete series (`RosterAthleteMetrics`) — **mostly dead code**
+- `velSeries`, `sessSeries`, `sessionsThisWeek` (per-athlete), `recentVel`, `velDelta` — all real computations (weekly-bucketed mean velocity / session counts / last-3-vs-prior delta), but their **only consumer**, `AthleteTable.tsx`, is imported **only** by `AthleteTable.stories.tsx` (Storybook fixture, confirmed by grep — zero production callers).
+- `RosterTeamMetrics.velSeries` (team-wide weekly velocity) has **zero readers anywhere**, not even Storybook.
+- `dropPct` (within-session first-set-vs-last-set drop, canonicalized-exercise-partitioned, `Math.round`, clamped [-100,100]) feeds `rosterFlags.ts` → `flagsFor`, whose only consumer, `AthleteCard.tsx`, has **no importer at all in the app** — not even a Storybook story. This is deader than the file's own `TODO(cleanup)` comments claim.
+- **Practical effect**: none of these five fields currently reach a coach's screen. If you're changing this file's math, these five are safe to ignore for user-facing impact (but are exercised by Storybook, so changing their shape breaks `npm run storybook` fixtures).
+
+### The live roster-wide "attention" system (SP-12 / SP-13) — **not in the old doc at all**
+This replaced `rosterFlags.ts` and is what coaches actually see today:
+
+1. **`rosterSignals.ts`** (SP-12) — per athlete, per canonicalized exercise, compares the **latest session** against a **pooled EMA baseline** (reuses SP-04's `velocityVsBaseline`, deliberately pooled/not load-matched — "a load-matched baseline cannot see a fall caused by a heavier load"). Two facts surface per athlete:
+   - `biggestDrop` — the exercise with the largest negative change vs. baseline, plus `loadFrom`/`loadTo` when known.
+   - `slowestTempo` — the exercise with the largest positive concentric-time change (SP-07's `concentricSetToSetChange`) in the latest session.
+2. **`athleteFacts.ts`** (SP-13) — packages 4 facts per athlete: `daysSince` (last session), `drop` (`|biggestDrop.change|`), `tempo` (`slowestTempo.change`), `attendance` (from Part 3).
+3. **`attentionFlags.ts`** (SP-13) — compares each fact to a **coach-editable threshold** (defaults: `days: 7, drop: 10%, tempo: 20%, attendance: 70%`; only the "7 days" default is carried over from old code, the rest have "no source" per the code's own comment). **No composite score** — a row flags if *any one* signal crosses its own cutoff; the coach picks the sort key (`orderByAttention`, stable sort, flagged rows pinned first when enabled).
+4. **`exerciseBaseline`** — same SP-04 pooled-baseline math, but retained **per exercise** (not reduced to one worst exercise per athlete) for the team-wide "Slower than baseline" tile and the Leaderboard's "baseline" metric.
+
+**Rendered by**: `RosterSignalsTable.tsx` (the "Biggest drop vs baseline" / "Slowest tempo shift" columns — its own file comment claims "Storybook only," which is **stale**: `Index.tsx` wires it live as the default "roster" tab of `RosterViewSwitcher`), `FollowedAthleteCard.tsx` (same facts, "Drop vs baseline"/"Tempo shift" rows), `NeedsAttentionTile.tsx` / `SlowerThanBaselineTile.tsx` on `Index.tsx`.
+**Page(s)**: `Index.tsx` (roster table default tab, attention counts), `FollowedAthletesPanel.tsx` (mounted outside `<Routes>` in `App.tsx`, so visible on every page for followed athletes).
+
+### Leaderboard (`leaderboard`)
+- `velocityByExercise` — max single-rep velocity per canonicalized exercise per athlete, any weight, in-window.
+- `sessionsByPlayer` — session count per athlete.
+- `completionByPlayer` — per-athlete `getAttendanceSummary` result (Part 6), only set when the athlete has ≥1 plan.
+- `firstPlaceCounts` — count of exercises where an athlete holds/ties the max in `velocityByExercise`.
+**Rendered by**: `LeaderboardPanel.tsx`, `Index.tsx`'s "leaderboard" tab (branches on metric: velocity / baseline / sessions / completion).
+
+### Team PRs (`teamPrs`)
+Per athlete + canonicalized exercise: heaviest verified `weight` ever logged, fastest `average_rep_speed` at that weight (ties → faster rep wins). All-time within the 8-week fetch window. **Rendered by**: `TeamPrsPanel.tsx`, `Index.tsx`'s "team-prs" tab.
+
+### Training grid (`trainingGrid`)
+Sessions per athlete per day-of-current-week only (Mon–Sun). **Rendered by**: `TrainingGridPanel.tsx`, `Index.tsx`'s "grid" tab.
+
+### Team volume (`volumeSeries` / `volumeCoveragePct`) — SP-08-adjacent, distinct from Part 8's gated per-session volume
+- `volumeSeries[week].totalLbs` = raw sum of `reps.weight` (weight `> 0` only) across **every athlete, every exercise, no canonicalization/artifact filtering** — a different, looser inclusion rule than `computeDropPctFromRows`/`computeSignals` use.
+- `volumeCoveragePct` = `round(repsWithWeight / repsInWindow × 100)` over the whole 8-week rep set.
+- **Rendered by**: `WeeklyVolumePanel.tsx` on `Index.tsx`. **`tonnageLbs` is real; `totalWorkKj`/`distanceM` are fabricated** — see Part 7, this is the highest-risk mock-data finding in this audit (no Beta badge, unlike the athlete-page equivalent).
+- **No relation to** the per-session 80%-coverage-gated volume in Part 8 — two independent "volume" concepts exist in this app and neither cross-references the other.
+
+### Team KPIs (`avgAttendance`, `attSeries`, `sessionsThisWeek`, `sessionsLastWeek`, `sessionsByDay`, `assignedThisWeek`, `completedThisWeek`, `planCompletionDeltaPct`)
+See Part 6(a) for the attendance figures. Session counts/day-of-week rendered by `SessionsTile.tsx`, `Index.tsx`. `assignedThisWeek`/`completedThisWeek`/`planCompletionDeltaPct` are computed but no direct render call site was confirmed in this audit — flagged as a possible-dead-code follow-up, not asserted dead.
+
+---
+
+## Part 5 — Inline page-level math (previously undocumented)
+
+These live directly inside page components rather than a lib/service function — easy to miss, so listed explicitly.
+
+### AthleteDashboard.tsx — "Weekly sessions" summary stats
+`avg = mean(weekly8[].v).toFixed(1)`, `onTarget = count(weekly8[].v >= SESSIONS_TARGET)` (SESSIONS_TARGET = 4, from `vbtZones.ts`). Real data, computed inline, independently of SP-08 (see Part 2 — two implementations of "sessions per week" that don't share code).
+**Rendered on**: Performance tab, "Weekly sessions" card.
+
+### AthleteDashboard.tsx — "Plan adherence" (Programming tab)
+`adherencePct = round(completed-in-last-30-days / total-in-last-30-days × 100)`, pure `is_completed` flag count — **no session matching**, unlike Part 6's `getAttendanceSummary`. Bucketed by week for the "This wk / Last wk / 2 wks / 3 wks" rows.
+**Rendered on**: Programming tab, "Plan adherence · last 30 days" card.
+
+### AthleteDashboard.tsx — `planStatus` (upcoming/recent plan list)
+A **fourth**, independent plan-status classifier (`is_completed` → completed; else date-in-past → missed; else queued) — doesn't reuse `getWorkoutPlanStatus` from `workoutAttendance.ts`. Feeds the completed/missed/queued chips on each plan row in the same Programming tab as the adherence calc above. Not itself a percentage, but worth knowing there are now four independent plan-status implementations in this app (`getWorkoutPlanStatus`, the adherence calc, this one, and the roster-wide `toPlanLike`/attendance pipeline).
+
+### Index.tsx — `volumeData` (feeds WeeklyVolumePanel)
+`tonnageLbs` real (from `rosterMetricsService.volumeSeries`). `totalWorkKj = tonnageLbs × 0.013`, `distanceM = round(tonnageLbs × 0.0966)` — **both fabricated**, linearly scaled off tonnage "to keep the bars roughly proportionate" (code's own comment). **Not Beta-badged** — see Part 7 for why this is the top risk finding of this audit.
+
+### Index.tsx — `attentionCounts`
+Loops the roster calling `attentionFlags(athleteFacts(...))` (Part 4) and tallies flagged counts per reason. Pure orchestration over already-documented logic, not new math.
+
+### SendProgramming.tsx
+Only UI-input clamps (`Math.max(1, Math.min(20, n))` on a "number of sets" field) and static `.toFixed(2)` display formatting — no build-stats aggregation, no template-usage counts, nothing else computed here.
+
+---
+
+## Part 6 — Attendance / plan completion (four independent implementations)
+
+**They are not expected to match.** This is intentional — they measure different things — but two of the descriptions below have **drifted from what the code actually does** since they were last documented; drift is called out explicitly.
 
 ### (a) Roster-wide "Avg attendance" KPI — `Index.tsx`
-**Source**: `rosterMetricsService.ts` → `RosterTeamMetrics.avgAttendance` +
-`attSeries`.
-**Formula**: `sum(is_completed) / count(*)` over every non-template
-`workout_plans` row across the whole roster, in the current 8-week window —
-**the exact same underlying rows** that `attSeries` buckets by week for the
-sparkline/delta, so the headline number and its trend can never disagree.
-Previously the headline number came from a completely different, all-time,
-session-matching formula (`getAttendanceSummary`) than its own trend line —
-now both come from one pipeline.
-**DB fields**: `workout_plans.date`, `workout_plans.is_completed`,
-`workout_plans.is_template` (`= false`).
-**Rounding**: `Math.round(completed/total * 100)`.
-**Does NOT** count self-logged sessions with no matching plan — pure plan
-completion, matching the tile's own footnote copy ("plan completion, wk over
-wk").
+**Source**: `rosterMetricsService.ts` → `team.avgAttendance` / `attSeries`.
+**Formula, as of now**: `getAttendanceSummary(allPlanRows, allSessionRows).attendancePercent` over the whole roster's 8-week window — i.e. the **full session-matching algorithm** from (b) below, including folding in unmatched self-logged sessions, **not** a plain `is_completed` ratio.
+**⚠ Drift from the previous doc**: the previous version of this file described this as `sum(is_completed)/count(*)` with an explicit "does NOT count self-logged sessions" note. That is **no longer true** — the code was changed (per its own comment, "A4.3: one attendance definition") to route through the same richer algorithm as (b), just scoped to the whole roster instead of one athlete. The headline number and its sparkline still can't disagree with each other (same underlying rows), but the formula itself changed.
+**DB fields**: `workout_plans.date/is_completed/is_template(=false)/session_id/title`, `sessions.id/created_at/name`.
 
-### (b) Per-athlete "Attendance" — `AthleteCard.tsx`, `AthleteTable.tsx`,
-`AthleteDashboard.tsx` KPI strip
-**Source**: `playersService.ts` → `calculatePlayerStats` → `getAttendanceSummary`
-(`src/lib/workoutAttendance.ts`).
-**Formula**: richer than (a) — for each of this athlete's plans, resolves
-status as completed/pending/missed (matching a session by `session_id` first,
-then same-day-title fallback), then adds any **unmatched self-logged sessions**
-(sessions with no corresponding plan) into both the numerator and denominator
-as additional "completed, untracked-by-a-plan" workouts. All-time, not
-windowed.
-**DB fields**: `workout_plans.date/title/is_completed/session_id`,
-`sessions.id/created_at/name/status`.
-**Rounding**: `Math.round(completedTracked/totalTracked * 100)`.
-**Why it differs from (a)**: different window (all-time vs. 8 weeks), different
-scope (includes self-logged sessions vs. plan-only), different match logic.
-Internally self-consistent and correctly labeled.
+### (b) Per-athlete "Attendance" — roster table, athlete cards, `LoadRecChip` context
+**Source**: `playersService.ts` → `getPlayerStatsBatch` → `getAttendanceSummary` (`workoutAttendance.ts`).
+**Formula**: for each plan, resolve completed/pending/missed (session-id link first, then same-day exact-title match, then the sole unnamed same-day session as a fallback); fold in unmatched self-logged sessions as additional "completed, untracked" entries in both numerator and denominator. `Math.round(completedTracked/totalTracked × 100)`.
+**⚠ Drift from the previous doc**: previously documented as "all-time, not windowed." It is now an **8-week window** (`ATTENDANCE_WINDOW_WEEKS = 8`), deliberately aligned with `rosterMetricsService`'s own window per an explicit code comment. Still correctly self-consistent, just not all-time anymore.
 
-### (c) Programming tab "Plan adherence" — `AthleteDashboard.tsx` → `ProgrammingTab`
-**Source**: local calc in `AthleteDashboard.tsx`, `adherencePct`/`adherenceWeeks`.
-**Formula**: `completed / assigned` over `workout_plans.is_completed`, last 30
-days, bucketed by week for the bar rows. **No session matching at all** — pure
-`is_completed` flag count, unlike (a) and (b).
-**DB fields**: `workout_plans.date`, `workout_plans.is_completed`.
-**Rounding**: `Math.round(...)`.
+### (c) Programming tab "Plan adherence" — `AthleteDashboard.tsx`
+`completed / assigned` over `workout_plans.is_completed`, last 30 days, **no session matching at all**. Matches the previous doc's description exactly — no drift here.
 
-**Summary**: (a) is roster-wide/8-week/plan-only. (b) is per-athlete/all-time/
-plan+self-logged-sessions. (c) is per-athlete/30-day/plan-only. All three are
-legitimate, all three can show different percentages for the same athlete at
-the same moment, and none of them is "the bug" — this is documentation, not a
-merge into one formula.
+### (d) `planStatus` in `AthleteDashboard.tsx`'s plan list
+A fourth, simpler completed/missed/queued classifier for the plan-row chips (see Part 5) — not a percentage, but an independent status decision that can disagree with (b) and (c) for the same plan row since it skips session matching entirely.
+
+**Bottom line**: (a) and (b) now share the same underlying matching engine (just different scope/window) where they previously didn't — that's a real, meaningful change from what was last documented, worth confirming is intentional if you didn't already know about it.
 
 ---
 
-## 3. Velocity drop-off (within-session fatigue)
+## Part 7 — Mock / Beta / placeholder data (explicit disclosure)
 
-Two implementations exist, both correct and in agreement in their
-partitioning logic:
+Several cards render **hardcoded or partially-fabricated numbers**, not live calculations. Listed here so none of them get mistaken for real data:
 
-### Roster-wide flag/priority score — `rosterMetricsService.ts`
-`computeDropPctFromRows` — reimplements the same per-exercise partitioning as
-(below) over raw `{exercise_name, set_number, average_rep_speed}` rows (a
-roster-wide batched query can't afford a per-player `sessionsService` fetch).
-**Formula**: group a session's reps by `exercise_name` (canonicalized — see
-§4 below; excluding hardware artifact names — "Workout", "Exercise", etc.),
-then within each exercise with ≥2 distinct `set_number`s, compute
-`(firstSetAvg − lastSetAvg) / firstSetAvg`. Average that ratio across all
-qualifying exercises in the session. Previously all reps in a session were
-pooled by raw `set_number` regardless of exercise, so a squat's set 1 and a
-bench's set 1 got averaged together — that partitioning bug is fixed.
-**Where shown**: "Velocity drop N%" flag on `AthleteCard.tsx` focus cards
-(`rosterFlags.ts`), and feeds `priorityScore` (sort order for "Worth a look").
-**Rounding**: `Math.round`, clamped to [-100, 100].
-
-### Athlete detail page — `athleteSummaryUtils.ts` → `sessionVelocityDropoff`
-Same partitioning logic, operating on already-exercise-grouped `SessionData`
-(no raw-row reimplementation needed here). Confirmed correct, not modified.
-**Where shown**: AthleteDashboard KPI strip "Velocity drop-off", Readiness tab,
-Sessions tab row summaries.
-
-**Why two implementations at all**: the roster-wide path can't fetch full
-per-exercise `SessionData` for every athlete (N+1 problem, deliberately
-avoided — see `rosterMetricsService.ts` file comment), so it works from raw
-rows instead. Keep the two in sync manually if the partitioning rule ever
-changes; there's a comment in `rosterMetricsService.ts` pointing back here.
+| Card | Status | Detail |
+|---|---|---|
+| `VelocityBetaCard`, `PowerBetaCard`, `RepTimingBetaCard`, `SetEffortBetaCard`, `SessionSummaryBetaCard`, `CompositeScoreBetaCard`, `WeeklyLoadVolumeBetaCard` | Fully mock, Beta-badged | Fed hardcoded `BETA_*` constants from `AthleteDashboard.tsx`, explicitly comment-flagged "All-mock data — see BetaBadge." Coach sees a visible "Beta" badge. |
+| `WeeklyLoadVolumeBetaCard`'s `coveragePct={22}` | Hardcoded literal | Not computed from any rep data, unlike the real `volumeCoveragePct` in `rosterMetricsService.ts`. Coincidentally close to the real historic 21.8% figure (Part 8) but is a literal, not live. Low risk since it's Beta-badged. |
+| **`WeeklyVolumePanel` on `Index.tsx`** — `totalWorkKj`, `distanceM` | **Fabricated, NOT Beta-badged** | Linear scale-up of real tonnage (`× 0.013`, `× 0.0966`). This is the **highest-risk finding in this audit**: it renders on the main dashboard with no visual disclosure that two of its three numbers are synthetic, unlike every other mock-data surface in this app. |
+| `ComingSoonMetricsCard` | Static roadmap list | No calculation at all, just a "not built yet" list. Rendered live via `RosterSignalsTable.tsx`. |
 
 ---
 
-## 4. Exercise-name canonicalization
+## Part 8 — Volume / load coverage gating (per-session, athlete-page)
 
-Two independent fixes to how `reps.exercise_name` gets grouped/matched, both
-still in effect:
-
-**Investigated, not assumed**: the `" - Medium"`/`" - Fast"`/`" - Slow"`
-suffix pattern on `exercise_name` (present identically across Squat,
-Deadlift, and Bench Press in live data) was suspected as a possible
-auto-tagging artifact of the logging pipeline, based on the pattern repeating
-across unrelated lifts and inconsistent spacing suggestive of templated
-string generation. **Confirmed by the coach: deliberate.** Coaches
-intentionally log tempo-specific variants this way for reference. **These are
-NOT merged** — `"Bench Press - Fast"`, `"Bench Press - Medium"`,
-`"Bench Press - Slow"`, and `"Bench Press"` remain four distinct exercises
-everywhere. No suffix-stripping code was written.
-
-**Explicit, hardcoded alias map** (`src/lib/targetEvaluation.ts` →
-`EXERCISE_NAME_ALIASES`/`canonicalizeExerciseName`) for the two collisions
-confirmed against live data — and *only* these two, not extrapolated to
-anything else found while investigating:
-- `"Squat"` / `"Squats"` → `"Back Squat"`
-- `"rdl"` → `"Romanian Deadlift"`
-
-Applied at read time, wherever a raw `exercise_name` is first grouped —
-never rewrites `reps.exercise_name` in the database:
-- `sessionsService.ts` — the per-session exercise grouping key (so "Squat"
-  and "Squats" reps merge into one `ExerciseData` entry named "Back Squat").
-  This is the highest-leverage point: every downstream consumer of
-  `SessionData`/`ExerciseData` (avg velocity, drop-off, `ExerciseRangeChart`,
-  the FV chart, Sessions tab) inherits the canonicalized name for free.
-- `rosterMetricsService.ts` — `computeDropPctFromRows`'s raw-row grouping
-  (this one operates on raw DB rows directly, not `SessionData`, so it needs
-  its own canonicalization step).
-
-**Other likely duplicates found while investigating, reported but NOT merged**
-(no confirmation obtained, so no alias added — do not add these without
-separately confirming them the same way the two above were confirmed):
-- `Barbell Row` — single instance, low signal, no obvious duplicate.
-- `Quad extensions` — single instance, lowercase, low signal.
-- `Tnf press` — unidentifiable; doesn't match any name in the coach-side
-  `EXERCISE_LIBRARY`. Meaning unknown.
-- `Belt squat` — plausibly a distinct movement from "Back Squat" (a belt
-  squat is a different exercise, not just a casing variant), left alone
-  deliberately, not merged.
-
-**Extending this list**: only add an entry after separately confirming a
-specific collision via the same method used here (inspect distinct
-`exercise_name` values + rep/session counts, per
-`supabase/analysis-data-quality.sql`'s items 2a/2b) — never by guessing, and
-never as a general fuzzy-matching system.
+`athleteSummaryUtils.ts` → `sessionVolume`, `sessionWeightCoverage`, `sessionVolumeGated`, `periodVolume` (unchanged from the previous doc, re-confirmed present and still called).
+**Gate**: a session's weight coverage (reps with a real logged weight / total valid-exercise reps) must clear **80%** (`VOLUME_COVERAGE_THRESHOLD`) before a volume number is shown; otherwise the UI shows "Not enough load data logged." Sessions below the bar are excluded from period rollups entirely, never averaged in.
+**Formula**: Σ per-rep load, where a real-weight rep contributes its weight and a bodyweight rep (weight = 0) contributes `1` (counts the rep, doesn't fabricate a load).
+**Historic coverage figure** (last measured, not re-verified this pass): 21.8% of reps overall had a real logged weight — expect "not enough data" on most sessions.
+**Rendered by**: Sessions tab row list (`SessionsTab`, per-session), "Load, last 7d" header rollup.
+**Distinct from** Part 4's roster-wide `volumeSeries`/`volumeCoveragePct`, which has no 80% gate and pools everyone ungated. Neither of the two "volume" systems is aware of the other.
 
 ---
 
-## 5. Weight, weight unit, and per-set load
+## Part 9 — Dead code inventory
 
-`src/services/sessionsService.ts` → `RepData.weight`.
+Confirmed by grepping for real importers/callers, not inferred from comments alone:
 
-**Formula**: each rep carries its **own** logged `weight` value (from
-`reps.weight`), rather than the whole exercise showing one number taken from
-its first set. Ramping/pyramid sets (different load per set) display each
-set's own true weight — computed as the mean of that set's reps' weights (rows
-within one set should share a weight; mean is defensive against any noise).
+1. **`trainingExposure()` / `exposureInputs()`** (`metrics/trainingExposure.ts`, `sessionAdapters.ts`) — only caller (`TrainingExposureCard.tsx`) is Storybook-only.
+2. **`TrainingExposureCard.tsx`** — self-documented Storybook-only, confirmed.
+3. **`DeviationBaselineCard.tsx`** — self-documented Storybook-only, confirmed; the anomaly-computation functions it would need don't exist anymore anyway (Part 2).
+4. **`LoadRecord.isNew`** (`velocityRecords.ts`) — computed, never read.
+5. **`RosterAthleteMetrics.velSeries` / `.sessSeries` / `.sessionsThisWeek` / `.recentVel` / `.velDelta` / `.dropPct`** — all real math, all consumed only by `AthleteTable.tsx`/`AthleteCard.tsx`, both effectively unreachable in production (`AthleteTable` only via Storybook fixture; `AthleteCard` has **zero importers anywhere**, not even Storybook).
+6. **`RosterTeamMetrics.velSeries`** (team-wide) — zero readers at all, stronger than the per-athlete case above.
+7. **`rosterFlags.ts` → `flagsFor`** — dead (only called from dead `AthleteCard.tsx`). `lastDaysFor` from the same file is still live (`AthleteDashboard.tsx` header chip).
+8. **`ExerciseData.avgVelocity/.avgROM/.avgTempo`** (`sessionsService.ts`) — computed, not consumed by any Part 2 metric function (each recomputes independently); not fully confirmed dead app-wide, flagged for follow-up.
+9. **`assignedThisWeek`/`completedThisWeek`/`planCompletionDeltaPct`** (`rosterMetricsService.ts`) — no confirmed render call site found this pass; flagged for follow-up, not asserted dead.
 
-**Where shown**: per-set toggle-chip label in `RepTraceChart` (Sessions tab),
-per-point load axis in the Load–velocity profile chart (Performance tab).
-
-**weightUnit — UNVERIFIED, documented per instruction rather than guessed.**
-`ExerciseData.weightUnit` is hardcoded to `'lbs'` everywhere weight is
-displayed. The `reps` table has **no unit column at all**
-(`src/types/database.ts`), so there is no DB signal to check this against, and
-this session had no access to the mobile app's logging UI to confirm what unit
-the athlete actually sees when entering a weight. **This is left as-is,
-unverified** — do not assume it's correct. Whoever next has access to the
-mobile repo should confirm the input label/unit shown to athletes when logging
-a weight, and fix this hardcode if it's wrong.
+**Stale self-descriptions found in code comments** (the comment says one thing, reality is another):
+- `RosterSignalsTable.tsx`'s own header comment claims "Storybook only" — it is the live production roster table on `Index.tsx`.
 
 ---
 
-## 6. Load–velocity profile chart (Performance tab)
+## Part 10 — Card → calculation quick reference
 
-`AthleteDashboard.tsx` → `fvByExercise` / `ForceVelocityChart`.
-
-**Formula**: for the selected exercise only (see below), one point per set in
-the last 56 days: `(mean set weight, mean set velocity)`, colored darker if
-within the last 14 days. A least-squares regression line is drawn through the
-selected exercise's own points only.
-
-**Fix applied**: previously every exercise a session touched was plotted (and
-regressed) on one shared chart — a squat's load-velocity pairs and a bench's
-were mixed on the same axis and the same regression line, which has no
-biomechanical meaning (load-velocity only exists within one exercise). Now the
-chart is scoped to **one exercise at a time**, selected via buttons above the
-chart (defaults to whichever exercise has the most data points in the window).
-`unitLabel` is resolved from the selected exercise's own `weightUnit`, not
-"whichever exercise the loop happened to process last."
-
-**Limitation**: still subject to the weightUnit caveat in §5.
-
----
-
-## 7. Unchanged, still-correct numbers (confirmed, not touched)
-
-- **Per-exercise velocity range chart** (`ExerciseRangeChart`,
-  AthleteDashboard Performance tab) — already correctly split by exercise
-  name, min/max/avg per exercise over the last 4 weeks (falls back to
-  all-time). Still the right place to look at raw velocity trends per lift.
-- **Deviation-from-baseline / z-score anomaly panel** (`athleteSummaryUtils.ts`
-  → `computeAnomalyIndicators`, Readiness tab) — the baseline mean/SD/z-score
-  math itself (§14) and the 3 non-velocity indicators (Vertical Displacement
-  Consistency, E:C Ratio, Time Under Tension) are unchanged, confirmed
-  correct. The "Avg Velocity" indicator specifically WAS changed — see §14.
-- **Readiness score** (Readiness tab ring) — documented as a heuristic in its
-  own UI copy, formula unchanged: `100 − drop×1.4 − min(daysSinceLast,30)×2`,
-  clamped [20,100]. Distinct from the newer athlete-page "Readiness" KPI tile
-  (§14), which is a different signal (z-score composite, not this heuristic).
-- **Roster "Velocity" column / focus-card "Velocity" tile** — a raw
-  cross-exercise flat average (`RosterAthleteMetrics.recentVel`,
-  `PlayerWithStats.avgVelocity`), same as before any target-based system
-  existed. No per-exercise split; see the limitation note in §1. (The athlete
-  detail page's own KPI strip no longer shows this number — see §14.)
-- **Sort-by-velocity** — `Index.tsx`'s roster sort dropdown ("Sort: Velocity")
-  sorts by `recentVel`/`avgVelocity`, same field the roster table and focus
-  cards display.
+| Card component | Calculation(s) it renders | Source |
+|---|---|---|
+| `SetVelocityBars.tsx` | SP-01, SP-02, SP-03, SP-04 | `metrics/setVelocitySummary.ts`, `withinSetVelocityLoss.ts`, `setToSetChange.ts`, `velocityVsBaseline.ts` |
+| `RangeOfMotionCard.tsx` | SP-06 | `metrics/rangeOfMotion.ts` |
+| `RepTimingCard.tsx` | SP-07 | `metrics/repTiming.ts` |
+| `PersonalRecordsCard.tsx` | SP-05 | `metrics/velocityRecords.ts` |
+| `LoadVelocityProfileCard.tsx` | SP-09, SP-10 | `metrics/loadVelocityProfile.ts`, `metrics/estimatedOneRm.ts` |
+| `RosterSignalsTable.tsx` | SP-12, SP-13, Part 3 attendance | `rosterSignals.ts`, `athleteFacts.ts`, `attentionFlags.ts` |
+| `FollowedAthleteCard.tsx` | SP-12, SP-13 | same as above |
+| `NeedsAttentionTile.tsx`, `SlowerThanBaselineTile.tsx` | Part 4 attention/baseline aggregates | `rosterMetricsService.ts`, `attentionFlags.ts` |
+| `LeaderboardPanel.tsx` | Part 4 leaderboard | `rosterMetricsService.ts` |
+| `TeamPrsPanel.tsx` | Part 4 team PRs | `rosterMetricsService.ts` |
+| `TrainingGridPanel.tsx` | Part 4 training grid | `rosterMetricsService.ts` |
+| `WeeklyVolumePanel.tsx` | Part 4 volume (tonnage real, work/distance **fake**) | `rosterMetricsService.ts` + `Index.tsx` inline math |
+| `SessionsTile.tsx` | Part 4 team session counts | `rosterMetricsService.ts` |
+| `KpiTile` ("Avg attendance"), `Index.tsx` | Part 6(a) | `rosterMetricsService.ts` → `workoutAttendance.ts` |
+| `chips.tsx` (`LoadRecChip`) | Part 3 `loadRec` | `playersService.ts` |
+| `HistoryPanel.tsx` | Workout/announcement batching, "Total reach" | `workoutPlansService.ts`, `messagesService.ts` |
+| `*BetaCard.tsx` (7 cards) | None — mock data | `AthleteDashboard.tsx` hardcoded constants |
+| `DeviationBaselineCard.tsx`, `TrainingExposureCard.tsx`, `AthleteCard.tsx`, `AthleteTable.tsx` | Dead/Storybook-only | see Part 9 |
 
 ---
 
-## 8. Removed dead code
+## Part 11 — Risk-ranked summary of drift/findings from this audit
 
-- `src/data/mockData.ts` — zero importers, deleted.
-- `src/services/statsService.ts` — deleted in full. `getTeamPerformanceSummary`,
-  `getWeeklyActivity`, `getSessionCount` were never called anywhere
-  (confirmed; `getTeamPerformanceSummary` was also internally broken — it
-  filtered on `r.session_id`, a field its own `reps` query never selected).
-  `getCoachDashboardStats` was called exactly once, by `Index.tsx`'s "Avg
-  attendance" tile; that tile now sources its number from
-  `rosterMetricsService` instead (§2a), which made this entire file's only
-  live caller go away.
-- `DashboardStats.avgTeamLoad` (was a literal alias for `avgAttendance`),
-  `.topPerformer`, `.lowestAttendance` — computed, never rendered. Moot now
-  that the whole type is deleted along with the file.
-- `PlayerWithStats.engagement` — computed (`attendance≥90 && avgVelocity≥0.7 ?
-  'High' : 'Moderate'`), never rendered anywhere. Removed.
-- `ExerciseData.sets` (was `Math.max(set_number)`), `.reps` (was
-  `Math.round(totalReps/sets)`), `.peakVelocity` (was `Math.max` of per-rep
-  mean speeds, mislabeled as a true kinematic peak) — all confirmed dead (every
-  live UI surface already used the correct inline calculation: true
-  `repData.length`, `new Set(setNumbers).size`, or a locally-computed
-  `Math.max` of the same rep velocities already being charted). Removed from
-  `ExerciseData`. Two genuinely dead helper functions that happened to
-  reference the removed exercise-level `.weight`/`.sets` fields
-  (`sessionVolume`, `computeRecentSessions` in `athleteSummaryUtils.ts`) were
-  fixed to use the correct per-rep/per-set data instead of being deleted, since
-  they're plausible future-use utilities, not obviously-abandoned code.
-- `workout_plans.exercises[].targetVelocityMin/Max`, the "Targets Reached"
-  evaluation system (`buildTargetsForExercises`/`evaluateRepsAgainstTargets`/
-  `TargetsReached`/etc.), the target-based load-recommendation engine
-  (`computeLoadRecommendation`), the "RTP" tab and `workout_plans.is_rehab`
-  flag, and the never-applied migration `009_add_rehab_flag_to_workout_plans.sql`
-  — built in an earlier pass, then explicitly removed. Not needed for now.
-  `src/lib/targetEvaluation.ts` still exists but now holds only exercise-name
-  canonicalization (§4) and `classifyLoadRec` (§1) — the parts that turned
-  out to be useful independent of the target system.
-
----
-
-## 9. Data isolation — coach `team_id`
-
-Confirmed: `coaches.team_id` is a cached array column with exactly one reader
-in the whole app (`TeamSportManager.tsx`, as a React effect dependency only).
-Every real data-scoping path (`getCoachTeamIds`, `TeamSportManager.loadTeams`)
-resolves a coach's groups live via `groups.coach_id`, never via the cached
-array. A null or stale `coaches.team_id` has no effect on anything rendered.
-
----
-
-## 10. Load-velocity profile / e1RM / readiness index — DEFERRED
-
-**Status: not built. Do not build until real weight-logging coverage improves
-— this is a data-capture problem, not a scope item for any redesign pass.**
-
-**The number to track going forward: overall `reps.weight` fill rate, last
-measured at 21.8%** (214 of 981 reps in the last 90 days had a real logged
-weight; velocity was populated on 100%). Re-run the query in
-`supabase/analysis-data-quality.sql` periodically — when that number rises
-meaningfully, re-run the regression-readiness query too and reconsider.
-
-**Why, in detail:** of 11 athlete/exercise combinations with any load data at
-all in the last 90 days, only 4 cleared a minimum regression bar (≥3 distinct
-load points with a real range). Of those 4, 3 belonged to a single
-`player_id`, and that athlete's numbers (round 5-unit load increments, near-
-identical ~100-unit ranges across three unrelated exercises, 47/47/29 rep
-counts) have the shape of seeded/test data rather than confirmed organic
-training — treat this as **zero real athletes are profile-eligible today**,
-not "one athlete is," until/unless that data is confirmed real.
-
-**What would need to change before revisiting**: real athletes logging
-weight on a meaningfully higher fraction of reps, organically, across
-multiple sessions per exercise — not a lowered density bar, not synthetic
-backfill.
-
-**readiness index** (today's velocity-at-load vs. profile prediction) is
-gated entirely behind the profile existing — not evaluated further while
-this stays deferred.
-
----
-
-## 11. Mechanical work / volume load — coverage-gated
-
-`src/lib/athleteSummaryUtils.ts` → `sessionVolume()` (unchanged math),
-`sessionWeightCoverage()`, `sessionVolumeGated()`, `periodVolume()`.
-
-**The gate**: `VOLUME_COVERAGE_THRESHOLD = 0.8`. A session's weight coverage
-= (reps with a real logged weight) / (total reps in that session, valid
-exercises only). A volume number is only shown when that session individually
-clears 80% coverage; below that, the UI shows **"Not enough load data
-logged"** instead of a number — don't fabricate a number from mostly-missing
-data. Sessions that don't clear the bar are excluded entirely from any period
-rollup, never averaged in to smooth out an undercount.
-
-**Where it's shown**:
-- Per-session, in the Sessions tab row list (`SessionsTab`) — a "Volume"
-  figure per session, or the "not enough data" message.
-- Period rollup: "Load, last 7d" in the Sessions tab header, summing
-  `sessionVolumeGated()` across the last 7 days' sessions via `periodVolume()`
-  — deliberately labeled distinctly from the pre-existing "Weekly volume"
-  card in the Performance tab, which means *session frequency* (a count), not
-  mechanical work.
-
-**Given current coverage (21.8% overall), expect "Not enough load data
-logged" on most sessions today.** That's the correct, honest output — the
-threshold is not tuned to make more tiles show a number, and should not be
-lowered for that reason.
-
-**Formula** (via `sessionVolume`, unchanged): Σ per-rep load across valid
-exercises, where a rep with a real weight contributes that weight and a
-bodyweight rep (weight = 0) contributes 1 (counts the rep without fabricating
-a load). Same weightUnit caveat as §5 applies.
-
----
-
-## 12. Peer comparison — removed
-
-`AthleteDashboard.tsx`'s "vs group average" panel (`InsightRail`) is removed
-entirely — not replaced with a self-only trend, since the KPI strip and
-Performance tab already carry this athlete's own trends with nothing left to
-duplicate. `groupPeers`/`groupComparison`/`GroupComparison` are gone;
-`getRosterMetrics` is now called with just `[found]` (this athlete only)
-instead of their team, since the only remaining consumer of that call is this
-athlete's own `dropPct`/`lastSessionDate` (drives the header flags/chips), not
-a group average. Pure logic/UI change — no schema change, consistent with the
-earlier finding that this repo has no athlete-facing view for the "hide from
-teammates" concern to apply to in the first place (coach-only dashboard).
-
----
-
-## 13. Rep-by-rep velocity chart — line-per-set redesign
-
-`src/components/pulse/charts.tsx` → `RepTraceChart`.
-
-- **One shared y-axis** for the whole exercise, not one repeated per set —
-  one continuous SVG with rep-within-set on the x-axis (every set's line
-  starts at x=1, so fatigue curves overlay comparably).
-- **Clean rounded tick increments** (`niceTicks()` — steps of 0.1/0.2/0.5
-  m/s-scale) instead of ticks derived from the raw min/max of whatever data
-  happened to be in view.
-- **One connected line per set**, distinct color per set, toggle chips above
-  the chart (labeled "Set N — weight" or "Set N — no load logged") to
-  show/hide individual lines.
-- **Target-status dot styling** (filled vs. hollow-with-warn-ring) and the
-  shaded target band are still implemented in the component and accept an
-  optional `target` prop — but **no current caller passes one** (the
-  target-velocity-range system that would have supplied it was removed, §8),
-  so in practice every dot renders as a plain filled marker and no band is
-  ever drawn today. The prop is left in place as generic, inert capability
-  rather than ripped out, in case a target source is reintroduced later.
-- **Weight shown per set, every set** — the mean of that set's own logged rep
-  weights, or the literal text **"no load logged"** when that set's coverage
-  is too sparse to show a number — never silently omitted.
-- Underlying query/data logic untouched — this was a presentation-layer
-  rewrite of one chart component.
-
----
-
-## 14. Deviation panel "Avg Velocity" fix + athlete KPI strip redesign
-
-### The bug that was fixed
-`computeAnomalyIndicators`'s "Avg Velocity" indicator (`athleteSummaryUtils.ts`)
-used to source its per-session values from `sessionAvgVelocity` — a flat mean
-across every exercise in the session, the same cross-exercise blend already
-flagged as unreliable elsewhere in this app. The indicator's own code even
-carried a `warning` string admitting this. Worse than just being a blended
-*number*: because `buildIndicator` computes the historical baseline and the
-"recent" comparison from the **same** per-session sequence, both sides of the
-z-score used the identical blend — so a stretch of recent sessions with a
-different exercise mix than the athlete's historical norm (a squat-heavy
-block after a bench-heavy one, say) could shift the blended mean and trigger
-a "red" fatigue flag for reasons that were really just a different workout,
-not physiology.
-
-### The fix
-`src/lib/athleteSummaryUtils.ts`:
-- **`findPrimaryExercise(sessions, windowDays = 30)`** — the exercise with the
-  most logged reps (valid velocity > 0) in the last 30 days; ties broken by
-  whichever was trained most recently. Returns `null` if nothing qualifies
-  (no exercise trained in the window).
-- **`velocityIndicatorSource(sessions)`** — resolves the per-session
-  extraction function `computeAnomalyIndicators` now uses for "Avg Velocity":
-  that one primary exercise's `avgVelocity` for each session, `null` for
-  sessions that didn't include it. Both the baseline and the "recent" window
-  now read the same single lift throughout — no more cross-exercise blend on
-  either side. Exported (not inlined) so the Readiness tab's own sparkline for
-  this indicator resolves the identical extractor rather than a second,
-  separately-maintained one that could drift.
-- The indicator's `label` becomes the exercise name (e.g. `"Back Squat
-  Velocity"`) instead of the generic `"Avg Velocity"`, so the UI never implies
-  a blend that no longer exists. If no exercise qualifies (nothing trained in
-  the last 30 days), the indicator reports `ragStatus: "insufficient"`
-  directly — it does **not** fall back to the old blended metric.
-- **`compositeRagStatus(indicators)`** — worst-flag-wins across a set of
-  `DeviationIndicator`s (the one existing severity ordering in this module —
-  `insufficient < green < amber < red` — generalized, not reinvented).
-  `"insufficient"` only wins when every indicator is insufficient; a mix of
-  green + insufficient reads as green, not "not enough data."
-
-### Athlete detail page — KPI strip replaced (4 tiles, was 5)
-`AthleteDashboard.tsx`, top of page. The old 5 tiles (Avg velocity,
-Attendance, Velocity drop-off, Sessions this week, Avg Vertical Displacement)
-are gone entirely — none of the three removed ones (Avg velocity, Attendance,
-Avg Vertical Displacement) remain accessible anywhere else on this page as a
-fallback. Replaced with:
-
-1. **Readiness** — `compositeRagStatus(indicators)` where `indicators =
-   computeAnomalyIndicators(sessions)` (all 4 metrics: the now-fixed
-   per-exercise Avg Velocity, Vertical Displacement Consistency, E:C Ratio,
-   Time Under Tension). Displayed as a colored dot + status word (`"On
-   track"`/`"Monitor"`/`"Fatigue risk"`/`"Not enough data"`) rather than a
-   `KpiTile`, since a categorical RAG state doesn't fit that component's
-   numeric-value mold — styled to match its siblings' card sizing.
-   **A separate, unrelated tile-1 candidate ("Targets Reached") was
-   explicitly scoped out** — see §8: the target-velocity-range system it
-   would have reused was removed in an earlier pass and was not rebuilt. The
-   strip is 4 tiles, not 5, by explicit instruction.
-2. **Velocity drop-off** — unchanged. Confirmed still sourced from
-   `sessionVelocityDropoff` (`athleteSummaryUtils.ts`, correctly
-   per-exercise-partitioned — see §3), not the older cross-exercise-pooled
-   version that only exists in `rosterMetricsService.ts` for the roster-wide
-   path.
-3. **Sessions vs. Plan** — same underlying data/window as the old "Sessions
-   this week" tile (`sessionsThisWeek`/`SESSIONS_TARGET`, `weekly8` sparkline)
-   — label renamed only. No "Attendance" framing existed near this specific
-   tile's copy to begin with (the separate `label="Attendance"` tile was one
-   of the three removed), so this was a pure rename, no formula change.
-4. **Primary Lift Trend** — new. Exercise selection via
-   `findPrimaryExercise(sorted)` (same rule as the Avg Velocity indicator
-   fix above, so both surfaces on this page name the same lift for the same
-   athlete). Tile label is the exercise name itself (e.g. `"Back Squat"`);
-   value/delta/sparkline are that one exercise's `avgVelocity` per session,
-   last 3 sessions vs. prior — the same delta/sparkline pattern the old Avg
-   Velocity tile used, just scoped to one lift instead of blended. Empty
-   state ("No sessions logged this period") when `findPrimaryExercise`
-   returns `null`, rather than showing a stale trend from an exercise the
-   athlete hasn't touched in 30+ days.
-
-### Also removed this pass (unrelated to the above, requested alongside it)
-- The per-session **"Avg velocity"** column in the Sessions tab row list
-  (`SessionsTab`) — removed; that blended per-session number wasn't a useful
-  signal either, for the same reason as the indicator fix above. Drop-off and
-  Volume columns unchanged.
-- The rep/plan **count badge next to the "Programming" tab** label — removed;
-  the "Sessions" tab keeps its count badge, only "Programming" changed.
+1. **High** — `Index.tsx`'s `WeeklyVolumePanel` shows two fabricated numbers (`totalWorkKj`, `distanceM`) with no Beta disclosure, on the main dashboard.
+2. **High** — Roster-wide "Avg attendance" (Part 6a) now uses a completely different formula (full session-matching engine) than what was previously documented (plain `is_completed` ratio).
+3. **Medium** — Per-athlete attendance (Part 6b) is now 8-week-windowed, not all-time as previously documented.
+4. **Medium** — Four independent plan-status/attendance implementations coexist (Part 6), only three previously documented.
+5. **Medium** — The entire live SP-12/SP-13 roster attention system (Part 4) was completely undocumented before this pass — it's what actually drives coach-facing "who needs attention" today, superseding the `rosterFlags.ts` heuristics still referenced in old comments.
+6. **Low** — Several roster per-athlete series fields (Part 9, #5–6) are fully unreachable in production despite being computed on every page load — safe to leave, but a real (small) wasted-computation cost, and worth knowing before changing their shape.
+7. **Low/cosmetic** — `WeeklyLoadVolumeBetaCard`'s `coveragePct={22}` is a hardcoded literal masquerading as a live stat, though it's Beta-badged so low practical risk.

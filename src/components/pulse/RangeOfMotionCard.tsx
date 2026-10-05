@@ -6,14 +6,14 @@ import { StatsDetailMenu } from "./StatsDetailMenu";
 import { twoColumnGrid } from "./twoColumnGrid";
 import { glowStyle, type GlowProps } from "./glow";
 import { signedPct } from "@/lib/format";
+import { convertDistanceMm } from "@/lib/units";
+import { useUnits } from "@/contexts/UnitsContext";
 
 const HEIGHT = 190;
 const PL = 52;
 const PR = 10;
 const PT = 10;
 const PB = 40;
-
-const cm = (mm: number) => mm / 10;
 
 /** Fade duration for the hover label and the dimmed lines, ms. */
 const FADE_MS = 160;
@@ -23,13 +23,17 @@ const DIM_OPACITY = 0.15;
 
 /**
  * SP-06 chart: one line per set, one point per counted rep (x = rep number,
- * y = vertical displacement in cm). A line breaks where a rep is missing or not counted.
+ * y = vertical displacement in cm, or inches on the imperial pref). A line
+ * breaks where a rep is missing or not counted.
  */
 function RomLines({ sets }: { sets: SetRom[] }) {
   const { ref, width: w } = useMeasuredWidth<HTMLDivElement>(480);
   const [hover, setHover] = useState<{ set: number; rep: number } | null>(null);
   /** Sets picked in the legend. Empty = nothing picked, every line at full opacity. */
   const [picked, setPicked] = useState<Set<number>>(new Set());
+  const { prefs } = useUnits();
+  const distUnit = prefs.distance === "imperial" ? "in" : "cm";
+  const cm = (mm: number) => convertDistanceMm(mm, prefs.distance);
   const all = sets.flatMap((s) => s.points.map((p) => cm(p.mm)));
   if (all.length === 0) {
     return (
@@ -68,7 +72,7 @@ function RomLines({ sets }: { sets: SetRom[] }) {
           fontFamily="var(--font-mono)"
           fill="var(--ink-1)"
         >
-          Displacement (cm)
+          Displacement ({distUnit})
         </text>
         <line x1={PL} x2={PL + cW} y1={PT + cH} y2={PT + cH} stroke="var(--line-2)" strokeWidth="1.2" />
         {Array.from({ length: maxRep }, (_, i) => i + 1).map((rn) => (
@@ -112,7 +116,7 @@ function RomLines({ sets }: { sets: SetRom[] }) {
                 <g style={{ opacity: active ? 1 : 0, transition: `opacity ${FADE_MS}ms ease`, pointerEvents: "none" }}>
                   <rect x={lx} y={ly} width={LABEL_W} height={LABEL_H} rx="6" fill="var(--ink-0)" />
                   <text x={lx + LABEL_W / 2} y={ly + 14} textAnchor="middle" fontSize="11" fontWeight="600" fontFamily="var(--font-mono)" fill="#fff">
-                    {cm(p.mm).toFixed(1)} cm
+                    {cm(p.mm).toFixed(1)} {distUnit}
                   </text>
                   <text x={lx + LABEL_W / 2} y={ly + 28} textAnchor="middle" fontSize="10" fontFamily="var(--font-mono)" fill="#fff">
                     {change == null ? "first rep" : `${signedPct(change)} vs prev`}
@@ -124,7 +128,7 @@ function RomLines({ sets }: { sets: SetRom[] }) {
                   r="9"
                   fill="transparent"
                   tabIndex={0}
-                  aria-label={`Set ${s.set_number}, rep ${p.rep_number}, ${cm(p.mm).toFixed(1)} cm`}
+                  aria-label={`Set ${s.set_number}, rep ${p.rep_number}, ${cm(p.mm).toFixed(1)} ${distUnit}`}
                   style={{ cursor: "pointer", outline: "none" }}
                   onMouseEnter={() => setHover({ set: s.set_number, rep: p.rep_number })}
                   onMouseLeave={() => setHover(null)}

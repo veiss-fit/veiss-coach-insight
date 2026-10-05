@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 
@@ -48,13 +48,13 @@ const rowToTemplate = (row: any): WorkoutTemplate => ({
 const db = supabase as any
 
 export const TemplatesProvider = ({ children }: { children: ReactNode }) => {
-  const { user } = useAuth()
+  const { user, profile } = useAuth()
   const [templates, setTemplates] = useState<WorkoutTemplate[]>([])
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
     const load = async () => {
-      if (!user?.id) {
+      if (!user?.id || !profile?.coach_id) {
         setTemplates([])
         setLoading(false)
         return
@@ -62,21 +62,10 @@ export const TemplatesProvider = ({ children }: { children: ReactNode }) => {
 
       setLoading(true)
       try {
-        const { data: coach, error: coachErr } = await db
-          .from('coaches')
-          .select('id')
-          .eq('user_id', user.id)
-          .single() as { data: { id: string } | null; error: any }
-
-        if (coachErr || !coach) {
-          setTemplates([])
-          return
-        }
-
         const { data, error } = await db
           .from('workout_plans')
           .select('*')
-          .eq('coach_id', coach.id)
+          .eq('coach_id', profile.coach_id)
           .eq('is_template', true)
           .order('created_at', { ascending: false }) as { data: any[] | null; error: any }
 
@@ -91,20 +80,12 @@ export const TemplatesProvider = ({ children }: { children: ReactNode }) => {
     }
 
     load()
-  }, [user?.id])
+  }, [user?.id, profile?.coach_id])
 
-  const addTemplate = async (
+  const addTemplate = useCallback(async (
     data: Omit<WorkoutTemplate, 'id' | 'lastModified'>
   ): Promise<WorkoutTemplate | null> => {
-    if (!user?.id) return null
-
-    const { data: coach } = await db
-      .from('coaches')
-      .select('id')
-      .eq('user_id', user.id)
-      .single() as { data: { id: string } | null }
-
-    if (!coach) return null
+    if (!profile?.coach_id) return null
 
     const { data: row, error } = await db
       .from('workout_plans')
@@ -112,7 +93,7 @@ export const TemplatesProvider = ({ children }: { children: ReactNode }) => {
         title: data.name,
         description: data.description || null,
         exercises: data.exercises,
-        coach_id: coach.id,
+        coach_id: profile.coach_id,
         player_id: null,
         is_template: true,
         is_completed: false,
@@ -129,9 +110,9 @@ export const TemplatesProvider = ({ children }: { children: ReactNode }) => {
     const template = rowToTemplate(row)
     setTemplates(prev => [template, ...prev])
     return template
-  }
+  }, [profile?.coach_id])
 
-  const updateTemplate = async (
+  const updateTemplate = useCallback(async (
     id: string,
     data: Omit<WorkoutTemplate, 'id' | 'lastModified'>
   ): Promise<boolean> => {
@@ -159,9 +140,9 @@ export const TemplatesProvider = ({ children }: { children: ReactNode }) => {
       )
     )
     return true
-  }
+  }, [])
 
-  const deleteTemplate = async (id: string): Promise<boolean> => {
+  const deleteTemplate = useCallback(async (id: string): Promise<boolean> => {
     const { error } = await db
       .from('workout_plans')
       .delete()
@@ -175,18 +156,10 @@ export const TemplatesProvider = ({ children }: { children: ReactNode }) => {
 
     setTemplates(prev => prev.filter(t => t.id !== id))
     return true
-  }
+  }, [])
 
-  const duplicateTemplate = async (template: WorkoutTemplate): Promise<boolean> => {
-    if (!user?.id) return false
-
-    const { data: coach } = await db
-      .from('coaches')
-      .select('id')
-      .eq('user_id', user.id)
-      .single() as { data: { id: string } | null }
-
-    if (!coach) return false
+  const duplicateTemplate = useCallback(async (template: WorkoutTemplate): Promise<boolean> => {
+    if (!profile?.coach_id) return false
 
     const { data: row, error } = await db
       .from('workout_plans')
@@ -194,7 +167,7 @@ export const TemplatesProvider = ({ children }: { children: ReactNode }) => {
         title: `${template.name} (Copy)`,
         description: template.description || null,
         exercises: template.exercises,
-        coach_id: coach.id,
+        coach_id: profile.coach_id,
         player_id: null,
         is_template: true,
         is_completed: false,
@@ -210,12 +183,15 @@ export const TemplatesProvider = ({ children }: { children: ReactNode }) => {
 
     setTemplates(prev => [rowToTemplate(row), ...prev])
     return true
-  }
+  }, [profile?.coach_id])
+
+  const value = useMemo(
+    () => ({ templates, loading, addTemplate, updateTemplate, deleteTemplate, duplicateTemplate }),
+    [templates, loading, addTemplate, updateTemplate, deleteTemplate, duplicateTemplate]
+  )
 
   return (
-    <TemplatesContext.Provider
-      value={{ templates, loading, addTemplate, updateTemplate, deleteTemplate, duplicateTemplate }}
-    >
+    <TemplatesContext.Provider value={value}>
       {children}
     </TemplatesContext.Provider>
   )

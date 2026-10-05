@@ -8,6 +8,8 @@ import { SetWindow } from "./SetWindow";
 import { twoColumnGrid } from "./twoColumnGrid";
 import { glowStyle, type GlowProps } from "./glow";
 import { signedInt } from "@/lib/format";
+import { convertVelocity, convertWeightLbs } from "@/lib/units";
+import { useUnits } from "@/contexts/UnitsContext";
 
 const BAR_AREA = 120;
 /** Room above the tallest bar for its value label. */
@@ -43,13 +45,20 @@ const MAX_VISIBLE_SETS = 3;
  * attempted rep (filled = valid, dashed = invalid).
  */
 export function SetVelocityBars({ sets, scaleSets = sets, baseline = null }: SetVelocityBarsProps) {
+  const { prefs } = useUnits();
+  const velUnit = prefs.velocity === "imperial" ? "ft/s" : "m/s";
+  /** Height only — always computed off the raw m/s values, so bar proportions never change with the display unit. */
   const top = Math.max(...scaleSets.map((s) => s.vBest ?? 0), baseline ?? 0, 0);
   const max = top > 0 ? top * 1.1 : 1;
   const px = (v: number) => Math.max(2, (v / max) * BAR_AREA);
+  /** Display-only converted value for a bar's text label. */
+  const disp = (v: number) => convertVelocity(v, prefs.velocity);
+  const weightUnit = prefs.weight === "metric" ? "kg" : "lb";
+  const dispWeight = (v: number) => convertWeightLbs(v, prefs.weight);
   /** Signed % of a velocity against the baseline, null without a baseline. */
   const vsBase = (v: number) => (baseline != null && baseline > 0 ? signedInt(Math.round(((v - baseline) / baseline) * 100)) : null);
   const baseTip = (what: string) =>
-    `${what} against the baseline${baseline != null ? ` (${baseline.toFixed(2)} m/s)` : ""}, in %.`;
+    `${what} against the baseline${baseline != null ? ` (${disp(baseline).toFixed(2)} ${velUnit})` : ""}, in %.`;
 
   return (
     <div>
@@ -84,30 +93,30 @@ export function SetVelocityBars({ sets, scaleSets = sets, baseline = null }: Set
                 ) : (
                   <div style={{ position: "relative", width: "100%", maxWidth: GROUP_W, display: "flex", alignItems: "flex-end", justifyContent: "center", gap: BAR_GAP }}>
                     <Bar
-                      value={s.vBest}
+                      value={disp(s.vBest)}
                       height={px(s.vBest)}
                       color="var(--brand)"
                       opacity={gated ? 0.3 : 1}
                       dashed={gated}
                       vsBaseline={gated ? null : vsBase(s.vBest)}
-                      valueTitle="Fastest rep of the set (best valid rep velocity), in m/s."
+                      valueTitle={`Fastest rep of the set (best valid rep velocity), in ${velUnit}.`}
                       vsBaselineTitle={baseTip("Fastest rep")}
                     />
                     <Bar
-                      value={s.vMean}
+                      value={disp(s.vMean)}
                       height={px(s.vMean)}
                       color="var(--ink-0)"
                       opacity={gated ? 0.12 : 0.3}
                       dashed={gated}
-                      valueTitle="Mean velocity of the valid reps in the set, in m/s."
+                      valueTitle={`Mean velocity of the valid reps in the set, in ${velUnit}.`}
                     />
                     {loss.ok && (
                       <Bar
-                        value={loss.vLast}
+                        value={disp(loss.vLast)}
                         height={pxLast}
                         color={LAST_COLOR}
                         vsBaseline={vsBase(loss.vLast)}
-                        valueTitle="Last valid rep of the set, in m/s."
+                        valueTitle={`Last valid rep of the set, in ${velUnit}.`}
                         vsBaselineTitle={baseTip("Last valid rep")}
                         lossTitle={LOSS_TIP}
                        
@@ -124,7 +133,7 @@ export function SetVelocityBars({ sets, scaleSets = sets, baseline = null }: Set
                   style={{ fontWeight: 600, color: "var(--ink-0)", background: "var(--brand)", padding: "1px 6px", borderRadius: 4, whiteSpace: "nowrap" }}
                   title={s.load == null ? "No load recorded" : "Set load"}
                 >
-                  {s.load == null ? "NA" : `${s.load} lbs`}
+                  {s.load == null ? "NA" : `${Math.round(dispWeight(s.load))} ${weightUnit}`}
                 </span>
               </div>
               <div className="row" style={{ gap: 3, flexWrap: "wrap", justifyContent: "center" }} title={`${s.n} valid, ${s.invalid} invalid`}>
@@ -152,11 +161,11 @@ export function SetVelocityBars({ sets, scaleSets = sets, baseline = null }: Set
           <div style={{ width: BASELINE_LABEL_W, flexShrink: 0, height: BAR_AREA + HEADROOM, position: "relative", alignSelf: "flex-start" }}>
             <div
               className="mono"
-              title="Baseline: weighted average fastest-rep velocity of earlier sessions (last 42 days), in m/s."
+              title={`Baseline: weighted average fastest-rep velocity of earlier sessions (last 42 days), in ${velUnit}.`}
               style={{ position: "absolute", left: 0, bottom: px(baseline) - 13, fontSize: 11.5, lineHeight: "13px", color: "var(--ink-1)", whiteSpace: "nowrap" }}
             >
               target<br />
-              <strong style={{ fontWeight: 600, color: "var(--ink-0)" }}>{baseline.toFixed(2)}</strong>
+              <strong style={{ fontWeight: 600, color: "var(--ink-0)" }}>{disp(baseline).toFixed(2)}</strong>
             </div>
           </div>
         )}
@@ -165,7 +174,7 @@ export function SetVelocityBars({ sets, scaleSets = sets, baseline = null }: Set
         <span className="row" style={{ gap: 5 }}><Swatch color="var(--brand)" /> fastest rep</span>
         <span className="row" style={{ gap: 5 }}><Swatch color="var(--ink-0)" opacity={0.3} /> mean</span>
         <span className="row" style={{ gap: 5 }}><Swatch color={LAST_COLOR} /> last rep</span>
-        <span className="mono" style={{ color: "var(--ink-1)" }}>m/s</span>
+        <span className="mono" style={{ color: "var(--ink-1)" }}>{velUnit}</span>
         {baseline == null && <span className="mono" style={{ color: "var(--ink-2)" }}>No target specified</span>}
       </div>
     </div>

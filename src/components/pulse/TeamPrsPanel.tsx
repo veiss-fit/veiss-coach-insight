@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Avatar } from "./Avatar";
 import { fmtShortDate } from "@/lib/format";
+import { fmtVelocity, convertWeightLbs } from "@/lib/units";
+import { useUnits } from "@/contexts/UnitsContext";
 
 const VISIBLE_ROWS = 8;
 
@@ -27,6 +29,7 @@ export interface TeamPrsPanelProps {
  * 8 weeks, one row per athlete + exercise, newest first. "PR" here means best in 8 weeks, not all-time.
  */
 export function TeamPrsPanel({ rows, onRowClick }: TeamPrsPanelProps) {
+  const { prefs } = useUnits();
   const [showAll, setShowAll] = useState(false);
   const visible = showAll ? rows : rows.slice(0, VISIBLE_ROWS);
 
@@ -65,10 +68,10 @@ export function TeamPrsPanel({ rows, onRowClick }: TeamPrsPanelProps) {
                     style={{ background: "var(--brand)", color: "var(--ink-0)", fontWeight: 600, padding: "2px 7px", borderRadius: 5 }}
                     title="Load (unit not verified)"
                   >
-                    {row.load} lbs
+                    {Math.round(convertWeightLbs(row.load, prefs.weight))} {prefs.weight === "metric" ? "kg" : "lb"}
                   </span>
                   {" · "}
-                  <span style={{ color: "var(--ink-0)", fontWeight: 600 }}>{row.best.toFixed(2)} m/s</span>
+                  <span style={{ color: "var(--ink-0)", fontWeight: 600 }}>{fmtVelocity(row.best, prefs.velocity)}</span>
                 </span>
               </button>
             ))}

@@ -63,22 +63,15 @@ export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportM
     if (!user?.id) return;
     setLoading(true);
     try {
-      // Resolve the coach's DB ID, then fetch only their groups
-      const { data: coachRow } = await (supabase as any)
-        .from('coaches')
-        .select('id')
-        .eq('user_id', user.id)
-        .single() as { data: { id: string } | null };
-
-      let query = supabase.from('groups').select('*').order('name');
-      if (coachRow?.id) {
-        query = (supabase as any)
-          .from('groups')
-          .select('*')
-          .eq('coach_id', coachRow.id)
-          .order('name');
+      if (!profile?.coach_id) {
+        setTeams([]);
+        return;
       }
-      const { data, error } = await query;
+      const { data, error } = await (supabase as any)
+        .from('groups')
+        .select('*')
+        .eq('coach_id', profile.coach_id)
+        .order('name');
       if (error) throw error;
       setTeams((data || []) as any[]);
     } catch (error) {
@@ -112,14 +105,7 @@ export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportM
     const nameError = Validators.required(newTeamName, "Group Name");
     if (nameError) return toast.error(nameError);
     try {
-      const { data: coachRow, error: coachError } = await (supabase as any)
-        .from('coaches')
-        .select('id')
-        .eq('user_id', user?.id)
-        .maybeSingle() as { data: { id: string } | null; error: unknown };
-
-      if (coachError) throw coachError;
-      if (!coachRow?.id) {
+      if (!profile?.coach_id) {
         // Previously this fell through and inserted coach_id: null, creating a group
         // owned by nobody that no query could ever find again.
         toast.error("Your coach profile isn't set up yet. Please sign out and back in.");
@@ -128,13 +114,14 @@ export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportM
 
       const { error } = await supabase
         .from('groups')
-        .insert({ name: newTeamName, coach_id: coachRow.id } as any);
+        .insert({ name: newTeamName, coach_id: profile.coach_id } as any);
 
       if (error) throw error;
       toast.success("Group created");
       setIsCreatingTeam(false);
       setNewTeamName("");
       loadTeams(true);
+      onPlayersChanged?.();
     } catch (error) {
       handleError(error, "Create group");
     }
@@ -149,6 +136,7 @@ export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportM
       toast.success("Group updated");
       setEditingTeam(null);
       loadTeams(true);
+      onPlayersChanged?.();
     } catch (error) {
       handleError(error, "Update group");
     }
@@ -160,6 +148,7 @@ export const TeamSportManager = ({ open, onClose, onPlayersChanged }: TeamSportM
       await deleteTeam(id);
       toast.success("Group deleted");
       loadTeams(true);
+      onPlayersChanged?.();
     } catch (error) {
       // handleError maps 23503 (foreign key violation) to a real "still linked to
       // other records" message, instead of the previous blanket guess that players

@@ -3,7 +3,7 @@ import { TrainingExposureCard } from './TrainingExposureCard';
 import type { SessionInput } from '@/lib/metrics/trainingExposure';
 
 const meta: Meta = {
-  title: 'Metrics/SP-08 Training exposure',
+  title: 'Not used/SP-08 Training exposure',
   parameters: {
     docs: {
       description: {

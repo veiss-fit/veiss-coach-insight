@@ -3,7 +3,7 @@ import { DeviationBaselineCard } from './DeviationBaselineCard';
 import type { DeviationIndicator, RAGStatus } from '@/lib/athleteSummaryUtils';
 
 const meta: Meta = {
-  title: 'Athlete page/Deviation from baseline',
+  title: 'Not used/Deviation from baseline',
   parameters: {
     docs: {
       description: {

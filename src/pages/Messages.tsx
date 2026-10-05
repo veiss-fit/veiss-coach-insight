@@ -3,7 +3,6 @@ import { Link } from "react-router-dom";
 import { format } from "date-fns";
 import { Megaphone, Send, Check, CalendarIcon, Users, X } from "lucide-react";
 import { toast } from "sonner";
-import { TopNav } from "@/components/TopNav";
 import { PageHeader } from "@/components/pulse/PageHeader";
 import { LoadError } from "@/components/pulse/LoadError";
 import { AthletePicker } from "@/components/pulse/AthletePicker";
@@ -155,9 +154,7 @@ export default function Messages() {
   };
 
   return (
-    <div className="v-app">
-      <TopNav />
-      <main style={{ padding: "20px 28px 40px", maxWidth: 1320, margin: "0 auto", width: "100%" }}>
+    <main style={{ padding: "20px 28px 40px", maxWidth: 1320, margin: "0 auto", width: "100%" }}>
         <LoadingOverlay isLoading={loading} fullScreen message="Loading messages..." />
         <LoadingOverlay isLoading={sending} fullScreen message="Sending announcement..." />
 
@@ -344,6 +341,5 @@ export default function Messages() {
           </div>
         </div>
       </main>
-    </div>
   );
 }

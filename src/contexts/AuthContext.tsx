@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react'
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { User } from '@supabase/supabase-js'
 import { supabase, getUserProfile, resetPassword as supabaseResetPassword } from '@/lib/supabase'
 import { ensureCoachSetup, isAlreadyRegistered } from '@/lib/coachSetup'
@@ -51,7 +51,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 	}, [user, profile])
 
 	// Safety mechanism to prevent stuck loading
-	const ensureLoadingEnds = () => {
+	const ensureLoadingEnds = useCallback(() => {
 		if (loadingTimeoutRef.current) {
 			clearTimeout(loadingTimeoutRef.current)
 		}
@@ -62,7 +62,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 			loadingProfileRef.current = false
 			profileLoadPromiseRef.current = null
 		}, 15000)
-	}
+	}, [])
 
 	// Check for existing session on mount
 	useEffect(() => {
@@ -244,7 +244,28 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 		}
 	}, [])
 
-	const loadProfile = async (userId: string): Promise<void> => {
+	const logout = useCallback(async () => {
+		try {
+			// Reset all in-flight loading state before redirect
+			loadingProfileRef.current = false
+			profileLoadPromiseRef.current = null
+			if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current)
+
+			// Clear state immediately so nothing renders with stale data
+			setUser(null)
+			setProfile(null)
+
+			await supabase.auth.signOut()
+		} catch (error) {
+			console.error('Error signing out:', error)
+		} finally {
+			// Hard redirect forces a full page reload, clearing all React state
+			// and ensuring the next session starts completely fresh
+			window.location.href = '/login'
+		}
+	}, [])
+
+	const loadProfile = useCallback(async (userId: string): Promise<void> => {
 		// If already loading this user's profile, wait for that to complete
 		if (loadingProfileRef.current && profileLoadPromiseRef.current) {
 			console.log('⏳ [loadProfile] Already loading, returning existing promise')
@@ -284,9 +305,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 		})()
 
 		return profileLoadPromiseRef.current
-	}
+	}, [logout])
 
-	const login = async (email: string, password: string) => {
+	const login = useCallback(async (email: string, password: string) => {
 		try {
 			setLoading(true)
 			ensureLoadingEnds()
@@ -333,16 +354,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
 			if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current)
 			return { success: false, error: 'Login failed' }
-		} catch (error: any) {
+		} catch (error) {
 			console.error('Login exception:', error)
 			if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current)
-			return { success: false, error: error.message || 'An error occurred during login' }
+			return { success: false, error: error instanceof Error ? error.message : 'An error occurred during login' }
 		} finally {
 			setLoading(false)
 		}
-	}
+	}, [loadProfile, ensureLoadingEnds])
 
-	const signup = async (email: string, password: string, fullName: string) => {
+	const signup = useCallback(async (email: string, password: string, fullName: string) => {
 		try {
 			setLoading(true)
 			ensureLoadingEnds()
@@ -410,48 +431,25 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
 			if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current)
 			return { success: false, error: 'Signup failed' }
-		} catch (error: any) {
+		} catch (error) {
 			console.error('Signup exception:', error)
 			if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current)
-			return { success: false, error: error.message || 'An error occurred during signup' }
+			return { success: false, error: error instanceof Error ? error.message : 'An error occurred during signup' }
 		} finally {
 			setLoading(false)
 		}
-	}
+	}, [loadProfile, ensureLoadingEnds])
 
-	const logout = async () => {
-		try {
-			// Reset all in-flight loading state before redirect
-			loadingProfileRef.current = false
-			profileLoadPromiseRef.current = null
-			if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current)
-
-			// Clear state immediately so nothing renders with stale data
-			setUser(null)
-			setProfile(null)
-
-			await supabase.auth.signOut()
-		} catch (error) {
-			console.error('Error signing out:', error)
-		} finally {
-			// Hard redirect forces a full page reload, clearing all React state
-			// and ensuring the next session starts completely fresh
-			window.location.href = '/login'
-		}
-	}
-
-	const refreshProfile = async () => {
+	const refreshProfile = useCallback(async () => {
 		const uid = userRef.current?.id
 		if (!uid) return
-		// The error was previously destructured away entirely — not even logged — so a
-		// failed refresh (RLS rejection, network drop) silently left stale profile data
-		// on screen with no trace anywhere (§5.3).
-		const { data, error } = await supabase
-			.from('profiles')
-			.select('*')
-			.eq('id', uid)
-			.single()
-		if (error) {
+		// Reuse getUserProfile so a refresh joins `coach` the same way initial load
+		// does — the raw `profiles` select this used to do dropped `profile.coach`
+		// entirely, silently blanking coach.team_id etc. after any refresh (§5.3).
+		let data: CoachProfile | null
+		try {
+			data = (await getUserProfile(uid)) as CoachProfile | null
+		} catch (error) {
 			console.error('[refreshProfile] Failed to reload profile:', error)
 			return
 		}
@@ -461,24 +459,29 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 				await logout()
 				return
 			}
-			setProfile(data as CoachProfile)
+			setProfile(data)
 		}
-	}
+	}, [logout])
 
-	const resetPassword = async (email: string) => {
+	const resetPassword = useCallback(async (email: string) => {
 		try {
 			const result = await supabaseResetPassword(email)
 			return result
-		} catch (error: any) {
+		} catch (error) {
 			console.error('Reset password exception:', error)
-			return { success: false, error: error.message || 'An error occurred during password reset' }
+			return { success: false, error: error instanceof Error ? error.message : 'An error occurred during password reset' }
 		}
-	}
+	}, [])
 
 	const isAuthenticated = !!user && !!profile && profile.role === 'coach'
 
+	const value = useMemo(
+		() => ({ isAuthenticated, user, profile, login, signup, resetPassword, logout, refreshProfile, loading }),
+		[isAuthenticated, user, profile, login, signup, resetPassword, logout, refreshProfile, loading]
+	)
+
 	return (
-		<AuthContext.Provider value={{ isAuthenticated, user, profile, login, signup, resetPassword, logout, refreshProfile, loading }}>
+		<AuthContext.Provider value={value}>
 			{children}
 		</AuthContext.Provider>
 	)

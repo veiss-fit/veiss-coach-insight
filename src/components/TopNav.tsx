@@ -1,6 +1,7 @@
 import { Link, NavLink } from "react-router-dom";
 import veissLogo from "@/assets/veiss-logo.png";
 import { ProfileMenu } from "./ProfileMenu";
+import { UnitsNavMenu } from "./pulse/UnitsNavMenu";
 
 const NAV_LINKS = [
   { label: "Athletes", to: "/", end: true },
@@ -30,6 +31,7 @@ export const TopNav = () => {
         <span className="v-meta mono nowrap" style={{ fontSize: 11.5 }}>
           {new Date().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
         </span>
+        <UnitsNavMenu />
         <ProfileMenu />
       </div>
     </header>

@@ -6,6 +6,9 @@ import { useMeasuredWidth } from "./charts";
 import { StatsDetailMenu } from "./StatsDetailMenu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { fmtShortDate } from "@/lib/format";
+import { convertVelocity, convertWeightLbs } from "@/lib/units";
+import { useUnits } from "@/contexts/UnitsContext";
+import type { UnitSystem } from "./UnitsSelector";
 
 const ACCENT = "var(--brand)";
 const HEIGHT = 220;
@@ -31,8 +34,12 @@ const TIP_BOX: React.CSSProperties = {
  * line, dark hover box) with two changes: a dot is one load (its fastest rep),
  * not one set, and the line needs only 2 loads. Dots are all the same shade.
  */
-function ProfileChart({ profile, est }: { profile: LoadVelocityProfile; est: OneRmEstimate | null }) {
+function ProfileChart({ profile, est, velSystem, weightSystem }: { profile: LoadVelocityProfile; est: OneRmEstimate | null; velSystem: UnitSystem; weightSystem: UnitSystem }) {
   const { ref, width: w } = useMeasuredWidth<HTMLDivElement>(600);
+  const velUnit = velSystem === "imperial" ? "ft/s" : "m/s";
+  const dv = (v: number) => convertVelocity(v, velSystem);
+  const weightUnit = weightSystem === "metric" ? "kg" : "lb";
+  const dw = (v: number) => convertWeightLbs(v, weightSystem);
   const [hover, setHover] = useState<number | null>(null);
   const [hoverEst, setHoverEst] = useState(false);
   const { points, fit } = profile;
@@ -77,14 +84,14 @@ function ProfileChart({ profile, est }: { profile: LoadVelocityProfile; est: One
         {yTicks.map((y) => (
           <g key={y}>
             <line x1={PL} x2={PL + cW} y1={toY(y)} y2={toY(y)} stroke="var(--line-0)" />
-            <text x={PL - 10} y={toY(y) + 3} textAnchor="end" fontSize="11.5" fontFamily="var(--font-mono)" fill="var(--ink-1)">{y.toFixed(2)}</text>
+            <text x={PL - 10} y={toY(y) + 3} textAnchor="end" fontSize="11.5" fontFamily="var(--font-mono)" fill="var(--ink-1)">{dv(y).toFixed(2)}</text>
           </g>
         ))}
         {xTicks.map((x) => (
-          <text key={x} x={toX(x)} y={HEIGHT - 19} textAnchor="middle" fontSize="11.5" fontFamily="var(--font-mono)" fill="var(--ink-1)">{x}</text>
+          <text key={x} x={toX(x)} y={HEIGHT - 19} textAnchor="middle" fontSize="11.5" fontFamily="var(--font-mono)" fill="var(--ink-1)">{Math.round(dw(x))}</text>
         ))}
-        <text x={14} y={PT + cH / 2} textAnchor="middle" fontSize="11.5" fontFamily="var(--font-mono)" fill="var(--ink-1)" transform={`rotate(-90, 14, ${PT + cH / 2})`}>velocity m/s</text>
-        <text x={PL + cW / 2} y={HEIGHT - 3} textAnchor="middle" fontSize="11.5" fontFamily="var(--font-mono)" fill="var(--ink-1)">load</text>
+        <text x={14} y={PT + cH / 2} textAnchor="middle" fontSize="11.5" fontFamily="var(--font-mono)" fill="var(--ink-1)" transform={`rotate(-90, 14, ${PT + cH / 2})`}>velocity {velUnit}</text>
+        <text x={PL + cW / 2} y={HEIGHT - 3} textAnchor="middle" fontSize="11.5" fontFamily="var(--font-mono)" fill="var(--ink-1)">load {weightUnit}</text>
 
         {linePath && <path d={linePath} stroke={ACCENT} strokeWidth="1.4" strokeDasharray="3 3" fill="none" opacity="0.5" />}
 
@@ -127,8 +134,8 @@ function ProfileChart({ profile, est }: { profile: LoadVelocityProfile; est: One
             top: Math.max(toY(estOk.mvt) - 60, 4),
           }}
         >
-          <div style={{ fontWeight: 600 }}>est. 1RM {Math.round(estOk.oneRm)}</div>
-          <div style={{ marginTop: 2, color: "rgba(255,255,255,0.65)", fontSize: 10 }}>at {estOk.mvt.toFixed(2)} m/s</div>
+          <div style={{ fontWeight: 600 }}>est. 1RM {Math.round(dw(estOk.oneRm))} {weightUnit}</div>
+          <div style={{ marginTop: 2, color: "rgba(255,255,255,0.65)", fontSize: 10 }}>at {dv(estOk.mvt).toFixed(2)} {velUnit}</div>
         </div>
       )}
 
@@ -140,9 +147,9 @@ function ProfileChart({ profile, est }: { profile: LoadVelocityProfile; est: One
             top: Math.max(toY(points[hover].best) - 40, 4),
           }}
         >
-          <div style={{ fontWeight: 600 }}>{points[hover].load} load</div>
+          <div style={{ fontWeight: 600 }}>{Math.round(dw(points[hover].load))} {weightUnit}</div>
           <div style={{ display: "flex", gap: 10, marginTop: 2 }}>
-            <span>{points[hover].best.toFixed(2)} m/s</span>
+            <span>{dv(points[hover].best).toFixed(2)} {velUnit}</span>
           </div>
           <div style={{ marginTop: 2, color: "rgba(255,255,255,0.65)", fontSize: 10 }}>
             latest {fmtShortDate(points[hover].latest)}
@@ -174,17 +181,21 @@ const PROFILE_INFO = (
   </>
 );
 
-function pillsFor(profile: LoadVelocityProfile, est: OneRmEstimate | null): string[] {
+function pillsFor(profile: LoadVelocityProfile, est: OneRmEstimate | null, velSystem: UnitSystem, weightSystem: UnitSystem): string[] {
   const { points, fit, span } = profile;
+  const velUnit = velSystem === "imperial" ? "ft/s" : "m/s";
+  const dv = (v: number) => convertVelocity(v, velSystem);
+  const weightUnit = weightSystem === "metric" ? "kg" : "lb";
+  const dw = (v: number) => convertWeightLbs(v, weightSystem);
   const out: string[] = [];
   if (est && est.ok === true) {
-    out.push(`estimated 1RM ${Math.round(est.oneRm)} · at ${est.mvt.toFixed(2)} m/s`);
-    if (est.beyondHeaviest > 0) out.push(`${Math.round(est.beyondHeaviest)} above heaviest load tested`);
+    out.push(`estimated 1RM ${Math.round(dw(est.oneRm))} ${weightUnit} · at ${dv(est.mvt).toFixed(2)} ${velUnit}`);
+    if (est.beyondHeaviest > 0) out.push(`${Math.round(dw(est.beyondHeaviest))} ${weightUnit} above heaviest load tested`);
   }
   if (fit) {
     out.push(points.length >= 3 ? `R² ${fit.r2.toFixed(2)}` : "R²: needs 3+ loads");
   }
-  if (span) out.push(`velocity span ${span.drop.toFixed(2)} m/s · load ${span.lightest} to ${span.heaviest}`);
+  if (span) out.push(`velocity span ${dv(span.drop).toFixed(2)} ${velUnit} · load ${Math.round(dw(span.lightest))} to ${Math.round(dw(span.heaviest))} ${weightUnit}`);
   return out;
 }
 
@@ -197,6 +208,7 @@ interface LoadVelocityProfileCardProps {
 
 /** SP-09: load-velocity profile with an exercise picker, like the Performance tab card. */
 export function LoadVelocityProfileCard({ sessions, today }: LoadVelocityProfileCardProps) {
+  const { prefs } = useUnits();
   const names = Object.keys(sessions);
   const [pick, setPick] = useState<string | null>(null);
   const exercise = pick && names.includes(pick) ? pick : names[0];
@@ -215,7 +227,7 @@ export function LoadVelocityProfileCard({ sessions, today }: LoadVelocityProfile
           <div className="v-meta" style={{ marginTop: 2 }}>Each dot is one load: its fastest rep, last {PROFILE_WINDOW_DAYS / 7} weeks.</div>
         </div>
         <div style={{ flexShrink: 0 }}>
-          <StatsDetailMenu pills={pillsFor(profile, est)} info={PROFILE_INFO} infoLabel="About the load-velocity profile" idPrefix="lvp" />
+          <StatsDetailMenu pills={pillsFor(profile, est, prefs.velocity, prefs.weight)} info={PROFILE_INFO} infoLabel="About the load-velocity profile" idPrefix="lvp" />
         </div>
       </div>
       {(names.length > 1 || upper) && (
@@ -251,7 +263,7 @@ export function LoadVelocityProfileCard({ sessions, today }: LoadVelocityProfile
           )}
         </div>
       )}
-      <ProfileChart profile={profile} est={est} />
+      <ProfileChart profile={profile} est={est} velSystem={prefs.velocity} weightSystem={prefs.weight} />
       {exercise && !upper && (
         <div className="v-meta" style={{ marginTop: 8 }}>1RM is not estimated for this exercise (upper-body lifts only).</div>
       )}

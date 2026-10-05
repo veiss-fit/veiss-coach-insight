@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { format, startOfDay } from 'date-fns'
 import { Plus, Trash2, Send, X, Check, Copy, Dumbbell, Pencil } from 'lucide-react'
@@ -8,10 +8,9 @@ import { Validators } from '@/lib/validators'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTemplates, WorkoutTemplate, WorkoutExercise as TemplateExercise } from '@/contexts/TemplatesContext'
 import { getPlayersWithStatsByCoach, PlayerWithStats } from '@/services/playersService'
-import { sendWorkoutPlan } from '@/services/workoutPlansService'
+import { sendWorkoutPlan, modifyWorkoutPlans, getPlansByIds, type EditablePlan } from '@/services/workoutPlansService'
 import { zoneOf } from '@/lib/vbtZones'
 import { LoadingOverlay } from '@/components/ui/LoadingOverlay'
-import { TopNav } from '@/components/TopNav'
 import { PageHeader } from '@/components/pulse/PageHeader'
 import { LoadError } from '@/components/pulse/LoadError'
 import { Avatar } from '@/components/pulse/Avatar'
@@ -90,6 +89,43 @@ const fromTemplateExercise = (ex: TemplateExercise): BuilderExercise => {
     customized: false,
   }
 }
+
+/** An exercise as `sendWorkoutPlan` stored it on a plan: flat sets/reps/velocity plus the per-set breakdown. */
+interface StoredExercise {
+  name?: string
+  weight?: number
+  weightUnit?: 'lbs' | 'kg'
+  sets?: number
+  reps?: number
+  targetVelocity?: number
+  perSet?: Array<{ reps?: number; targetVelocity?: number | null }>
+}
+
+/** Rebuild a builder exercise from a stored plan, keeping every number as stored so an unedited plan compares equal. */
+const fromPlanExercise = (ex: StoredExercise): BuilderExercise => {
+  const perSet: SetSpec[] =
+    ex.perSet && ex.perSet.length > 0
+      ? ex.perSet.map(s => ({ reps: s.reps ?? 5, targetVelocity: s.targetVelocity ?? null }))
+      : makeUniformSets(ex.sets ?? 3, { reps: ex.reps ?? 5, targetVelocity: ex.targetVelocity ?? null })
+  const varies = perSet.some(s => s.reps !== perSet[0].reps || s.targetVelocity !== perSet[0].targetVelocity)
+  return {
+    id: crypto.randomUUID(),
+    name: ex.name ?? '',
+    perSet,
+    weight: ex.weight ?? 0,
+    weightUnit: ex.weightUnit ?? 'lbs',
+    customized: varies,
+  }
+}
+
+/** Builder exercises in the shape the plan service takes (a missing target velocity is stored as 0). */
+const toPlanExercises = (exercises: BuilderExercise[]) =>
+  exercises.map(ex => ({
+    name: ex.name,
+    weight: ex.weight,
+    weightUnit: ex.weightUnit,
+    perSet: ex.perSet.map(s => ({ reps: s.reps, targetVelocity: s.targetVelocity ?? 0 })),
+  }))
 
 // ─── Exercise editor card (builder) ──────────────────────────────────────────
 
@@ -823,7 +859,7 @@ function TemplatesTab({ onUse }: TemplatesTabProps) {
 
 const SendProgramming = () => {
   const navigate = useNavigate()
-  const { user } = useAuth()
+  const { user, profile } = useAuth()
   const { templates } = useTemplates()
   const [searchParams, setSearchParams] = useSearchParams()
   const tabParam = searchParams.get('tab')
@@ -850,20 +886,12 @@ const SendProgramming = () => {
     try {
       setLoading(true)
       setLoadError(null)
-      // Client generics collapse to `never` on filtered queries (pre-existing) — cast per codebase convention.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: coachRow } = await (supabase as any)
-        .from('coaches')
-        .select('id')
-        .eq('user_id', user.id)
-        .maybeSingle() as { data: { id: string } | null }
+      setCoachDbId(profile?.coach_id ?? null)
 
-      setCoachDbId(coachRow?.id ?? null)
-
-      const groupQuery = coachRow?.id
+      const groupQuery = profile?.coach_id
         ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (supabase as any).from('groups').select('id, name').eq('coach_id', coachRow.id).order('name', { ascending: true })
-        : supabase.from('groups').select('id, name').order('name', { ascending: true })
+          (supabase as any).from('groups').select('id, name').eq('coach_id', profile.coach_id).order('name', { ascending: true })
+        : Promise.resolve({ data: [] })
 
       const [players, groupsResult] = await Promise.all([
         getPlayersWithStatsByCoach(user.id),
@@ -879,11 +907,78 @@ const SendProgramming = () => {
     } finally {
       setLoading(false)
     }
-  }, [user?.id])
+  }, [user?.id, profile?.coach_id])
 
   useEffect(() => {
     loadData()
   }, [loadData])
+
+  // ── Modify mode ──────────────────────────────────────────────────────────
+  // `?edit=<plan ids>&mode=batch|single` turns the builder into an editor for plans already sent.
+
+  const editParam = searchParams.get('edit')
+  const editSingle = searchParams.get('mode') === 'single'
+  const editIds = useMemo(() => (editParam ? editParam.split(',').filter(Boolean) : []), [editParam])
+  const editing = editIds.length > 0
+  const [editPlans, setEditPlans] = useState<EditablePlan[]>([])
+  const [editLoading, setEditLoading] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
+  /** The name and exercises the editor opened with: a save writes only what differs from this. */
+  const [editBaseline, setEditBaseline] = useState<{ workoutName: string; exercises: ReturnType<typeof toPlanExercises> } | null>(null)
+
+  const todayKey = toKey(new Date())
+  const editUpcoming = useMemo(() => editPlans.filter(p => p.date >= todayKey), [editPlans, todayKey])
+  const editBlockedBy = editUpcoming.filter(p => p.is_completed || p.session_id)
+  const editHasToday = editUpcoming.some(p => p.date === todayKey)
+
+  const applyEditPlans = useCallback((plans: EditablePlan[]) => {
+    const upcoming = plans.filter(p => p.date >= toKey(new Date()))
+    if (upcoming.length === 0) return
+    const first = upcoming[0]
+    setWorkoutName(first.title ?? '')
+    setSelectedDates(Array.from(new Set(upcoming.map(p => p.date))).map(d => startOfDay(new Date(d + 'T12:00:00'))))
+    setSelectedAthletes(Array.from(new Set(upcoming.map(p => p.player_id))))
+    setSelectedTemplateIds([])
+    const loaded = Array.isArray(first.exercises) ? (first.exercises as StoredExercise[]).map(fromPlanExercise) : []
+    setExercises(loaded)
+    setEditBaseline({ workoutName: first.title ?? '', exercises: toPlanExercises(loaded) })
+  }, [])
+
+  useEffect(() => {
+    if (!editing || !user?.id || !profile) return
+    let cancelled = false
+    setEditLoading(true)
+    setEditError(null)
+    getPlansByIds(editIds, profile.coach_id ?? null)
+      .then(plans => {
+        if (cancelled) return
+        setEditPlans(plans)
+        if (!plans.some(p => p.date >= toKey(new Date()))) {
+          setEditError("These workouts can't be changed any more: they are in the past or no longer exist.")
+        } else {
+          applyEditPlans(plans)
+        }
+      })
+      .catch(err => {
+        if (!cancelled) setEditError(err instanceof Error ? err.message : 'Could not load these workouts')
+      })
+      .finally(() => {
+        if (!cancelled) setEditLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [editing, editIds, user?.id, profile, applyEditPlans])
+
+  // Leaving modify mode (another tab, the back button) must not leave the old workout sitting in the new-programming form.
+  const wasEditing = useRef(false)
+  useEffect(() => {
+    if (wasEditing.current && !editing) {
+      setEditPlans([])
+      setEditBaseline(null)
+      setEditError(null)
+      resetBuilder()
+    }
+    wasEditing.current = editing
+  }, [editing])
 
   // ── Templates in builder ─────────────────────────────────────────────────
 
@@ -922,11 +1017,12 @@ const SendProgramming = () => {
 
   // ── Send ─────────────────────────────────────────────────────────────────
 
-  const handleSend = async () => {
+  /** Toasts the first problem and returns false, or true when the builder holds a sendable workout. */
+  const validateBuilder = (): boolean => {
     const nameError = Validators.workoutName(workoutName)
-    if (nameError) { toast.error(nameError); return }
-    if (selectedDates.length === 0) { toast.error('Select at least one date'); return }
-    if (selectedAthletes.length === 0) { toast.error('Select at least one athlete'); return }
+    if (nameError) { toast.error(nameError); return false }
+    if (selectedDates.length === 0) { toast.error('Select at least one date'); return false }
+    if (selectedAthletes.length === 0) { toast.error('Select at least one athlete'); return false }
 
     for (let i = 0; i < exercises.length; i++) {
       const ex = exercises[i]
@@ -934,25 +1030,72 @@ const SendProgramming = () => {
         Validators.exerciseName(ex.name) ||
         Validators.workoutSets(ex.perSet.length) ||
         Validators.workoutWeight(ex.weight)
-      if (err) { toast.error(`Exercise ${i + 1}: ${err}`); return }
+      if (err) { toast.error(`Exercise ${i + 1}: ${err}`); return false }
       for (let s = 0; s < ex.perSet.length; s++) {
         const repsErr = Validators.workoutReps(ex.perSet[s].reps)
-        if (repsErr) { toast.error(`Exercise ${i + 1}, Set ${s + 1}: ${repsErr}`); return }
+        if (repsErr) { toast.error(`Exercise ${i + 1}, Set ${s + 1}: ${repsErr}`); return false }
       }
     }
+    return true
+  }
+
+  const buildPlanData = () => ({
+    workoutName,
+    exercises: toPlanExercises(exercises),
+    notes: 'Assigned by Coach',
+  })
+
+  /** Back to where Modify was opened: the athlete's page for one plan, the History tab for a batch. */
+  const leaveEdit = () => {
+    if (editSingle) navigate(-1)
+    else navigate('/send-programming?tab=history')
+  }
+
+  /** Save the edited workouts: update in place, cancel what was removed, add what is new, tell the athletes. */
+  const handleModify = async () => {
+    if (!validateBuilder() || !user?.id || !editBaseline) return
+    try {
+      setSending(true)
+      const result = await modifyWorkoutPlans({
+        baseline: editBaseline,
+        planIds: editIds,
+        mode: editSingle ? 'single' : 'batch',
+        coachId: profile?.coach_id ?? null,
+        senderUserId: user.id,
+        playerIds: selectedAthletes,
+        dates: selectedDates,
+        planData: buildPlanData(),
+      })
+      if (!result.success) {
+        toast.error(result.error ?? "Couldn't save the changes")
+        return
+      }
+      const parts = [
+        result.updated > 0 ? `${result.updated} updated` : null,
+        result.added > 0 ? `${result.added} added` : null,
+        result.removed > 0 ? `${result.removed} removed` : null,
+      ].filter(Boolean)
+      if (parts.length === 0 && !result.warning) {
+        toast('Nothing changed, so nothing was saved.')
+        return
+      }
+      if (parts.length > 0) toast.success(`Saved: ${parts.join(', ')}. Athletes were notified.`)
+      if (result.warning) toast.warning(result.warning, { duration: 10000 })
+      leaveEdit()
+    } catch (err) {
+      console.error('[Modify programming] Unexpected failure:', err)
+      toast.error('An error occurred while saving the changes')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  const handleSend = async () => {
+    if (!validateBuilder()) return
 
     try {
       setSending(true)
-      const planData = {
-        workoutName,
-        exercises: exercises.map(ex => ({
-          name: ex.name,
-          weight: ex.weight,
-          weightUnit: ex.weightUnit,
-          perSet: ex.perSet.map(s => ({ reps: s.reps, targetVelocity: s.targetVelocity ?? 0 })),
-        })),
-        notes: 'Assigned by Coach',
-      }
+      const planData = buildPlanData()
 
       // One insert covering every athlete x date, and one push per athlete
       // (not per date) — sendWorkoutPlan takes the whole date list at once, so
@@ -992,14 +1135,20 @@ const SendProgramming = () => {
   // ─────────────────────────────────────────────────────────────────────────
 
   return (
-    <div className="v-app">
-      <TopNav />
-      <LoadingOverlay isLoading={sending} fullScreen message="Sending programming..." />
+    <>
+      <LoadingOverlay isLoading={sending} fullScreen message={editing ? 'Saving changes...' : 'Sending programming...'} />
+      <LoadingOverlay isLoading={editLoading} fullScreen message="Loading workouts..." />
 
       <main style={{ padding: '20px 28px 0', maxWidth: 1320, margin: '0 auto', width: '100%', flex: 1, display: 'flex', flexDirection: 'column' }}>
         <PageHeader
-          title="Programming"
-          subtitle="Assign velocity-based workouts to athletes across one or more dates."
+          title={editing && tab === 'build' ? 'Modify programming' : 'Programming'}
+          subtitle={
+            editing && tab === 'build'
+              ? editSingle
+                ? "Change this athlete's workout. They'll be told what changed."
+                : 'Change this batch of workouts. Every affected athlete will be told what changed.'
+              : 'Assign velocity-based workouts to athletes across one or more dates.'
+          }
           actions={
             <div className="row" style={{ gap: 4, background: 'var(--surface-sunk)', padding: 3, borderRadius: 9 }}>
               {([['build', 'New programming'], ['templates', 'Templates'], ['history', 'History']] as const).map(([id, label]) => (
@@ -1037,8 +1186,34 @@ const SendProgramming = () => {
             <TemplatesTab onUse={useTemplate} />
           ) : tab === 'history' ? (
             <HistoryPanel />
+          ) : editing && editError ? (
+            <div className="v-card padded" style={{ textAlign: 'center', padding: '36px 16px' }}>
+              <div style={{ fontSize: 13, color: 'var(--ink-2)', marginBottom: 14 }}>{editError}</div>
+              <button className="v-btn" onClick={() => navigate('/send-programming?tab=history')}>Back to history</button>
+            </div>
           ) : (
             <>
+              {editing && !editLoading && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+                  {editBlockedBy.length > 0 && (
+                    <div className="v-card padded" style={{ borderColor: 'var(--bad)', fontSize: 12.5 }}>
+                      {`Can't modify: ${Array.from(new Set(editBlockedBy.map(p => p.playerName ?? 'an athlete'))).slice(0, 3).join(', ')}${
+                        new Set(editBlockedBy.map(p => p.player_id)).size > 3 ? ' and others' : ''
+                      } already did ${editBlockedBy.length === 1 ? 'this workout' : 'part of it'}. A workout an athlete has done can't be changed.`}
+                    </div>
+                  )}
+                  {editHasToday && editBlockedBy.length === 0 && (
+                    <div className="v-card padded" style={{ fontSize: 12.5 }}>
+                      Some of these workouts are today. Athletes may already be training: a workout they are part-way through keeps the old version, and their result will be saved against the updated one.
+                    </div>
+                  )}
+                  {editPlans.length > editUpcoming.length && (
+                    <div className="v-meta" style={{ fontSize: 11.5 }}>
+                      {editPlans.length - editUpcoming.length} earlier workout{editPlans.length - editUpcoming.length !== 1 ? 's' : ''} in this batch stay as they are. Only workouts scheduled today or later can change.
+                    </div>
+                  )}
+                </div>
+              )}
               <div style={{ display: 'grid', gridTemplateColumns: '380px 1fr', gap: 32, alignItems: 'start' }}>
                 {/* Left: name + calendar */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -1069,7 +1244,17 @@ const SendProgramming = () => {
                       Click to toggle · hold &amp; drag to select a span.
                     </div>
                     <div className="v-card padded">
-                      <DragCalendar selected={selectedDates} onSelect={setSelectedDates} />
+                      <DragCalendar
+                        selected={selectedDates}
+                        onSelect={next =>
+                          // One athlete's workout has one date: picking another day moves it.
+                          setSelectedDates(
+                            editing && editSingle && next.length > 1
+                              ? [next.find(d => !selectedDates.some(p => toKey(p) === toKey(d))) ?? next[next.length - 1]]
+                              : next
+                          )
+                        }
+                      />
                     </div>
                     {sortedDates.length > 0 && (
                       <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 12 }}>
@@ -1153,16 +1338,23 @@ const SendProgramming = () => {
                     )}
                   </div>
 
-                  <AthletePicker
-                    athletes={athletes}
-                    groupsList={groupsList}
-                    selected={selectedAthletes}
-                    filterGroup={filterGroup}
-                    setFilterGroup={setFilterGroup}
-                    onToggle={id => setSelectedAthletes(p => (p.includes(id) ? p.filter(x => x !== id) : [...p, id]))}
-                    onBulk={setSelectedAthletes}
-                    loading={loading}
-                  />
+                  {editing && editSingle ? (
+                    <div className="v-card padded">
+                      <div className="v-label" style={{ marginBottom: 6 }}>Athlete</div>
+                      <div style={{ fontSize: 13.5 }}>{editPlans[0]?.playerName ?? 'Athlete'}</div>
+                    </div>
+                  ) : (
+                    <AthletePicker
+                      athletes={athletes}
+                      groupsList={groupsList}
+                      selected={selectedAthletes}
+                      filterGroup={filterGroup}
+                      setFilterGroup={setFilterGroup}
+                      onToggle={id => setSelectedAthletes(p => (p.includes(id) ? p.filter(x => x !== id) : [...p, id]))}
+                      onBulk={setSelectedAthletes}
+                      loading={loading}
+                    />
+                  )}
                 </div>
               </div>
 
@@ -1187,11 +1379,28 @@ const SendProgramming = () => {
                   {selectedAthletes.length} athlete{selectedAthletes.length !== 1 ? 's' : ''} · {selectedDates.length} date{selectedDates.length !== 1 ? 's' : ''} · {exercises.length} exercise{exercises.length !== 1 ? 's' : ''}
                 </div>
                 <div className="row" style={{ gap: 8, marginLeft: 'auto' }}>
-                  <button className="v-btn ghost" onClick={resetBuilder} disabled={sending}>Reset</button>
-                  <button className="v-btn brand" onClick={handleSend} disabled={sending}>
-                    <Send size={12} strokeWidth={1.5} />
-                    {sending ? 'Sending…' : 'Send programming'}
-                  </button>
+                  {editing ? (
+                    <>
+                      <button className="v-btn ghost" onClick={leaveEdit} disabled={sending}>Stop editing</button>
+                      <button className="v-btn ghost" onClick={() => applyEditPlans(editPlans)} disabled={sending || editLoading}>Reset</button>
+                      <button
+                        className="v-btn brand"
+                        onClick={handleModify}
+                        disabled={sending || editLoading || editBlockedBy.length > 0}
+                      >
+                        <Check size={12} strokeWidth={1.5} />
+                        {sending ? 'Saving…' : 'Save changes'}
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button className="v-btn ghost" onClick={resetBuilder} disabled={sending}>Reset</button>
+                      <button className="v-btn brand" onClick={handleSend} disabled={sending}>
+                        <Send size={12} strokeWidth={1.5} />
+                        {sending ? 'Sending…' : 'Send programming'}
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             </>
@@ -1202,7 +1411,7 @@ const SendProgramming = () => {
       <footer style={{ padding: '16px 28px', textAlign: 'center' }} className="v-meta">
         © {new Date().getFullYear()} Veiss. All rights reserved.
       </footer>
-    </div>
+    </>
   )
 }
 

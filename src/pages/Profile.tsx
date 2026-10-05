@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { TopNav } from "@/components/TopNav";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -79,8 +78,10 @@ const Profile = () => {
     if (!user?.id) { toast.error("Not authenticated"); return; }
 
     try {
-      const { error: profileError } = await (supabase as any)
+      const { error: profileError } = await supabase
         .from('profiles')
+        // @ts-expect-error pre-existing query-builder typing quirk (Database type
+        // missing Views/Functions collapses update() to `never` for this table)
         .update({
           full_name: name,
         })
@@ -93,8 +94,9 @@ const Profile = () => {
       }
 
       // Sync name to coaches table (non-fatal)
-      const { error: coachError } = await (supabase as any)
+      const { error: coachError } = await supabase
         .from('coaches')
+        // @ts-expect-error same pre-existing query-builder typing quirk as above
         .update({ full_name: name })
         .eq('user_id', user.id);
 
@@ -120,9 +122,9 @@ const Profile = () => {
         console.error('Profile saved, but refreshing it in the app failed:', refreshError);
       }
 
-    } catch (err: any) {
+    } catch (err) {
       console.error('Profile update error:', err);
-      toast.error(err?.message || "Failed to update profile");
+      toast.error(err instanceof Error ? err.message : "Failed to update profile");
     }
   };
 
@@ -248,7 +250,15 @@ const Profile = () => {
     const confirmError = Validators.passwordConfirm(newPassword, confirmPassword);
     if (confirmError) { toast.error(confirmError); return; }
 
+    if (!user?.email) { toast.error("Missing account email"); return; }
+
     try {
+      const { error: verifyError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: currentPassword,
+      });
+      if (verifyError) { toast.error("Current password is incorrect"); return; }
+
       const { error } = await supabase.auth.updateUser({ password: newPassword });
       if (error) { toast.error(error.message || "Failed to change password"); return; }
       toast.success("Password changed successfully");
@@ -262,9 +272,7 @@ const Profile = () => {
   const initials = getInitials(formData.fullName);
 
   return (
-    <div className="v-app">
-      <TopNav />
-
+    <>
       <div style={{ padding: "20px 28px 40px", maxWidth: 1060, margin: "0 auto", width: "100%" }} className="space-y-6">
         <div className="flex items-end justify-between" style={{ paddingBottom: 4 }}>
           <div>
@@ -471,7 +479,7 @@ const Profile = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 };
 

@@ -77,11 +77,16 @@ export const sendMessage = async (
       return { success: false, count: 0, error: 'Failed to find player user accounts' };
     }
 
-    if (!profiles || profiles.length === 0) {
+    // Cast before narrowing: TS's postgrest-js query-builder generics collapse
+    // `profiles` to `never` here once combined with the `.length === 0` check
+    // (pre-existing quirk from `Database` missing Views/Functions — see B3 notes),
+    // even though the runtime value is a plain `{id: string}[] | null`.
+    const profileRows = (profiles ?? []) as { id: string }[];
+    if (profileRows.length === 0) {
       return { success: false, count: 0, error: 'No valid player accounts found' };
     }
 
-    const receiverUserIds = profiles.map(p => p.id);
+    const receiverUserIds = profileRows.map(p => p.id);
 
     // Create message records for each recipient
     // Note: type is not stored in DB (the mobile app derives it from content)
@@ -99,6 +104,8 @@ export const sendMessage = async (
 
     const { data, error } = await supabase
       .from('messages')
+      // @ts-expect-error pre-existing query-builder typing quirk (see profileRows
+      // above) — insert() resolves to `never` for this table regardless of payload shape.
       .insert(messages)
       .select();
 
@@ -154,6 +161,7 @@ export const deliverScheduledMessages = async (senderId: string): Promise<number
     const ids = pending.map(m => m.id);
     await supabase
       .from('messages')
+      // @ts-expect-error pre-existing query-builder typing quirk (see profileRows above)
       .update({ is_delivered: true })
       .in('id', ids);
 
@@ -176,231 +184,27 @@ export const deliverScheduledMessages = async (senderId: string): Promise<number
 };
 
 /**
- * Get messages sent by a coach
- */
-export const getCoachMessages = async (
-  senderId: string,
-  limit: number = 50
-): Promise<Message[]> => {
-  try {
-    const { data, error } = await supabase
-      .from('messages')
-      .select('*, profiles!messages_receiver_id_fkey(full_name)')
-      .eq('sender_id', senderId)
-      .order('created_at', { ascending: false })
-      .limit(limit);
-
-    if (error) {
-      console.error('Error fetching coach messages:', error);
-      throw error;
-    }
-
-    return data || [];
-  } catch (error) {
-    console.error('Error in getCoachMessages:', error);
-    throw error;
-  }
-};
-
-/**
- * Get messages for a player (for mobile app)
- */
-export const getPlayerMessages = async (
-  recipientId: string,
-  includeArchived: boolean = false
-): Promise<Message[]> => {
-  try {
-    let query = supabase
-      .from('messages')
-      .select('*, profiles!messages_sender_id_fkey(full_name)')
-      .eq('receiver_id', recipientId) // Use receiver_id (not recipient_id)
-      .order('created_at', { ascending: false });
-
-    if (!includeArchived) {
-      query = query.eq('is_archived', false);
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
-      console.error('Error fetching player messages:', error);
-      throw error;
-    }
-
-    return data || [];
-  } catch (error) {
-    console.error('Error in getPlayerMessages:', error);
-    throw error;
-  }
-};
-
-/**
- * Mark message as read
- */
-export const markMessageAsRead = async (messageId: string): Promise<boolean> => {
-  try {
-    const { error } = await supabase
-      .from('messages')
-      .update({ is_read: true })
-      .eq('id', messageId);
-
-    if (error) {
-      console.error('Error marking message as read:', error);
-      return false;
-    }
-
-    return true;
-  } catch (error) {
-    console.error('Error in markMessageAsRead:', error);
-    return false;
-  }
-};
-
-/**
- * Archive a message
- */
-export const archiveMessage = async (messageId: string): Promise<boolean> => {
-  try {
-    const { error } = await supabase
-      .from('messages')
-      .update({ is_archived: true, is_read: true })
-      .eq('id', messageId);
-
-    if (error) {
-      console.error('Error archiving message:', error);
-      return false;
-    }
-
-    return true;
-  } catch (error) {
-    console.error('Error in archiveMessage:', error);
-    return false;
-  }
-};
-
-/**
- * Delete a message
- */
-export const deleteMessage = async (messageId: string): Promise<boolean> => {
-  try {
-    const { error } = await supabase
-      .from('messages')
-      .delete()
-      .eq('id', messageId);
-
-    if (error) {
-      console.error('Error deleting message:', error);
-      return false;
-    }
-
-    return true;
-  } catch (error) {
-    console.error('Error in deleteMessage:', error);
-    return false;
-  }
-};
-
-/**
- * Get unread message count for a player
- */
-export const getUnreadMessageCount = async (recipientId: string): Promise<number> => {
-  try {
-    const { count, error } = await supabase
-      .from('messages')
-      .select('*', { count: 'exact', head: true })
-      .eq('receiver_id', recipientId) // Use receiver_id (not recipient_id)
-      .eq('is_read', false)
-      .eq('is_archived', false);
-
-    if (error) {
-      console.error('Error getting unread count:', error);
-      return 0;
-    }
-
-    return count || 0;
-  } catch (error) {
-    console.error('Error in getUnreadMessageCount:', error);
-    return 0;
-  }
-};
-
-/**
- * Get message by ID
- */
-export const getMessageById = async (messageId: string): Promise<Message | null> => {
-  try {
-    const { data, error } = await supabase
-      .from('messages')
-      .select('*, profiles!messages_sender_id_fkey(full_name), profiles!messages_receiver_id_fkey(full_name)')
-      .eq('id', messageId)
-      .single();
-
-    if (error) {
-      console.error('Error fetching message:', error);
-      return null;
-    }
-
-    return data;
-  } catch (error) {
-    console.error('Error in getMessageById:', error);
-    return null;
-  }
-};
-
-/**
- * Get message statistics for a coach
- */
-export const getCoachMessageStats = async (
-  senderId: string
-): Promise<{ total: number; unread: number; urgent: number }> => {
-  try {
-    // Total messages sent
-    const { count: total } = await supabase
-      .from('messages')
-      .select('*', { count: 'exact', head: true })
-      .eq('sender_id', senderId);
-
-    // Unread messages (from recipients' perspective)
-    const { count: unread } = await supabase
-      .from('messages')
-      .select('*', { count: 'exact', head: true })
-      .eq('sender_id', senderId)
-      .eq('is_read', false);
-
-    const { count: urgent } = await supabase
-      .from('messages')
-      .select('*', { count: 'exact', head: true })
-      .eq('sender_id', senderId)
-      .eq('priority', 'urgent');
-
-    return {
-      total: total || 0,
-      unread: unread || 0,
-      urgent: urgent || 0,
-    };
-  } catch (error) {
-    console.error('Error in getCoachMessageStats:', error);
-    return { total: 0, unread: 0, urgent: 0 };
-  }
-};
-
-/**
  * Get aggregated message history for the History page, scoped to messages sent by this coach.
  * Filters by sender_id = coach's auth user ID — messages are always sent as the coach's user.
  */
 export const getCoachMessageHistory = async (userId: string) => {
   try {
-    const { data: messages } = await supabase
+    const { data: messages, error } = await supabase
       .from('messages')
       .select('*')
       .eq('sender_id', userId)
       .order('created_at', { ascending: false });
 
+    if (error) throw error;
     if (!messages) return [];
+
+    // Same pre-existing query-builder typing quirk (see sendMessage above) —
+    // select('*') resolves rows to `never` for this table.
+    const rows = messages as Message[];
 
     // Group by subject + calendar date so bulk announcements appear as one row
     const batchMap = new Map<string, any>();
-    messages.forEach((msg) => {
+    rows.forEach((msg) => {
       const key = `${msg.subject}-${msg.created_at?.slice(0, 10)}`;
       if (!batchMap.has(key)) {
         batchMap.set(key, {
@@ -420,6 +224,6 @@ export const getCoachMessageHistory = async (userId: string) => {
     return Array.from(batchMap.values());
   } catch (error) {
     console.error('Error fetching message history:', error);
-    return [];
+    throw error;
   }
 };
